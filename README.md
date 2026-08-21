@@ -14,10 +14,10 @@ LIBERO is a resource source, not the research runtime or algorithmic benchmark:
 
 ## Current status
 
-G0 runtime foundation is implemented and certified. The pinned Python 3.10 / RoboSuite 1.5.2 /
-MuJoCo 3.3.3 environment, validated 2 ms / 20 ms config, resource provenance contract, and real
-headless Panda smoke `g0_runtime_v4` are complete. No synchronized step loop, Adjust Bottle task,
-dataset, SFT checkpoint, or algorithm result exists yet.
+G0 runtime foundation and G1 synchronous timing are implemented and certified. The pinned Python
+3.10 / RoboSuite 1.5.2 / MuJoCo 3.3.3 environment, validated 2 ms / 20 ms contract, project-owned
+split-step loop, direct boundary snapshots, and real Panda timing calibration are complete. No
+Adjust Bottle task, dataset, SFT checkpoint, or algorithm result exists yet.
 
 The approved project boundary is:
 
