@@ -1,0 +1,14 @@
+schema_version: 1
+profile_id: dynamic_grasp_lift_l1
+level: 1
+center_bounds_xy: [-0.20, 0.25, -0.28, 0.28]
+anchor_position_xy: [0.08, 0.0]
+anchor_time_us: 3000000
+min_speed_mps: 0.035
+max_speed_mps: 0.10
+max_continuous_acceleration_mps2: 0.40
+curve_offset_max_m: 0.08
+segment_count_range: [2, 3]
+min_segment_duration_us: 600000
+velocity_jump_range_mps: [0.02, 0.10]
+max_retries: 1000

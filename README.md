@@ -2,7 +2,7 @@
 
 This repository is an independent simulation backend for studying asynchronous VLA inference
 under latency. It uses MuJoCo and RoboSuite with a single-arm Panda/Franka embodiment and builds an
-`adjust_bottle`-equivalent L0–L3 task family.
+`dynamic_grasp_lift` L0–L3 moving-ball task family.
 
 LIBERO is a resource source, not the research runtime or algorithmic benchmark:
 
@@ -17,7 +17,7 @@ LIBERO is a resource source, not the research runtime or algorithmic benchmark:
 G0 runtime foundation and G1 synchronous timing are implemented and certified. The pinned Python
 3.10 / RoboSuite 1.5.2 / MuJoCo 3.3.3 environment, validated 2 ms / 20 ms contract, project-owned
 split-step loop, direct boundary snapshots, and real Panda timing calibration are complete. No
-Adjust Bottle task, dataset, SFT checkpoint, or algorithm result exists yet.
+L0–L3 motion certification, dataset, SFT checkpoint, or algorithm result exists yet.
 
 The approved project boundary is:
 
@@ -25,7 +25,7 @@ The approved project boundary is:
 MuJoCo physics
   -> RoboSuite-native environment and Panda/Franka controller
   -> project-owned multi-rate temporal contract
-  -> project-owned Adjust Bottle L0–L3 task family
+  -> project-owned Dynamic Grasp Lift L0–L3 task family
   -> optional, audited LIBERO resources
   -> synchronized data and latency harness
   -> VLA baseline, then belief/action/meta-policy research

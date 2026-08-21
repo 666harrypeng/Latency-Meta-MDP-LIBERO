@@ -174,6 +174,9 @@ def _make_environment_class() -> type[Any]:
             self.table_full_size = spec.table_full_size
             self.table_friction = (1.0, 5e-3, 1e-4)
             self.table_offset = np.asarray(spec.table_offset)
+            self.motion_deadline_us: int | None = None
+            self.task_failure = False
+            self.terminal_reason: str | None = None
             super().__init__(
                 robots="Panda",
                 controller_configs=controller,
@@ -254,6 +257,9 @@ def _make_environment_class() -> type[Any]:
 
         def _reset_internal(self) -> None:
             super()._reset_internal()
+            self.motion_deadline_us = None
+            self.task_failure = False
+            self.terminal_reason = None
             qpos = np.concatenate(
                 [np.asarray(self.task_spec.ball_initial_position), np.array([1.0, 0.0, 0.0, 0.0])]
             )
@@ -279,9 +285,22 @@ def _make_environment_class() -> type[Any]:
             measurements = self.goal_measurements()
             return (
                 measurements.current_two_pad_grasp
-                and measurements.lift_height_m + 1e-12
-                >= self.task_spec.lift_success_height_m
+                and measurements.lift_height_m + 1e-12 >= self.task_spec.lift_success_height_m
             )
+
+        def mark_motion_deadline(self, time_us: int) -> None:
+            if self.motion_deadline_us is None:
+                self.motion_deadline_us = time_us
+
+        def evaluate_boundary_terminal(self, time_us: int) -> None:
+            if (
+                self.motion_deadline_us is not None
+                and time_us >= self.motion_deadline_us
+                and not self.current_grasp()
+            ):
+                self.task_failure = True
+                self.terminal_reason = "motion_deadline_ungrasped"
+                self.done = True
 
         def _check_success(self) -> bool:
             return self.backend_goal_reached()

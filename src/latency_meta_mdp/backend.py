@@ -57,6 +57,8 @@ class FormalStepExecutor:
             raise RuntimeError("formal executor is faulted")
         if not self.initialized:
             raise RuntimeError("formal executor is not initialized")
+        if getattr(self.plant, "formal_terminal", False):
+            raise RuntimeError("formal plant is terminal")
         if not self._boundary_prepared:
             raise RuntimeError("formal boundary is not prepared")
 
@@ -125,6 +127,10 @@ class RoboSuitePlant:
     def sim_time_seconds(self) -> float:
         return float(self._env.sim.data.time)
 
+    @property
+    def formal_terminal(self) -> bool:
+        return bool(self._env.done)
+
     def write_world_at(self, current_time_us: int) -> None:
         if self._world_writer is None:
             self._commanded_world = {}
@@ -143,6 +149,9 @@ class RoboSuitePlant:
             ledger=ledger,
             commanded_world=self._commanded_world,
         )
+        evaluate_terminal = getattr(self._env, "evaluate_boundary_terminal", None)
+        if callable(evaluate_terminal):
+            evaluate_terminal(ledger.time_us)
         self.boundary_count += 1
         return snapshot
 

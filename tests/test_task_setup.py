@@ -46,9 +46,7 @@ def test_task_spec_is_explicit_and_uses_two_policy_cameras() -> None:
         spec.agentview_quaternion_wxyz, _LIBERO_AGENTVIEW_QUAT, atol=0, rtol=0
     )
     assert spec.agentview_fovy_degrees == 45.0
-    np.testing.assert_allclose(
-        spec.agentview_position, camera_resource["position"], atol=0, rtol=0
-    )
+    np.testing.assert_allclose(spec.agentview_position, camera_resource["position"], atol=0, rtol=0)
     np.testing.assert_allclose(
         spec.agentview_quaternion_wxyz,
         camera_resource["normalized_quaternion_wxyz"],
@@ -159,5 +157,19 @@ def test_backend_goal_requires_grasp_and_lift_threshold() -> None:
 
         set_ball_height(spec.lift_success_height_m)
         assert env.backend_goal_reached() is True
+    finally:
+        env.close()
+
+
+def test_motion_deadline_does_not_fail_an_already_grasped_ball() -> None:
+    spec = load_task_spec(_TASK_CONFIG)
+    env = make_dynamic_grasp_lift_environment(spec=spec, seed=7, offscreen=False)
+    try:
+        env.current_grasp = lambda: True
+        env.mark_motion_deadline(3_000_000)
+        env.evaluate_boundary_terminal(3_000_000)
+        assert env.done is False
+        assert env.task_failure is False
+        assert env.terminal_reason is None
     finally:
         env.close()
