@@ -1,0 +1,7 @@
+runtime_version: robosuite_native_v1
+physics_dt_us: 2000
+formal_tick_us: 20000
+camera_stride_ticks: 1
+compatibility_stride_ticks: 5
+control_freq_hz: 50
+lite_physics: true
