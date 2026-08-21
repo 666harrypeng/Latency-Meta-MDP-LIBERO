@@ -82,6 +82,8 @@ class BoundarySnapshotter:
         ledger.validate_sim_time(float(env.sim.data.time))
 
         robot = env.robots[0]
+        task_object = env.task_object
+        task_object_body_id = env.task_object_body_id
         arm = robot.arms[0]
         eef_site_id = robot.eef_site_id[arm]
         robot_qpos_indexes = np.asarray(robot._ref_joint_pos_indexes, dtype=int)
@@ -135,9 +137,9 @@ class BoundarySnapshotter:
             robot_qvel=_readonly_copy(env.sim.data.qvel[robot_qvel_indexes]),
             eef_pos=_readonly_copy(env.sim.data.site_xpos[eef_site_id]),
             eef_xmat=_readonly_copy(env.sim.data.site_xmat[eef_site_id].reshape(3, 3)),
-            object_qpos=_readonly_copy(env.sim.data.get_joint_qpos(env.cube.joints[0])),
-            object_body_pos=_readonly_copy(env.sim.data.body_xpos[env.cube_body_id]),
-            object_body_quat_wxyz=_readonly_copy(env.sim.data.body_xquat[env.cube_body_id]),
+            object_qpos=_readonly_copy(env.sim.data.get_joint_qpos(task_object.joints[0])),
+            object_body_pos=_readonly_copy(env.sim.data.body_xpos[task_object_body_id]),
+            object_body_quat_wxyz=_readonly_copy(env.sim.data.body_xquat[task_object_body_id]),
             commanded_world=MappingProxyType(frozen_world),
             cameras=MappingProxyType(cameras),
         )

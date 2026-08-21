@@ -193,6 +193,8 @@ def make_g1_environment(*, seed: int, offscreen: bool) -> Any:
     env.sim.model.opt.integrator = int(mujoco.mjtIntegrator.mjINT_EULER)
     env.reset()
     env.sim.forward()
+    env.task_object = env.cube
+    env.task_object_body_id = env.cube_body_id
     return env
 
 

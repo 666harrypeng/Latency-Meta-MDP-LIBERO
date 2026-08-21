@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from latency_meta_mdp.resources import load_resource_manifest
 from latency_meta_mdp.runtime import (
     _git_revision,
     _sha256,
@@ -17,6 +18,9 @@ from latency_meta_mdp.runtime import (
 
 
 def valid_report() -> dict:
+    resource_count = len(
+        load_resource_manifest("assets/resource_manifest.json", repository_root=".")
+    )
     config = {
         "camera_stride_ticks": 1,
         "compatibility_stride_ticks": 5,
@@ -49,7 +53,7 @@ def valid_report() -> dict:
         "physics_steps_per_tick": 10,
         "python_version": "3.10.20",
         "renderer": "headless-no-camera",
-        "resource_count": 0,
+        "resource_count": resource_count,
         "resource_manifest_sha256": _sha256(Path("assets/resource_manifest.json")),
         "robosuite_version": "1.5.2",
         "runtime_version": "robosuite_native_v1",

@@ -1,0 +1,17 @@
+schema_version: 1
+task_id: dynamic_grasp_lift
+level: 0
+instruction: Grasp the ball and lift it.
+table_full_size: [0.8, 0.8, 0.05]
+table_offset: [0.0, 0.0, 0.8]
+ball_radius_m: 0.03
+ball_density_kg_m3: 100.0
+ball_friction: [1.0, 0.01, 0.001]
+ball_rgba: [0.95, 0.25, 0.08, 1.0]
+ball_initial_position: [0.0, -0.12, 0.833]
+lift_success_height_m: 0.10
+agentview_resource_id: libero_tabletop_agentview_v1
+agentview_position: [0.6586131746834771, 0.0, 1.6103500240372423]
+agentview_quaternion_wxyz: [0.6380177212293417, 0.30484971880648903, 0.30484983801576876, 0.6380177212293417]
+agentview_fovy_degrees: 45.0
+policy_camera_names: [agentview, robot0_eye_in_hand]

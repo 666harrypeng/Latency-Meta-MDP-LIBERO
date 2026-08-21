@@ -1,4 +1,19 @@
 {
   "schema_version": 1,
-  "resources": []
+  "resources": [
+    {
+      "attribution": "LIBERO tabletop agentview camera definition, Lifelong Robot Learning",
+      "license_id": "MIT",
+      "license_text_path": "assets/licenses/LIBERO_LICENSE",
+      "license_url": "https://github.com/Lifelong-Robot-Learning/LIBERO/blob/8f1084e3132a39270c3a13ebe37270a43ece2a01/LICENSE",
+      "local_path": "assets/camera/libero_tabletop_agentview_v1.json",
+      "modifications": "Extracted only camera pose values from source file SHA-256 0defb17c0bbab8f6bd34c021ac15598ea101fe1e48690cb440d4ef92762880fe; normalized the source quaternion from norm 1.0000000821276454 to unit length without changing orientation; explicitly recorded the inherited RoboSuite 45-degree field of view.",
+      "resource_id": "libero_tabletop_agentview_v1",
+      "sha256": "27f2715fbe8edd7e266fc47671f08227783ca88cca68a468893dc457d37d5a2b",
+      "source_path": "libero/libero/envs/problems/libero_tabletop_manipulation.py",
+      "source_repository": "https://github.com/Lifelong-Robot-Learning/LIBERO",
+      "source_revision": "8f1084e3132a39270c3a13ebe37270a43ece2a01",
+      "upstream_origin": "Official LIBERO tabletop manipulation environment camera setup"
+    }
+  ]
 }
