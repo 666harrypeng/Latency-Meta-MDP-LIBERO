@@ -6,6 +6,9 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Local research planning, decision logs, and development evidence.
+docs/
+
 outputs/
 datasets/
 checkpoints/
