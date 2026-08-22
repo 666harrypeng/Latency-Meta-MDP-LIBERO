@@ -59,6 +59,17 @@ def _readonly_vector(value: Any, *, name: str, length: int) -> np.ndarray:
     return vector
 
 
+def _readonly_rotation_matrix(value: Any, *, name: str) -> np.ndarray:
+    matrix = _readonly_array(value, name=name)
+    if matrix.shape != (3, 3) or not np.issubdtype(matrix.dtype, np.number):
+        raise ValueError(f"{name} must be a numeric 3x3 matrix")
+    if not np.allclose(matrix.T @ matrix, np.eye(3), atol=1e-6) or not np.isclose(
+        np.linalg.det(matrix), 1.0, atol=1e-6
+    ):
+        raise ValueError(f"{name} must be a proper rotation matrix")
+    return matrix
+
+
 def _freeze(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         return _readonly_array(value, name="record payload")
@@ -101,6 +112,8 @@ class DeploymentRecord:
     robot_qvel: np.ndarray
     gripper_qpos: np.ndarray
     gripper_qvel: np.ndarray
+    eef_position_world: np.ndarray
+    eef_orientation_matrix_world: np.ndarray
 
     def __post_init__(self) -> None:
         if set(self.images) != _CAMERA_NAMES:
@@ -130,6 +143,23 @@ class DeploymentRecord:
             self,
             "gripper_qvel",
             _readonly_vector(self.gripper_qvel, name="gripper_qvel", length=2),
+        )
+        object.__setattr__(
+            self,
+            "eef_position_world",
+            _readonly_vector(
+                self.eef_position_world,
+                name="eef_position_world",
+                length=3,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "eef_orientation_matrix_world",
+            _readonly_rotation_matrix(
+                self.eef_orientation_matrix_world,
+                name="eef_orientation_matrix_world",
+            ),
         )
 
 

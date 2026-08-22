@@ -80,6 +80,8 @@ def test_collect_expert_episode_builds_one_complete_synchronized_pilot() -> None
         boundary.privileged.object_velocity.shape == (6,)
         and boundary.deployment.gripper_qpos.shape == (2,)
         and boundary.deployment.gripper_qvel.shape == (2,)
+        and boundary.deployment.eef_position_world.shape == (3,)
+        and boundary.deployment.eef_orientation_matrix_world.shape == (3, 3)
         for boundary in episode.boundaries
         if boundary.privileged is not None
     )
@@ -127,7 +129,8 @@ def test_write_synchronized_episode_artifact_is_lossless_and_no_overwrite(
 
     assert manifest_path == output_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["format_id"] == "synchronized_episode_npz_v2"
+    assert manifest["schema_version"] == 3
+    assert manifest["format_id"] == "synchronized_episode_npz_v3"
     assert manifest["episode_id"] == episode.metadata.episode_id
     assert manifest["boundary_count"] == len(episode.boundaries)
     assert manifest["transition_count"] == len(episode.transitions)
@@ -147,6 +150,12 @@ def test_write_synchronized_episode_artifact_is_lossless_and_no_overwrite(
         )
         assert arrays["gripper_qpos"].shape == (len(episode.boundaries), 2)
         assert arrays["gripper_qvel"].shape == (len(episode.boundaries), 2)
+        assert arrays["eef_position_world"].shape == (len(episode.boundaries), 3)
+        assert arrays["eef_orientation_matrix_world"].shape == (
+            len(episode.boundaries),
+            3,
+            3,
+        )
         np.testing.assert_array_equal(
             arrays["gripper_qpos"],
             np.stack(
@@ -157,6 +166,21 @@ def test_write_synchronized_episode_artifact_is_lossless_and_no_overwrite(
             arrays["gripper_qvel"],
             np.stack(
                 [boundary.deployment.gripper_qvel for boundary in episode.boundaries]
+            ),
+        )
+        np.testing.assert_array_equal(
+            arrays["eef_position_world"],
+            np.stack(
+                [boundary.deployment.eef_position_world for boundary in episode.boundaries]
+            ),
+        )
+        np.testing.assert_array_equal(
+            arrays["eef_orientation_matrix_world"],
+            np.stack(
+                [
+                    boundary.deployment.eef_orientation_matrix_world
+                    for boundary in episode.boundaries
+                ]
             ),
         )
         assert arrays["control_reference_valid"].tolist() == [False] + [True] * len(

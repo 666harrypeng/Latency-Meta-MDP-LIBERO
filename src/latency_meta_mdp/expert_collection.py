@@ -191,6 +191,8 @@ def _boundary_record(
         robot_qvel=snapshot.robot_qvel,
         gripper_qpos=snapshot.robot_gripper_qpos,
         gripper_qvel=snapshot.robot_gripper_qvel,
+        eef_position_world=snapshot.eef_pos,
+        eef_orientation_matrix_world=snapshot.eef_xmat,
     )
     privileged = None
     if record_profile.includes_privileged:

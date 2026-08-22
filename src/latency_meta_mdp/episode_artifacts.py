@@ -68,6 +68,12 @@ def _episode_arrays(episode: SynchronizedEpisode) -> dict[str, np.ndarray]:
         "gripper_qvel": np.stack(
             [record.deployment.gripper_qvel for record in boundaries]
         ),
+        "eef_position_world": np.stack(
+            [record.deployment.eef_position_world for record in boundaries]
+        ),
+        "eef_orientation_matrix_world": np.stack(
+            [record.deployment.eef_orientation_matrix_world for record in boundaries]
+        ),
         "transition_source_tick": np.asarray(
             [record.source_formal_tick for record in transitions], dtype=np.int64
         ),
@@ -246,8 +252,8 @@ def write_synchronized_episode_artifact(
         _write_json(
             staging / "manifest.json",
             {
-                "schema_version": 2,
-                "format_id": "synchronized_episode_npz_v2",
+                "schema_version": 3,
+                "format_id": "synchronized_episode_npz_v3",
                 "episode_id": episode.metadata.episode_id,
                 "record_profile": episode.metadata.record_profile,
                 "boundary_count": len(episode.boundaries),

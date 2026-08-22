@@ -77,6 +77,8 @@ def _deployment(tick: int) -> DeploymentRecord:
         robot_qvel=np.zeros(7),
         gripper_qpos=np.zeros(2),
         gripper_qvel=np.zeros(2),
+        eef_position_world=np.zeros(3),
+        eef_orientation_matrix_world=np.eye(3),
     )
 
 
@@ -366,6 +368,18 @@ def test_typed_payloads_reject_invalid_camera_and_state_shapes() -> None:
             robot_qvel=np.zeros(7),
             gripper_qpos=np.zeros(2),
             gripper_qvel=np.zeros(2),
+            eef_position_world=np.zeros(3),
+            eef_orientation_matrix_world=np.eye(3),
+        )
+    with pytest.raises(ValueError, match="eef_orientation_matrix_world"):
+        DeploymentRecord(
+            images={name: _camera(name, 0) for name in ("agentview", "robot0_eye_in_hand")},
+            robot_qpos=np.zeros(7),
+            robot_qvel=np.zeros(7),
+            gripper_qpos=np.zeros(2),
+            gripper_qvel=np.zeros(2),
+            eef_position_world=np.zeros(3),
+            eef_orientation_matrix_world=np.zeros((3, 3)),
         )
     with pytest.raises(ValueError, match="object_pose"):
         PrivilegedRecord(
