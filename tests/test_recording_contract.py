@@ -75,7 +75,8 @@ def _deployment(tick: int) -> DeploymentRecord:
         images={name: _camera(name, tick) for name in ("agentview", "robot0_eye_in_hand")},
         robot_qpos=np.zeros(7),
         robot_qvel=np.zeros(7),
-        gripper_state=np.zeros(2),
+        gripper_qpos=np.zeros(2),
+        gripper_qvel=np.zeros(2),
     )
 
 
@@ -95,13 +96,19 @@ def _privileged() -> PrivilegedRecord:
     )
 
 
-def _control_debug(*, action_dim: int = 7, actuator_dim: int = 9) -> ControlDebugRecord:
+def _control_debug(
+    tick: int = 0,
+    *,
+    action_dim: int = 7,
+    actuator_dim: int = 9,
+) -> ControlDebugRecord:
     return ControlDebugRecord(
         actuator_ctrl=np.zeros(actuator_dim),
-        applied_reference=np.zeros(action_dim),
-        joint_position_error=np.zeros(7),
-        eef_position_error=np.zeros(3),
-        eef_orientation_error_rotvec=np.zeros(3),
+        applied_reference=None if tick == 0 else np.zeros(action_dim),
+        applied_reference_source_formal_tick=None if tick == 0 else tick - 1,
+        nullspace_joint_position_error=None if tick == 0 else np.zeros(7),
+        eef_position_error=None if tick == 0 else np.zeros(3),
+        eef_orientation_error_rotvec=None if tick == 0 else np.zeros(3),
     )
 
 
@@ -124,7 +131,11 @@ def _boundary(
             else None
         ),
         control_debug=(
-            _control_debug(action_dim=action_dim, actuator_dim=actuator_dim)
+            _control_debug(
+                tick,
+                action_dim=action_dim,
+                actuator_dim=actuator_dim,
+            )
             if profile is RecordProfile.PILOT_DEBUG
             else None
         ),
@@ -353,7 +364,8 @@ def test_typed_payloads_reject_invalid_camera_and_state_shapes() -> None:
             images={name: _camera(name, 0) for name in ("agentview", "robot0_eye_in_hand")},
             robot_qpos=np.zeros(6),
             robot_qvel=np.zeros(7),
-            gripper_state=np.zeros(2),
+            gripper_qpos=np.zeros(2),
+            gripper_qvel=np.zeros(2),
         )
     with pytest.raises(ValueError, match="object_pose"):
         PrivilegedRecord(
@@ -370,20 +382,65 @@ def test_typed_payloads_reject_invalid_camera_and_state_shapes() -> None:
     invalid_debug = ControlDebugRecord(
         actuator_ctrl=np.zeros(9),
         applied_reference=np.zeros(6),
-        joint_position_error=np.zeros(7),
+        applied_reference_source_formal_tick=0,
+        nullspace_joint_position_error=np.zeros(7),
         eef_position_error=np.zeros(3),
         eef_orientation_error_rotvec=np.zeros(3),
     )
     with pytest.raises(ValueError, match="applied_reference"):
         BoundaryRecord(
-            formal_tick_index=0,
-            physics_step_index=0,
-            time_us=0,
-            deployment=_deployment(0),
+            formal_tick_index=1,
+            physics_step_index=10,
+            time_us=20_000,
+            deployment=_deployment(1),
             privileged=_privileged(),
             control_debug=invalid_debug,
             outcome_status=OutcomeStatus.RUNNING,
         ).validate(metadata)
+
+
+def test_control_debug_identifies_the_previous_action_and_empty_initial_boundary() -> None:
+    metadata = _metadata()
+    initial = _boundary(0)
+    after_action = _boundary(1)
+
+    initial.validate(metadata)
+    after_action.validate(metadata)
+    assert initial.control_debug is not None
+    assert initial.control_debug.applied_reference is None
+    assert initial.control_debug.applied_reference_source_formal_tick is None
+    assert initial.control_debug.nullspace_joint_position_error is None
+    assert initial.control_debug.eef_position_error is None
+    assert initial.control_debug.eef_orientation_error_rotvec is None
+    assert after_action.control_debug is not None
+    assert after_action.control_debug.applied_reference_source_formal_tick == 0
+    assert after_action.control_debug.nullspace_joint_position_error is not None
+    assert after_action.control_debug.eef_position_error is not None
+    assert after_action.control_debug.eef_orientation_error_rotvec is not None
+
+    invalid_initial = replace(
+        initial,
+        control_debug=replace(
+            initial.control_debug,
+            applied_reference=np.zeros(7),
+            applied_reference_source_formal_tick=0,
+            nullspace_joint_position_error=np.zeros(7),
+            eef_position_error=np.zeros(3),
+            eef_orientation_error_rotvec=np.zeros(3),
+        ),
+    )
+    with pytest.raises(ValueError, match="initial boundary"):
+        invalid_initial.validate(metadata)
+
+    invalid_source = replace(
+        after_action,
+        control_debug=replace(
+            after_action.control_debug,
+            applied_reference_source_formal_tick=1,
+        ),
+    )
+    with pytest.raises(ValueError, match="previous formal tick"):
+        invalid_source.validate(metadata)
 
 
 def test_episode_metadata_rejects_a_mixed_controller_contract() -> None:

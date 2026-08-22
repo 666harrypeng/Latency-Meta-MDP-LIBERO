@@ -99,7 +99,8 @@ class DeploymentRecord:
     images: Mapping[str, CameraRecord]
     robot_qpos: np.ndarray
     robot_qvel: np.ndarray
-    gripper_state: np.ndarray
+    gripper_qpos: np.ndarray
+    gripper_qvel: np.ndarray
 
     def __post_init__(self) -> None:
         if set(self.images) != _CAMERA_NAMES:
@@ -122,8 +123,13 @@ class DeploymentRecord:
         )
         object.__setattr__(
             self,
-            "gripper_state",
-            _readonly_vector(self.gripper_state, name="gripper_state", length=2),
+            "gripper_qpos",
+            _readonly_vector(self.gripper_qpos, name="gripper_qpos", length=2),
+        )
+        object.__setattr__(
+            self,
+            "gripper_qvel",
+            _readonly_vector(self.gripper_qvel, name="gripper_qvel", length=2),
         )
 
 
@@ -195,58 +201,61 @@ class PrivilegedRecord:
 @dataclass(frozen=True)
 class ControlDebugRecord:
     actuator_ctrl: np.ndarray
-    applied_reference: np.ndarray
-    joint_position_error: np.ndarray
-    eef_position_error: np.ndarray
-    eef_orientation_error_rotvec: np.ndarray
+    applied_reference: np.ndarray | None
+    applied_reference_source_formal_tick: int | None
+    nullspace_joint_position_error: np.ndarray | None
+    eef_position_error: np.ndarray | None
+    eef_orientation_error_rotvec: np.ndarray | None
 
     def __post_init__(self) -> None:
         actuator_ctrl = _readonly_array(self.actuator_ctrl, name="actuator_ctrl")
         if actuator_ctrl.ndim != 1:
             raise ValueError("actuator_ctrl must be a vector")
-        applied_reference = _readonly_array(
-            self.applied_reference,
-            name="applied_reference",
-        )
-        if applied_reference.ndim != 1:
-            raise ValueError("applied_reference must be a vector")
         object.__setattr__(
             self,
             "actuator_ctrl",
             actuator_ctrl,
         )
-        object.__setattr__(
-            self,
-            "applied_reference",
-            applied_reference,
-        )
-        object.__setattr__(
-            self,
-            "joint_position_error",
-            _readonly_vector(
-                self.joint_position_error,
-                name="joint_position_error",
-                length=7,
-            ),
-        )
-        object.__setattr__(
-            self,
-            "eef_position_error",
-            _readonly_vector(
-                self.eef_position_error,
-                name="eef_position_error",
-                length=3,
-            ),
-        )
-        object.__setattr__(
-            self,
-            "eef_orientation_error_rotvec",
-            _readonly_vector(
-                self.eef_orientation_error_rotvec,
-                name="eef_orientation_error_rotvec",
-                length=3,
-            ),
-        )
+        if self.applied_reference is None:
+            if self.applied_reference_source_formal_tick is not None:
+                raise ValueError("an empty applied_reference cannot have a source tick")
+            if any(
+                value is not None
+                for value in (
+                    self.nullspace_joint_position_error,
+                    self.eef_position_error,
+                    self.eef_orientation_error_rotvec,
+                )
+            ):
+                raise ValueError("an empty applied_reference cannot have goal errors")
+        else:
+            applied_reference = _readonly_array(
+                self.applied_reference,
+                name="applied_reference",
+            )
+            if applied_reference.ndim != 1:
+                raise ValueError("applied_reference must be a vector")
+            source_tick = self.applied_reference_source_formal_tick
+            if (
+                isinstance(source_tick, bool)
+                or not isinstance(source_tick, int)
+                or source_tick < 0
+            ):
+                raise ValueError("applied_reference requires a non-negative source tick")
+            object.__setattr__(self, "applied_reference", applied_reference)
+            for name, length in (
+                ("nullspace_joint_position_error", 7),
+                ("eef_position_error", 3),
+                ("eef_orientation_error_rotvec", 3),
+            ):
+                value = getattr(self, name)
+                if value is None:
+                    raise ValueError("an applied_reference requires all goal errors")
+                object.__setattr__(
+                    self,
+                    name,
+                    _readonly_vector(value, name=name, length=length),
+                )
 
 
 @dataclass(frozen=True)
@@ -354,8 +363,22 @@ class BoundaryRecord:
                 raise ValueError("control_debug record is required by this profile")
             if self.control_debug.actuator_ctrl.shape != (metadata.actuator_dim,):
                 raise ValueError("actuator_ctrl does not match metadata actuator_dim")
-            if self.control_debug.applied_reference.shape != (metadata.action_dim,):
+            if self.formal_tick_index == 0:
+                if (
+                    self.control_debug.applied_reference is not None
+                    or self.control_debug.applied_reference_source_formal_tick is not None
+                ):
+                    raise ValueError("initial boundary cannot claim an applied_reference")
+            elif (
+                self.control_debug.applied_reference is None
+                or self.control_debug.applied_reference.shape != (metadata.action_dim,)
+            ):
                 raise ValueError("applied_reference does not match metadata action_dim")
+            elif (
+                self.control_debug.applied_reference_source_formal_tick
+                != self.formal_tick_index - 1
+            ):
+                raise ValueError("applied_reference must come from the previous formal tick")
         elif self.control_debug is not None:
             raise ValueError("control_debug record is disabled by this profile")
         if not isinstance(self.outcome_status, OutcomeStatus):

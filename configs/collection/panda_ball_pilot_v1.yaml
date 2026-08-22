@@ -1,0 +1,8 @@
+schema_version: 1
+collection_id: panda_ball_pilot_v1
+levels: [1, 2, 3]
+seeds: [10, 11, 12]
+record_profile: pilot_debug
+camera_width: 256
+camera_height: 256
+review_video_fps: 50

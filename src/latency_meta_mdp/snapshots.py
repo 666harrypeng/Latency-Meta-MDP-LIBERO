@@ -40,9 +40,12 @@ class BoundarySnapshot:
     actuator_ctrl: np.ndarray
     robot_qpos: np.ndarray
     robot_qvel: np.ndarray
+    robot_gripper_qpos: np.ndarray
+    robot_gripper_qvel: np.ndarray
     eef_pos: np.ndarray
     eef_xmat: np.ndarray
     object_qpos: np.ndarray
+    object_qvel: np.ndarray
     object_body_pos: np.ndarray
     object_body_quat_wxyz: np.ndarray
     commanded_world: Mapping[str, np.ndarray]
@@ -88,6 +91,12 @@ class BoundarySnapshotter:
         eef_site_id = robot.eef_site_id[arm]
         robot_qpos_indexes = np.asarray(robot._ref_joint_pos_indexes, dtype=int)
         robot_qvel_indexes = np.asarray(robot._ref_joint_vel_indexes, dtype=int)
+        gripper_qpos_indexes = np.asarray(
+            robot._ref_gripper_joint_pos_indexes[arm], dtype=int
+        )
+        gripper_qvel_indexes = np.asarray(
+            robot._ref_gripper_joint_vel_indexes[arm], dtype=int
+        )
 
         cameras: dict[str, CameraSample] = {}
         for camera_name in self.camera_names:
@@ -135,9 +144,12 @@ class BoundarySnapshotter:
             actuator_ctrl=_readonly_copy(env.sim.data.ctrl),
             robot_qpos=_readonly_copy(env.sim.data.qpos[robot_qpos_indexes]),
             robot_qvel=_readonly_copy(env.sim.data.qvel[robot_qvel_indexes]),
+            robot_gripper_qpos=_readonly_copy(env.sim.data.qpos[gripper_qpos_indexes]),
+            robot_gripper_qvel=_readonly_copy(env.sim.data.qvel[gripper_qvel_indexes]),
             eef_pos=_readonly_copy(env.sim.data.site_xpos[eef_site_id]),
             eef_xmat=_readonly_copy(env.sim.data.site_xmat[eef_site_id].reshape(3, 3)),
             object_qpos=_readonly_copy(env.sim.data.get_joint_qpos(task_object.joints[0])),
+            object_qvel=_readonly_copy(env.sim.data.get_joint_qvel(task_object.joints[0])),
             object_body_pos=_readonly_copy(env.sim.data.body_xpos[task_object_body_id]),
             object_body_quat_wxyz=_readonly_copy(env.sim.data.body_xquat[task_object_body_id]),
             commanded_world=MappingProxyType(frozen_world),

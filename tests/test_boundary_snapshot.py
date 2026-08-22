@@ -71,6 +71,12 @@ def test_split_step_snapshot_uses_direct_fresh_boundary_state_and_images() -> No
     assert all(sample.source_time_us == 20_000 for sample in final.cameras.values())
     assert all(sample.source_physics_step == 10 for sample in final.cameras.values())
     assert not final.qpos.flags.writeable
+    assert final.robot_gripper_qpos.shape == (2,)
+    assert final.robot_gripper_qvel.shape == (2,)
+    assert final.object_qvel.shape == (6,)
+    assert not final.robot_gripper_qpos.flags.writeable
+    assert not final.robot_gripper_qvel.flags.writeable
+    assert not final.object_qvel.flags.writeable
     assert not final.cameras["agentview"].rgb.flags.writeable
     np.testing.assert_array_equal(initial.qpos, initial_qpos)
 
