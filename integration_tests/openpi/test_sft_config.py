@@ -5,6 +5,8 @@ from pathlib import Path
 from latency_meta_mdp.openpi_sft import register_sft_configs
 from latency_meta_mdp.sft_profile import load_sft_profile
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 def test_register_sft_configs_builds_three_full_parameter_h16_profiles(
     tmp_path: Path,
@@ -12,7 +14,7 @@ def test_register_sft_configs_builds_three_full_parameter_h16_profiles(
     from openpi.training.config import _CONFIGS_DICT
 
     profile = load_sft_profile(
-        Path("configs/policy/pi05_panda_ball_full_sft_v1.yaml")
+        _PROJECT_ROOT / "configs/policy/pi05_panda_ball_full_sft_v1.yaml"
     )
     names = register_sft_configs(profile)
 

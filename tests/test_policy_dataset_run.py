@@ -11,6 +11,7 @@ from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifa
 from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
 from latency_meta_mdp.policy_dataset_run import convert_pilot_run_to_lerobot
 from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.sft_certification import certify_lerobot_pilot_run
 from latency_meta_mdp.sft_profile import load_sft_profile
 
 
@@ -159,3 +160,52 @@ def test_convert_pilot_run_writes_three_atomic_level_specific_datasets(
     assert result == 0
     printed = json.loads(capsys.readouterr().out)
     assert Path(printed["manifest"]) == cli_output / "manifest.json"
+
+    def probe(**kwargs) -> dict:
+        expected = kwargs["expected_source_count"]
+        return {
+            "metadata_fps": 50,
+            "episode_count": 1,
+            "frame_count": expected + 15,
+            "source_count": expected,
+            "norm_source_count": expected,
+            "norm_batch_sizes": [expected],
+            "no_action_padding": True,
+            "train_state_shape": [4, 32],
+            "train_action_shape": [4, 16, 32],
+        }
+
+    certification_dir = tmp_path / "certification"
+    certification_path = certify_lerobot_pilot_run(
+        project_root=Path.cwd(),
+        derived_manifest=manifest_path,
+        output_dir=certification_dir,
+        profile_path=profile_path,
+        level_probe=probe,
+    )
+    certification = json.loads(certification_path.read_text(encoding="utf-8"))
+    assert certification["format_id"] == "metamdp_openpi_pilot_certification_v1"
+    assert certification["derived_manifest_sha256"] == sha256_file(manifest_path)
+    assert certification["eligible"] is (not certification["implementation_dirty"])
+    assert [row["level"] for row in certification["levels"]] == [1, 2, 3]
+
+    certification_cli = importlib.import_module(
+        "latency_meta_mdp.cli.certify_sft_pilot"
+    )
+    cli_certification_dir = tmp_path / "certification-cli"
+    result = certification_cli.main(
+        [
+            "--project-root",
+            str(Path.cwd()),
+            "--derived-manifest",
+            str(manifest_path),
+            "--output-dir",
+            str(cli_certification_dir),
+            "--profile",
+            str(profile_path),
+        ],
+        level_probe=probe,
+    )
+    assert result == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert Path(printed["manifest"]) == cli_certification_dir / "manifest.json"
