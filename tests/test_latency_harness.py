@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from dataclasses import fields
 
+import numpy as np
 import pytest
 
 
@@ -238,5 +239,44 @@ def test_boundary_must_start_at_zero_and_advance_consecutively() -> None:
 
     with pytest.raises(RuntimeError, match="start at tick zero"):
         harness.open_boundary(1)
+
+    assert harness.faulted is True
+
+
+def test_activation_rejects_an_arrival_owned_by_another_harness() -> None:
+    _module_value, first, _first_clock = _make_harness(delay_ticks=0)
+    _module_value, second, _second_clock = _make_harness(delay_ticks=0)
+    first.open_boundary(0)
+    arrival = first.launch(observation="obs", infer=lambda context: "payload")
+    assert arrival is not None
+    second.open_boundary(0)
+
+    with pytest.raises(RuntimeError, match="another harness"):
+        second.mark_eligible(arrival)
+
+    assert second.faulted is True
+
+
+def test_activation_and_execution_may_only_be_recorded_once() -> None:
+    _module_value, harness, _clock = _make_harness(delay_ticks=0)
+    harness.open_boundary(0)
+    arrival = harness.launch(observation="obs", infer=lambda context: "payload")
+    assert arrival is not None
+    harness.mark_eligible(arrival)
+    harness.mark_activated(arrival)
+    harness.mark_execute(request_id=arrival.request_id, action=np.zeros(7))
+
+    with pytest.raises(RuntimeError, match="execute"):
+        harness.mark_execute(request_id=arrival.request_id, action=np.zeros(7))
+
+    assert harness.faulted is True
+
+
+def test_invalid_event_action_faults_the_harness() -> None:
+    _module_value, harness, _clock = _make_harness(delay_ticks=0)
+    harness.open_boundary(0)
+
+    with pytest.raises(ValueError, match="finite vector"):
+        harness.mark_starvation(action=np.full(7, np.nan))
 
     assert harness.faulted is True

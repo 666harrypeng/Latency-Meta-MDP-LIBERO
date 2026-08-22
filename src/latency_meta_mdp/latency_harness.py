@@ -164,6 +164,10 @@ class LogicalLatencyHarness(Generic[TObservation, TPayload]):
         self._current_tick: int | None = None
         self._boundary_open = False
         self._launched_this_boundary = False
+        self._eligible_arrival: Arrival[TPayload] | None = None
+        self._activated_arrival: Arrival[TPayload] | None = None
+        self._starvation_recorded = False
+        self._execute_recorded = False
         self._faulted = False
 
     @property
@@ -206,14 +210,17 @@ class LogicalLatencyHarness(Generic[TObservation, TPayload]):
     def _emit(self, kind: HarnessEventKind, **kwargs: Any) -> None:
         if self._current_tick is None:
             self._fail("cannot emit an event without a current formal boundary")
-        self._events.append(
-            HarnessEvent(
+        try:
+            event = HarnessEvent(
                 kind=kind,
                 formal_tick=self._current_tick,
                 time_us=self._current_tick * self.formal_tick_us,
                 **kwargs,
             )
-        )
+        except BaseException:
+            self._faulted = True
+            raise
+        self._events.append(event)
 
     def _arrival_from_pending(self, pending: _PendingRequest[TPayload]) -> Arrival[TPayload]:
         arrival = Arrival(
@@ -252,6 +259,10 @@ class LogicalLatencyHarness(Generic[TObservation, TPayload]):
         self._current_tick = formal_tick
         self._boundary_open = True
         self._launched_this_boundary = False
+        self._eligible_arrival = None
+        self._activated_arrival = None
+        self._starvation_recorded = False
+        self._execute_recorded = False
         self._emit(HarnessEventKind.REFERENCE_BOUNDARY)
         if self._pending is None or self._pending.arrival_formal_tick > formal_tick:
             return None
@@ -340,6 +351,91 @@ class LogicalLatencyHarness(Generic[TObservation, TPayload]):
             return self._arrival_from_pending(pending)
         self._pending = pending
         return None
+
+    def _validate_owned_current_arrival(self, arrival: Arrival[Any]) -> None:
+        if not isinstance(arrival, Arrival):
+            self._fail("activation requires an Arrival")
+        if arrival._owner_token is not self._owner_token:
+            self._fail("arrival belongs to another harness")
+        if self._current_tick is None or arrival.arrival_formal_tick != self._current_tick:
+            self._fail("arrival does not belong to the current formal boundary")
+
+    def mark_eligible(self, arrival: Arrival[TPayload]) -> None:
+        self._require_healthy()
+        if not self._boundary_open:
+            self._fail("eligibility requires an open formal boundary")
+        self._validate_owned_current_arrival(arrival)
+        if self._eligible_arrival is not None:
+            self._fail("eligible activation was already recorded")
+        self._eligible_arrival = arrival
+        self._emit(
+            HarnessEventKind.ELIGIBLE_ACTIVATION,
+            request_id=arrival.request_id,
+            launch_formal_tick=arrival.launch_formal_tick,
+            arrival_formal_tick=arrival.arrival_formal_tick,
+            realized_delay_ticks=arrival.realized_delay_ticks,
+        )
+
+    def mark_activated(self, arrival: Arrival[TPayload]) -> None:
+        self._require_healthy()
+        if not self._boundary_open:
+            self._fail("activation requires an open formal boundary")
+        self._validate_owned_current_arrival(arrival)
+        if self._eligible_arrival is not arrival:
+            self._fail("actual activation requires the same eligible arrival")
+        if self._activated_arrival is not None:
+            self._fail("actual activation was already recorded")
+        if self._starvation_recorded:
+            self._fail("an activated arrival cannot follow starvation")
+        self._activated_arrival = arrival
+        self._emit(
+            HarnessEventKind.ACTUAL_ACTIVATION,
+            request_id=arrival.request_id,
+            launch_formal_tick=arrival.launch_formal_tick,
+            arrival_formal_tick=arrival.arrival_formal_tick,
+            realized_delay_ticks=arrival.realized_delay_ticks,
+        )
+
+    def mark_starvation(self, *, action: np.ndarray) -> None:
+        self._require_healthy()
+        if not self._boundary_open:
+            self._fail("starvation requires an open formal boundary")
+        if self._activated_arrival is not None:
+            self._fail("starvation cannot follow actual activation")
+        if self._starvation_recorded:
+            self._fail("starvation was already recorded")
+        if self._execute_recorded:
+            self._fail("starvation cannot follow execute")
+        self._starvation_recorded = True
+        self._emit(HarnessEventKind.STARVATION, action=action)
+
+    def mark_execute(self, *, request_id: int | None, action: np.ndarray) -> None:
+        self._require_healthy()
+        if not self._boundary_open:
+            self._fail("execute requires an open formal boundary")
+        if self._execute_recorded:
+            self._fail("execute was already recorded")
+        if request_id is None:
+            if not self._starvation_recorded or self._activated_arrival is not None:
+                self._fail("request-free execute requires starvation")
+            event_kwargs: dict[str, Any] = {}
+        else:
+            arrival = self._activated_arrival
+            if arrival is None or arrival.request_id != request_id:
+                self._fail("request execute requires its actual activation")
+            if self._starvation_recorded:
+                self._fail("activated execute cannot follow starvation")
+            event_kwargs = {
+                "request_id": arrival.request_id,
+                "launch_formal_tick": arrival.launch_formal_tick,
+                "arrival_formal_tick": arrival.arrival_formal_tick,
+                "realized_delay_ticks": arrival.realized_delay_ticks,
+            }
+        self._execute_recorded = True
+        self._emit(HarnessEventKind.EXECUTE, action=action, **event_kwargs)
+
+    def mark_faulted(self) -> None:
+        self._faulted = True
 
     def close_boundary(self) -> None:
         self._require_healthy()
