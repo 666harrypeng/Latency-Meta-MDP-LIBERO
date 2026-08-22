@@ -280,3 +280,26 @@ def test_invalid_event_action_faults_the_harness() -> None:
         harness.mark_starvation(action=np.full(7, np.nan))
 
     assert harness.faulted is True
+
+
+def test_buffered_execute_supports_bootstrap_chunk_without_changing_one_step_path() -> None:
+    module, harness, _clock = _make_harness(delay_ticks=0)
+    harness.open_boundary(0)
+
+    harness.mark_buffered_execute(source_request_id=None, action=np.zeros(7))
+    harness.close_boundary()
+
+    assert harness.events[-1].kind is module.HarnessEventKind.EXECUTE
+    assert harness.events[-1].request_id is None
+    np.testing.assert_array_equal(harness.events[-1].action, np.zeros(7))
+
+
+def test_buffered_execute_and_starvation_are_mutually_exclusive() -> None:
+    _module_value, harness, _clock = _make_harness(delay_ticks=0)
+    harness.open_boundary(0)
+    harness.mark_starvation(action=np.zeros(7))
+
+    with pytest.raises(RuntimeError, match="starvation"):
+        harness.mark_buffered_execute(source_request_id=None, action=np.zeros(7))
+
+    assert harness.faulted is True

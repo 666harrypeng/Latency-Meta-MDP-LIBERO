@@ -434,6 +434,38 @@ class LogicalLatencyHarness(Generic[TObservation, TPayload]):
         self._execute_recorded = True
         self._emit(HarnessEventKind.EXECUTE, action=action, **event_kwargs)
 
+    def mark_buffered_execute(
+        self,
+        *,
+        source_request_id: int | None,
+        action: np.ndarray,
+    ) -> None:
+        self._require_healthy()
+        if not self._boundary_open:
+            self._fail("buffered execute requires an open formal boundary")
+        if self._execute_recorded:
+            self._fail("execute was already recorded")
+        if self._starvation_recorded:
+            self._fail("buffered execute cannot follow starvation")
+        if source_request_id is not None and (
+            isinstance(source_request_id, bool)
+            or not isinstance(source_request_id, int)
+            or source_request_id < 0
+        ):
+            self._fail("buffered execute request ID must be non-negative when present")
+        arrival = self._activated_arrival
+        if arrival is not None and arrival.request_id != source_request_id:
+            self._fail("same-boundary buffered execute must match the activated request")
+        self._execute_recorded = True
+        event_kwargs: dict[str, Any] = {"request_id": source_request_id}
+        if arrival is not None:
+            event_kwargs.update(
+                launch_formal_tick=arrival.launch_formal_tick,
+                arrival_formal_tick=arrival.arrival_formal_tick,
+                realized_delay_ticks=arrival.realized_delay_ticks,
+            )
+        self._emit(HarnessEventKind.EXECUTE, action=action, **event_kwargs)
+
     def mark_faulted(self) -> None:
         self._faulted = True
 
