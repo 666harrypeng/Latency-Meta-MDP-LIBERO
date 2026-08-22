@@ -96,6 +96,16 @@ class ChunkClientEvent:
                 isinstance(value, bool) or not isinstance(value, int) or value < 0
             ):
                 raise ValueError(f"{name} must be non-negative when present")
+        for name in (
+            "discarded_action_count",
+            "installed_chunk_index",
+            "executed_chunk_index",
+        ):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"{name} must be non-negative when present")
         if self.formal_tick is None:
             if self.time_us is not None:
                 raise ValueError("pre-episode chunk events cannot carry simulated time")
@@ -191,7 +201,11 @@ class SharpActionChunkClient(Generic[TObservation]):
 
     @property
     def active_actions(self) -> np.ndarray | None:
-        return self._active_actions
+        if self._active_actions is None:
+            return None
+        result = np.array(self._active_actions, copy=True)
+        result.setflags(write=False)
+        return result
 
     @property
     def active_chunk_id(self) -> int | None:

@@ -272,6 +272,29 @@ def test_installed_chunks_are_copied_and_read_only() -> None:
     assert copied_client.active_actions is not None
     assert copied_client.active_actions[0, 0] == pytest.approx(0.8)
 
+    exposed = copied_client.active_actions
+    assert exposed is not None
+    exposed.setflags(write=True)
+    exposed[:] = -0.5
+    assert copied_client.active_actions is not None
+    assert copied_client.active_actions[0, 0] == pytest.approx(0.8)
+
+
+def test_chunk_event_rejects_negative_discard_or_action_index() -> None:
+    module, client, _harness, clock = _make_client(delay_ticks=0)
+    _run_ticks(client, clock, through=8, inferred_chunk=_chunk(0.5))
+    install = next(
+        event
+        for event in client.chunk_events
+        if event.kind is module.ChunkClientEventKind.CHUNK_INSTALL
+    )
+    execution = client.chunk_events[-1]
+
+    with pytest.raises(ValueError, match="discarded_action_count"):
+        replace(install, discarded_action_count=-1)
+    with pytest.raises(ValueError, match="executed_chunk_index"):
+        replace(execution, executed_chunk_index=-1)
+
 
 def test_arrival_resets_consumption_and_prevents_same_boundary_relaunch() -> None:
     _module_value, client, harness, clock = _make_client(delay_ticks=1)

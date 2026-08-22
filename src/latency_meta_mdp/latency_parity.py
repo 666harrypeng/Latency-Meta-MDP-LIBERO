@@ -299,3 +299,24 @@ def run_direct_zero_latency_parity(
     )
     result.validate_exact()
     return result
+
+
+def run_direct_expert_trace(
+    *,
+    project_root: Path,
+    seed: int,
+    camera_width: int,
+    camera_height: int,
+) -> ParityLaneTrace:
+    """Run one direct L1 expert lane for downstream infrastructure calibration."""
+
+    trace, events = _run_lane(
+        project_root=project_root,
+        seed=seed,
+        camera_width=camera_width,
+        camera_height=camera_height,
+        use_harness=False,
+    )
+    if events:
+        raise RuntimeError("direct expert trace unexpectedly produced harness events")
+    return trace
