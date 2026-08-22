@@ -1,0 +1,24 @@
+schema_version: 1
+collection_id: panda_ball_bulk_v1
+levels: [1, 2, 3]
+record_profile: belief
+camera_width: 256
+camera_height: 256
+same_master_seeds_across_levels: true
+excluded_pilot_seeds: [10, 11, 12]
+first_tranche_count: 25
+minimum_first_attempt_success_rate: 0.98
+review_video_count_per_level: 3
+seed_banks:
+  train:
+    start: 1000
+    count: 200
+    collect_expert: true
+  development:
+    start: 2000
+    count: 50
+    collect_expert: false
+  test:
+    start: 3000
+    count: 100
+    collect_expert: false
