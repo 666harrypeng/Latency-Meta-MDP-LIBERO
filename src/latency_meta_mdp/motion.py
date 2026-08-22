@@ -69,7 +69,12 @@ class MotionConfig:
         level = raw["level"]
         if isinstance(level, bool) or not isinstance(level, int) or level not in range(4):
             raise ValueError("motion level must be one of 0, 1, 2, 3")
-        if raw["profile_id"] != f"dynamic_grasp_lift_l{level}":
+        expected_profile_id = (
+            "dynamic_grasp_lift_l0"
+            if level == 0
+            else f"dynamic_grasp_lift_l{level}_v2"
+        )
+        if raw["profile_id"] != expected_profile_id:
             raise ValueError("motion profile_id does not match level")
         integer_names = ("anchor_time_us", "min_segment_duration_us", "max_retries")
         integers: dict[str, int] = {}
@@ -533,7 +538,11 @@ def _sample_speed(
     upper = config.max_speed_mps * upper_scale
     mean = 0.8 * upper
     sigma = upper / 3.0
-    return float(np.clip(abs(rng.normal(mean, sigma)), config.min_speed_mps, upper))
+    for _ in range(config.max_retries):
+        candidate = abs(float(rng.normal(mean, sigma)))
+        if config.min_speed_mps < candidate < upper:
+            return candidate
+    raise RuntimeError("failed to sample a speed inside the configured open interval")
 
 
 def _profile_is_bounded(profile: MotionProfile, config: MotionConfig) -> bool:
@@ -627,7 +636,8 @@ def _build_level2(
         direction = np.array([np.cos(angle), np.sin(angle)])
         perpendicular = np.array([-direction[1], direction[0]])
         start = anchor - direction * chord_speed * duration_s
-        curve_speed = rng.uniform(0.2, 0.55) * chord_speed
+        curve_sign = -1.0 if int(rng.integers(0, 2)) == 0 else 1.0
+        curve_speed = curve_sign * rng.uniform(0.2, 0.55) * chord_speed
         start_velocity = direction * chord_speed + perpendicular * curve_speed
         end_velocity = direction * (0.55 * chord_speed) - perpendicular * (0.4 * curve_speed)
         profile = HermiteProfile(

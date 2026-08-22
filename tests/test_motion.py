@@ -30,9 +30,9 @@ def test_motion_configs_are_strict_and_level_specific() -> None:
     assert [config.level for config in configs] == [0, 1, 2, 3]
     assert [config.profile_id for config in configs] == [
         "dynamic_grasp_lift_l0",
-        "dynamic_grasp_lift_l1",
-        "dynamic_grasp_lift_l2",
-        "dynamic_grasp_lift_l3",
+        "dynamic_grasp_lift_l1_v2",
+        "dynamic_grasp_lift_l2_v2",
+        "dynamic_grasp_lift_l3_v2",
     ]
     assert all(config.anchor_time_us % 20_000 == 0 for config in configs)
 
@@ -128,6 +128,51 @@ def test_profiles_are_seed_deterministic() -> None:
     different_positions = np.stack([different.sample(time_us).position for time_us in times])
     np.testing.assert_array_equal(first_positions, repeat_positions)
     assert not np.array_equal(first_positions, different_positions)
+
+
+def test_train_seed_bank_has_both_level2_curve_directions() -> None:
+    config = config_for(2)
+    signs = []
+    for seed in range(1_000, 1_200):
+        profile = build_motion_profile(config=config, seed=seed, workspace_z=0.833)
+        start = profile.sample(0).position[:2]
+        midpoint = profile.sample(config.anchor_time_us // 2).position[:2]
+        end = profile.sample(config.anchor_time_us).position[:2]
+        chord = end - start
+        deviation = midpoint - 0.5 * (start + end)
+        signs.append(int(np.sign(chord[0] * deviation[1] - chord[1] * deviation[0])))
+
+    assert set(signs) == {-1, 1}
+    assert signs.count(-1) >= 70
+    assert signs.count(1) >= 70
+
+
+def test_train_seed_bank_speed_samples_have_no_boundary_atoms() -> None:
+    for level, upper_scale in ((1, 1.0), (2, 0.65), (3, 0.60)):
+        config = config_for(level)
+        speeds = []
+        for seed in range(1_000, 1_200):
+            profile = build_motion_profile(config=config, seed=seed, workspace_z=0.833)
+            if level == 1:
+                speeds.append(float(np.linalg.norm(profile.velocity_xy)))
+            elif level == 2:
+                duration_s = profile.segment.duration_us / 1_000_000
+                speeds.append(
+                    float(
+                        np.linalg.norm(profile.segment.end_xy - profile.segment.start_xy)
+                        / duration_s
+                    )
+                )
+            else:
+                speeds.extend(
+                    float(
+                        np.linalg.norm(segment.end_xy - segment.start_xy)
+                        / (segment.duration_us / 1_000_000)
+                    )
+                    for segment in profile.segments
+                )
+        upper = config.max_speed_mps * upper_scale
+        assert all(config.min_speed_mps < speed < upper for speed in speeds)
 
 
 @pytest.mark.parametrize("level", [0, 1, 2, 3])

@@ -1,5 +1,5 @@
 schema_version: 1
-profile_id: dynamic_grasp_lift_l2
+profile_id: dynamic_grasp_lift_l2_v2
 level: 2
 center_bounds_xy: [-0.20, 0.25, -0.28, 0.28]
 anchor_position_xy: [0.08, 0.0]
