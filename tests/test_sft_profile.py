@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from latency_meta_mdp.artifacts import sha256_file
 from latency_meta_mdp.sft_profile import SFTProfile, load_sft_profile
 
 
@@ -25,6 +26,9 @@ def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() ->
     assert profile.batch_size == 64
     assert profile.num_train_steps == 12_000
     assert profile.save_interval == 4_000
+    assert profile.openpi_patch_sha256 == sha256_file(
+        Path("patches/openpi/0001-filter-incomplete-action-chunks.patch")
+    )
     assert set(profile.levels) == {1, 2, 3}
     assert len({level.config_name for level in profile.levels.values()}) == 3
     assert len({level.repo_id for level in profile.levels.values()}) == 3

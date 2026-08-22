@@ -1,7 +1,7 @@
 schema_version: 1
 profile_id: pi05_panda_ball_full_sft_v1
 openpi_revision: 15a9616a00943ada6c20a0f158e3adb39df2ccac
-openpi_patch_sha256: f2695050aba9604fb4296d8593e104b2207003301506f3a16f71224b819b6c92
+openpi_patch_sha256: 6c08348e7eb589db32abfeac3c9ac0b829a1fae6aefe8a1e79239af610d02660
 base_checkpoint: gs://openpi-assets/checkpoints/pi05_base/params
 full_parameter: true
 action_horizon: 16

@@ -1,3 +1,38 @@
+diff --git a/scripts/compute_norm_stats.py b/scripts/compute_norm_stats.py
+index c8aef87..68132e7 100644
+--- a/scripts/compute_norm_stats.py
++++ b/scripts/compute_norm_stats.py
+@@ -5,6 +5,8 @@ will compute the mean and standard deviation of the data in the dataset and save
+ to the config assets directory.
+ """
+
++import math
++
+ import numpy as np
+ import tqdm
+ import tyro
+@@ -42,10 +44,10 @@ def create_torch_dataloader(
+         ],
+     )
+     if max_frames is not None and max_frames < len(dataset):
+-        num_batches = max_frames // batch_size
++        num_batches = math.ceil(max_frames / batch_size)
+         shuffle = True
+     else:
+-        num_batches = len(dataset) // batch_size
++        num_batches = math.ceil(len(dataset) / batch_size)
+         shuffle = False
+     data_loader = _data_loader.TorchDataLoader(
+         dataset,
+@@ -53,6 +55,8 @@ def create_torch_dataloader(
+         num_workers=num_workers,
+         shuffle=shuffle,
+         num_batches=num_batches,
++        framework="pytorch",
++        drop_last=False,
+     )
+     return data_loader, num_batches
+
 diff --git a/src/openpi/training/config.py b/src/openpi/training/config.py
 index 4ca47e1..138ccd5 100644
 --- a/src/openpi/training/config.py
@@ -5,7 +40,7 @@ index 4ca47e1..138ccd5 100644
 @@ -90,6 +90,10 @@ class DataConfig:
      # If true, will use the LeRobot dataset task to define the prompt.
      prompt_from_task: bool = False
- 
+
 +    # Number of source frames to exclude from the end of every LeRobot episode. This is useful
 +    # when fixed-horizon action targets must not cross an episode boundary.
 +    drop_n_last_frames: int = 0
@@ -14,13 +49,13 @@ index 4ca47e1..138ccd5 100644
      rlds_data_dir: str | None = None
      # Action space for DROID dataset.
 diff --git a/src/openpi/training/data_loader.py b/src/openpi/training/data_loader.py
-index e2ee7dd..d8cfb12 100644
+index e2ee7dd..d14848b 100644
 --- a/src/openpi/training/data_loader.py
 +++ b/src/openpi/training/data_loader.py
 @@ -62,6 +62,36 @@ class TransformedDataset(Dataset[T_co]):
          return len(self._dataset)
- 
- 
+
+
 +class EpisodeTailFilteredDataset(Dataset[T_co]):
 +    """Index view that excludes a fixed number of source frames per episode."""
 +
@@ -57,7 +92,7 @@ index e2ee7dd..d8cfb12 100644
 @@ -145,6 +175,12 @@ def create_torch_dataset(
          },
      )
- 
+
 +    if data_config.drop_n_last_frames:
 +        dataset = EpisodeTailFilteredDataset(
 +            dataset,
@@ -66,24 +101,49 @@ index e2ee7dd..d8cfb12 100644
 +
      if data_config.prompt_from_task:
          dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
- 
+
+@@ -393,6 +429,7 @@ class TorchDataLoader:
+         num_workers: int = 0,
+         seed: int = 0,
+         framework: str = "jax",
++        drop_last: bool = True,
+     ):
+         """Create a PyTorch data loader.
+
+@@ -408,6 +445,7 @@ class TorchDataLoader:
+             num_workers: The number of worker processes to use. If zero, the data loader will
+                 execute in the main process.
+             seed: The seed to use for shuffling the data.
++            drop_last: Whether to omit a final batch smaller than local_batch_size.
+         """
+         if jax.process_count() > 1:
+             raise NotImplementedError("Data loading with multiple processes is not supported.")
+@@ -441,7 +479,7 @@ class TorchDataLoader:
+             persistent_workers=num_workers > 0,
+             collate_fn=_collate_fn,
+             worker_init_fn=_worker_init_fn,
+-            drop_last=True,
++            drop_last=drop_last,
+             generator=generator,
+         )
+
 diff --git a/src/openpi/training/data_loader_test.py b/src/openpi/training/data_loader_test.py
-index d15a735..4b48b2d 100644
+index d15a735..12c000d 100644
 --- a/src/openpi/training/data_loader_test.py
 +++ b/src/openpi/training/data_loader_test.py
 @@ -1,12 +1,46 @@
  import dataclasses
 +import typing
- 
+
  import jax
 +import pytest
 +import torch
- 
+
  from openpi.models import pi0_config
  from openpi.training import config as _config
  from openpi.training import data_loader as _data_loader
- 
- 
+
+
 +class _EpisodeIndexedDataset:
 +    episode_data_index: typing.ClassVar = {
 +        "from": torch.tensor([0, 5]),
@@ -118,3 +178,26 @@ index d15a735..4b48b2d 100644
  def test_torch_data_loader():
      config = pi0_config.Pi0Config(action_dim=24, action_horizon=50, max_token_len=48)
      dataset = _data_loader.FakeDataset(config, 16)
+@@ -47,6 +81,22 @@ def test_torch_data_loader_parallel():
+         assert all(x.shape[0] == 4 for x in jax.tree.leaves(batch))
+
+
++def test_torch_data_loader_can_keep_a_smaller_final_batch():
++    config = pi0_config.Pi0Config(action_dim=24, action_horizon=50, max_token_len=48)
++    dataset = _data_loader.FakeDataset(config, 10)
++
++    loader = _data_loader.TorchDataLoader(
++        dataset,
++        local_batch_size=4,
++        num_batches=3,
++        drop_last=False,
++        framework="pytorch",
++    )
++    batches = list(loader)
++
++    assert [next(iter(batch.values())).shape[0] for batch in batches] == [4, 4, 2]
++
++
+ def test_with_fake_dataset():
+     config = _config.get_config("debug")
+ 
