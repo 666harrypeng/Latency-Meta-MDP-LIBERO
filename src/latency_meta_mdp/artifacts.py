@@ -7,12 +7,61 @@ import json
 import os
 import re
 import shutil
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 _GATE_RE = re.compile(r"^g[0-9]+$")
 _SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _REQUIRED_PREREQUISITES = {"g1": ("g0",)}
+
+
+@dataclass(frozen=True)
+class ImplementationProvenance:
+    revision: str
+    source_sha256: str
+    dirty: bool
+
+
+def collect_implementation_provenance(project_root: Path) -> ImplementationProvenance:
+    """Hash the complete Python implementation and report its Git worktree state."""
+
+    root = project_root.resolve()
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    dirty = bool(
+        subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    )
+    source_paths = (
+        root / "pyproject.toml",
+        root / "uv.lock",
+        *sorted((root / "src/latency_meta_mdp").rglob("*.py")),
+    )
+    digest = hashlib.sha256()
+    for path in source_paths:
+        relative = path.relative_to(root).as_posix().encode()
+        payload = path.read_bytes()
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return ImplementationProvenance(
+        revision=revision,
+        source_sha256=digest.hexdigest(),
+        dirty=dirty,
+    )
 
 
 def sha256_file(path: Path) -> str:

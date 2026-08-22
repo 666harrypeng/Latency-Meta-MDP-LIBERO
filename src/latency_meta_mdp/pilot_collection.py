@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -15,45 +14,12 @@ from typing import Any
 import numpy as np
 import yaml
 
-from latency_meta_mdp.artifacts import sha256_file
+from latency_meta_mdp.artifacts import collect_implementation_provenance, sha256_file
 from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
 from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
 from latency_meta_mdp.recording import PhysicalEventKind, RecordProfile, SynchronizedEpisode
 
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-
-
-def _implementation_provenance(project_root: Path) -> tuple[str, str, bool]:
-    revision = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    dirty = bool(
-        subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
-            cwd=project_root,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    )
-    source_paths = (
-        project_root / "pyproject.toml",
-        project_root / "uv.lock",
-        *sorted((project_root / "src/latency_meta_mdp").rglob("*.py")),
-    )
-    digest = hashlib.sha256()
-    for path in source_paths:
-        relative = path.relative_to(project_root).as_posix().encode()
-        payload = path.read_bytes()
-        digest.update(len(relative).to_bytes(4, "big"))
-        digest.update(relative)
-        digest.update(len(payload).to_bytes(8, "big"))
-        digest.update(payload)
-    return revision, digest.hexdigest(), dirty
 
 
 @dataclass(frozen=True)
@@ -201,9 +167,7 @@ def collect_expert_pilot_run(
 
     if _SAFE_RUN_ID.fullmatch(run_id) is None:
         raise ValueError("run_id must be one safe path component")
-    implementation_revision, implementation_source_sha256, implementation_dirty = (
-        _implementation_provenance(project_root.resolve())
-    )
+    provenance = collect_implementation_provenance(project_root)
     root = output_root.resolve()
     target = root / run_id
     if target.exists():
@@ -269,9 +233,9 @@ def collect_expert_pilot_run(
                 "schema_version": 1,
                 "format_id": "expert_pilot_run_v1",
                 "run_id": run_id,
-                "implementation_revision": implementation_revision,
-                "implementation_source_sha256": implementation_source_sha256,
-                "implementation_dirty": implementation_dirty,
+                "implementation_revision": provenance.revision,
+                "implementation_source_sha256": provenance.source_sha256,
+                "implementation_dirty": provenance.dirty,
                 "record_profile": spec.record_profile.value,
                 "camera_width": spec.camera_width,
                 "camera_height": spec.camera_height,
