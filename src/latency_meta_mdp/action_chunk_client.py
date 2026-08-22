@@ -64,6 +64,8 @@ def load_action_chunk_client_config(path: Path) -> ActionChunkClientConfig:
 
 
 class ChunkClientEventKind(str, Enum):
+    BOOTSTRAP_LAUNCH = "bootstrap_launch"
+    BOOTSTRAP_RETURN = "bootstrap_return"
     BOOTSTRAP_INSTALL = "bootstrap_install"
     CHUNK_INSTALL = "chunk_install"
     CHUNK_ACTION_EXECUTE = "chunk_action_execute"
@@ -81,6 +83,11 @@ class ChunkClientEvent:
     installed_chunk_index: int | None = None
     executed_chunk_index: int | None = None
     action: np.ndarray | None = None
+    wall_start_ns: int | None = None
+    wall_end_ns: int | None = None
+    wall_duration_ns: int | None = None
+    simulation_time_before_us: int | None = None
+    simulation_time_after_us: int | None = None
 
     def __post_init__(self) -> None:
         for name in ("chunk_id", "source_request_id", "old_chunk_id"):
@@ -105,6 +112,49 @@ class ChunkClientEvent:
                 raise ValueError("chunk event action must be a finite vector")
             action.setflags(write=False)
             object.__setattr__(self, "action", action)
+        wall_values = (self.wall_start_ns, self.wall_end_ns, self.wall_duration_ns)
+        simulation_values = (
+            self.simulation_time_before_us,
+            self.simulation_time_after_us,
+        )
+        if self.kind is ChunkClientEventKind.BOOTSTRAP_RETURN:
+            if any(
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+                for value in (*wall_values, *simulation_values)
+            ):
+                raise ValueError("bootstrap return requires non-negative timing fields")
+            if self.wall_end_ns - self.wall_start_ns != self.wall_duration_ns:
+                raise ValueError("bootstrap wall duration does not match start/end")
+        elif any(value is not None for value in (*wall_values, *simulation_values)):
+            raise ValueError("bootstrap timing fields are only valid on bootstrap_return")
+
+
+@dataclass(frozen=True)
+class BootstrapRecord:
+    protocol_id: str
+    installed_chunk_id: int
+    simulation_time_before_us: int
+    simulation_time_after_us: int
+    wall_start_ns: int
+    wall_end_ns: int
+    wall_duration_ns: int
+
+    def __post_init__(self) -> None:
+        if self.protocol_id != "sharp_action_chunk_v1":
+            raise ValueError("bootstrap record protocol is invalid")
+        for name in (
+            "installed_chunk_id",
+            "simulation_time_before_us",
+            "simulation_time_after_us",
+            "wall_start_ns",
+            "wall_end_ns",
+            "wall_duration_ns",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if self.wall_end_ns - self.wall_start_ns != self.wall_duration_ns:
+            raise ValueError("bootstrap record wall duration does not match start/end")
 
 
 class SharpActionChunkClient(Generic[TObservation]):
@@ -225,13 +275,67 @@ class SharpActionChunkClient(Generic[TObservation]):
         *,
         observation: TObservation,
         infer: Callable[[TObservation], np.ndarray],
-    ) -> None:
+    ) -> BootstrapRecord:
         self._require_healthy()
         if self._bootstrapped:
             self._faulted = True
             raise RuntimeError("warm bootstrap may only run once")
+        if not callable(infer):
+            self._faulted = True
+            raise TypeError("bootstrap inference callback must be callable")
+        prospective_chunk_id = self._next_chunk_id
         try:
+            simulation_before_us = self._simulation_time_reader()
+            if (
+                isinstance(simulation_before_us, bool)
+                or not isinstance(simulation_before_us, int)
+                or simulation_before_us != 0
+            ):
+                raise RuntimeError("warm bootstrap requires simulation time zero")
+            self._chunk_events.append(
+                ChunkClientEvent(
+                    kind=ChunkClientEventKind.BOOTSTRAP_LAUNCH,
+                    formal_tick=None,
+                    time_us=None,
+                    chunk_id=prospective_chunk_id,
+                    source_request_id=None,
+                )
+            )
+            wall_start_ns = self._monotonic_ns()
             chunk = infer(observation)
+            simulation_after_us = self._simulation_time_reader()
+            wall_end_ns = self._monotonic_ns()
+            if (
+                isinstance(wall_start_ns, bool)
+                or not isinstance(wall_start_ns, int)
+                or isinstance(wall_end_ns, bool)
+                or not isinstance(wall_end_ns, int)
+                or wall_start_ns < 0
+                or wall_end_ns < wall_start_ns
+            ):
+                raise RuntimeError("bootstrap wall clock returned invalid timestamps")
+            if (
+                isinstance(simulation_after_us, bool)
+                or not isinstance(simulation_after_us, int)
+                or simulation_after_us < 0
+            ):
+                raise RuntimeError("bootstrap simulation time reader returned invalid time")
+            self._chunk_events.append(
+                ChunkClientEvent(
+                    kind=ChunkClientEventKind.BOOTSTRAP_RETURN,
+                    formal_tick=None,
+                    time_us=None,
+                    chunk_id=prospective_chunk_id,
+                    source_request_id=None,
+                    wall_start_ns=wall_start_ns,
+                    wall_end_ns=wall_end_ns,
+                    wall_duration_ns=wall_end_ns - wall_start_ns,
+                    simulation_time_before_us=simulation_before_us,
+                    simulation_time_after_us=simulation_after_us,
+                )
+            )
+            if simulation_after_us != simulation_before_us:
+                raise RuntimeError("simulation advanced during bootstrap inference")
             self._install_chunk(
                 chunk=chunk,
                 source_request_id=None,
@@ -242,6 +346,18 @@ class SharpActionChunkClient(Generic[TObservation]):
             self._faulted = True
             raise
         self._bootstrapped = True
+        if self._active_chunk_id is None:
+            self._faulted = True
+            raise RuntimeError("warm bootstrap did not install an active chunk")
+        return BootstrapRecord(
+            protocol_id=self.config.protocol_id,
+            installed_chunk_id=self._active_chunk_id,
+            simulation_time_before_us=simulation_before_us,
+            simulation_time_after_us=simulation_after_us,
+            wall_start_ns=wall_start_ns,
+            wall_end_ns=wall_end_ns,
+            wall_duration_ns=wall_end_ns - wall_start_ns,
+        )
 
     def _activate_arrival(self, arrival: Arrival[np.ndarray]) -> None:
         self.harness.mark_eligible(arrival)
