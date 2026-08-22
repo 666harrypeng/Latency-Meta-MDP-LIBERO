@@ -201,23 +201,56 @@ class PrivilegedRecord:
 class ControlDebugRecord:
     actuator_ctrl: np.ndarray
     applied_reference: np.ndarray
-    tracking_error: np.ndarray
+    joint_position_error: np.ndarray
+    eef_position_error: np.ndarray
+    eef_orientation_error_rotvec: np.ndarray
 
     def __post_init__(self) -> None:
+        actuator_ctrl = _readonly_array(self.actuator_ctrl, name="actuator_ctrl")
+        if actuator_ctrl.ndim != 1:
+            raise ValueError("actuator_ctrl must be a vector")
+        applied_reference = _readonly_array(
+            self.applied_reference,
+            name="applied_reference",
+        )
+        if applied_reference.ndim != 1:
+            raise ValueError("applied_reference must be a vector")
         object.__setattr__(
             self,
             "actuator_ctrl",
-            _readonly_vector(self.actuator_ctrl, name="actuator_ctrl", length=8),
+            actuator_ctrl,
         )
         object.__setattr__(
             self,
             "applied_reference",
-            _readonly_vector(self.applied_reference, name="applied_reference", length=8),
+            applied_reference,
         )
         object.__setattr__(
             self,
-            "tracking_error",
-            _readonly_vector(self.tracking_error, name="tracking_error", length=7),
+            "joint_position_error",
+            _readonly_vector(
+                self.joint_position_error,
+                name="joint_position_error",
+                length=7,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "eef_position_error",
+            _readonly_vector(
+                self.eef_position_error,
+                name="eef_position_error",
+                length=3,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "eef_orientation_error_rotvec",
+            _readonly_vector(
+                self.eef_orientation_error_rotvec,
+                name="eef_orientation_error_rotvec",
+                length=3,
+            ),
         )
 
 
@@ -233,6 +266,9 @@ class EpisodeMetadata:
     expert_seed: int
     physics_dt_us: int
     formal_tick_us: int
+    action_contract_id: str
+    action_dim: int
+    actuator_dim: int
     record_profile: RecordProfile
     config_sha256: Mapping[str, str]
     motion_profile: Mapping[str, Any]
@@ -252,6 +288,18 @@ class EpisodeMetadata:
                 raise ValueError(f"{name} must be a non-negative integer")
         if self.physics_dt_us != 2_000 or self.formal_tick_us != 20_000:
             raise ValueError("episode metadata must use the certified 2 ms / 20 ms clock")
+        if not self.action_contract_id:
+            raise ValueError("action_contract_id must be non-empty")
+        for name in ("action_dim", "actuator_dim"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if (
+            self.action_contract_id != "panda_osc_pose_delta_v1"
+            or self.action_dim != 7
+            or self.actuator_dim != 9
+        ):
+            raise ValueError("episode metadata does not match the selected Panda action contract")
         if not isinstance(self.record_profile, RecordProfile):
             raise TypeError("record_profile must be a RecordProfile")
         if set(self.config_sha256) != _CONFIG_NAMES:
@@ -304,6 +352,10 @@ class BoundaryRecord:
         if metadata.record_profile.includes_control_debug:
             if not isinstance(self.control_debug, ControlDebugRecord):
                 raise ValueError("control_debug record is required by this profile")
+            if self.control_debug.actuator_ctrl.shape != (metadata.actuator_dim,):
+                raise ValueError("actuator_ctrl does not match metadata actuator_dim")
+            if self.control_debug.applied_reference.shape != (metadata.action_dim,):
+                raise ValueError("applied_reference does not match metadata action_dim")
         elif self.control_debug is not None:
             raise ValueError("control_debug record is disabled by this profile")
         if not isinstance(self.outcome_status, OutcomeStatus):
@@ -320,13 +372,19 @@ class TransitionRecord:
     def __post_init__(self) -> None:
         if self.source_formal_tick < 0 or self.target_formal_tick != self.source_formal_tick + 1:
             raise ValueError("transition must connect adjacent formal ticks")
-        action = _readonly_vector(self.expert_action, name="expert_action", length=8)
+        action = _readonly_array(self.expert_action, name="expert_action")
+        if action.ndim != 1:
+            raise ValueError("expert_action must be a vector")
         mask = np.array(self.action_mask, copy=True)
         if mask.shape != action.shape or mask.dtype != np.bool_:
             raise ValueError("expert_action and boolean action_mask must be aligned vectors")
         mask.setflags(write=False)
         object.__setattr__(self, "expert_action", action)
         object.__setattr__(self, "action_mask", mask)
+
+    def validate(self, metadata: EpisodeMetadata) -> None:
+        if self.expert_action.shape != (metadata.action_dim,):
+            raise ValueError("expert_action does not match metadata action_dim")
 
 
 @dataclass(frozen=True)
@@ -390,6 +448,8 @@ class DeploymentEpisodeView:
     task_id: str
     instruction: str
     formal_tick_us: int
+    action_contract_id: str
+    action_dim: int
     boundaries: tuple[DeploymentBoundaryView, ...]
     transitions: tuple[TransitionRecord, ...]
 
@@ -415,6 +475,8 @@ class SynchronizedEpisode:
             task_id=self.metadata.task_id,
             instruction=self.metadata.instruction,
             formal_tick_us=self.metadata.formal_tick_us,
+            action_contract_id=self.metadata.action_contract_id,
+            action_dim=self.metadata.action_dim,
             boundaries=tuple(
                 DeploymentBoundaryView(
                     formal_tick_index=boundary.formal_tick_index,
@@ -441,6 +503,7 @@ class SynchronizedEpisode:
             ):
                 raise ValueError("non-final boundaries must have running outcome status")
         for expected_tick, transition in enumerate(self.transitions):
+            transition.validate(self.metadata)
             if transition.source_formal_tick != expected_tick:
                 raise ValueError("episode transitions must be contiguous and start at tick zero")
 

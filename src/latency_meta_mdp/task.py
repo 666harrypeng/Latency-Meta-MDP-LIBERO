@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -312,16 +313,27 @@ def _make_environment_class() -> type[Any]:
     return DynamicGraspLiftEnv
 
 
-def make_dynamic_grasp_lift_environment(*, spec: TaskSpec, seed: int, offscreen: bool) -> Any:
+def make_dynamic_grasp_lift_environment(
+    *,
+    spec: TaskSpec,
+    seed: int,
+    offscreen: bool,
+    controller_config: dict[str, Any] | None = None,
+) -> Any:
     import mujoco
     from robosuite.controllers import load_composite_controller_config
 
     environment_class = _make_environment_class()
+    controller = (
+        load_composite_controller_config(robot="Panda")
+        if controller_config is None
+        else deepcopy(controller_config)
+    )
     env = environment_class(
         spec=spec,
         seed=seed,
         offscreen=offscreen,
-        controller=load_composite_controller_config(robot="Panda"),
+        controller=controller,
     )
     env.sim.model.opt.integrator = int(mujoco.mjtIntegrator.mjINT_EULER)
     env.reset()

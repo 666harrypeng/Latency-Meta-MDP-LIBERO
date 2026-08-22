@@ -24,7 +24,13 @@ from latency_meta_mdp.recording import (
 )
 
 
-def _metadata(profile: RecordProfile = RecordProfile.PILOT_DEBUG) -> EpisodeMetadata:
+def _metadata(
+    profile: RecordProfile = RecordProfile.PILOT_DEBUG,
+    *,
+    action_contract_id: str = "panda_osc_pose_delta_v1",
+    action_dim: int = 7,
+    actuator_dim: int = 9,
+) -> EpisodeMetadata:
     return EpisodeMetadata(
         schema_version=1,
         episode_id="l2-seed-000007-attempt-000",
@@ -36,6 +42,9 @@ def _metadata(profile: RecordProfile = RecordProfile.PILOT_DEBUG) -> EpisodeMeta
         expert_seed=19,
         physics_dt_us=2_000,
         formal_tick_us=20_000,
+        action_contract_id=action_contract_id,
+        action_dim=action_dim,
+        actuator_dim=actuator_dim,
         record_profile=profile,
         config_sha256={
             "runtime": "1" * 64,
@@ -82,11 +91,13 @@ def _privileged() -> PrivilegedRecord:
     )
 
 
-def _control_debug() -> ControlDebugRecord:
+def _control_debug(*, action_dim: int = 7, actuator_dim: int = 9) -> ControlDebugRecord:
     return ControlDebugRecord(
-        actuator_ctrl=np.zeros(8),
-        applied_reference=np.zeros(8),
-        tracking_error=np.zeros(7),
+        actuator_ctrl=np.zeros(actuator_dim),
+        applied_reference=np.zeros(action_dim),
+        joint_position_error=np.zeros(7),
+        eef_position_error=np.zeros(3),
+        eef_orientation_error_rotvec=np.zeros(3),
     )
 
 
@@ -95,6 +106,8 @@ def _boundary(
     profile: RecordProfile = RecordProfile.PILOT_DEBUG,
     *,
     outcome_status: OutcomeStatus = OutcomeStatus.RUNNING,
+    action_dim: int = 7,
+    actuator_dim: int = 9,
 ) -> BoundaryRecord:
     return BoundaryRecord(
         formal_tick_index=tick,
@@ -106,17 +119,21 @@ def _boundary(
             if profile in (RecordProfile.BELIEF, RecordProfile.PILOT_DEBUG)
             else None
         ),
-        control_debug=_control_debug() if profile is RecordProfile.PILOT_DEBUG else None,
+        control_debug=(
+            _control_debug(action_dim=action_dim, actuator_dim=actuator_dim)
+            if profile is RecordProfile.PILOT_DEBUG
+            else None
+        ),
         outcome_status=outcome_status,
     )
 
 
-def _transition(tick: int) -> TransitionRecord:
+def _transition(tick: int, *, action_dim: int = 7) -> TransitionRecord:
     return TransitionRecord(
         source_formal_tick=tick,
         target_formal_tick=tick + 1,
-        expert_action=np.zeros(8),
-        action_mask=np.ones(8, dtype=bool),
+        expert_action=np.zeros(action_dim),
+        action_mask=np.ones(action_dim, dtype=bool),
     )
 
 
@@ -218,6 +235,8 @@ def test_deployment_view_excludes_all_raw_privileged_and_audit_fields() -> None:
         "task_id",
         "instruction",
         "formal_tick_us",
+        "action_contract_id",
+        "action_dim",
         "boundaries",
         "transitions",
     }
@@ -263,6 +282,9 @@ def test_records_deep_copy_and_freeze_mutable_input() -> None:
         expert_seed=3,
         physics_dt_us=2_000,
         formal_tick_us=20_000,
+        action_contract_id="panda_osc_pose_delta_v1",
+        action_dim=7,
+        actuator_dim=9,
         record_profile=RecordProfile.SFT,
         config_sha256={
             name: str(index) * 64
@@ -326,8 +348,38 @@ def test_typed_payloads_reject_invalid_camera_and_state_shapes() -> None:
             handoff_state=HandoffState.DRIVEN,
             relative_geometry=np.zeros(3),
         )
+    metadata = _metadata()
+    invalid_debug = ControlDebugRecord(
+        actuator_ctrl=np.zeros(9),
+        applied_reference=np.zeros(6),
+        joint_position_error=np.zeros(7),
+        eef_position_error=np.zeros(3),
+        eef_orientation_error_rotvec=np.zeros(3),
+    )
     with pytest.raises(ValueError, match="applied_reference"):
-        ControlDebugRecord(np.zeros(8), np.zeros(7), np.zeros(7))
+        BoundaryRecord(
+            formal_tick_index=0,
+            physics_step_index=0,
+            time_us=0,
+            deployment=_deployment(0),
+            privileged=_privileged(),
+            control_debug=invalid_debug,
+            outcome_status=OutcomeStatus.RUNNING,
+        ).validate(metadata)
+
+
+def test_episode_metadata_rejects_a_mixed_controller_contract() -> None:
+    with pytest.raises(ValueError, match="selected Panda action contract"):
+        _metadata(
+            action_contract_id="panda_joint_absolute_v1",
+            action_dim=8,
+            actuator_dim=9,
+        )
+
+    metadata = _metadata()
+    wrong_action = _transition(0, action_dim=8)
+    with pytest.raises(ValueError, match="action_dim"):
+        wrong_action.validate(metadata)
 
 
 def test_complete_episode_rejects_impossible_success_event_order() -> None:

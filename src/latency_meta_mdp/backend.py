@@ -92,6 +92,26 @@ class FormalStepExecutor:
 WorldWriter = Callable[[Any, int], Mapping[str, Any] | None]
 
 
+@dataclass(frozen=True)
+class AppliedControlSample:
+    physics_step_index: int
+    formal_tick_index: int
+    time_us: int
+    policy_step: bool
+    action: np.ndarray
+    actuator_ctrl: np.ndarray
+    robot_qpos: np.ndarray
+
+    def __post_init__(self) -> None:
+        for name in ("action", "actuator_ctrl", "robot_qpos"):
+            value = np.array(getattr(self, name), copy=True)
+            value.setflags(write=False)
+            object.__setattr__(self, name, value)
+
+
+ControlObserver = Callable[[AppliedControlSample], None]
+
+
 class RoboSuitePlant:
     """Narrow adapter around a mounted-Panda RoboSuite environment."""
 
@@ -101,6 +121,7 @@ class RoboSuitePlant:
         env: Any,
         snapshotter: BoundarySnapshotter,
         world_writer: WorldWriter | None = None,
+        control_observer: ControlObserver | None = None,
     ) -> None:
         import mujoco
 
@@ -115,6 +136,7 @@ class RoboSuitePlant:
         self._env = env
         self._snapshotter = snapshotter
         self._world_writer = world_writer
+        self._control_observer = control_observer
         self._commanded_world: Mapping[str, Any] = {}
         self.world_write_count = 0
         self.step1_count = 0
@@ -156,7 +178,23 @@ class RoboSuitePlant:
         return snapshot
 
     def apply_control(self, action: object, *, policy_step: bool) -> None:
-        self._env._pre_action(np.asarray(action, dtype=float), policy_step=policy_step)
+        action_vector = np.asarray(action, dtype=float)
+        self._env._pre_action(action_vector, policy_step=policy_step)
+        if self._control_observer is not None:
+            time_us = round(float(self._env.sim.data.time) * 1_000_000)
+            robot = self._env.robots[0]
+            robot_qpos_indexes = np.asarray(robot._ref_joint_pos_indexes, dtype=int)
+            self._control_observer(
+                AppliedControlSample(
+                    physics_step_index=time_us // 2_000,
+                    formal_tick_index=time_us // 20_000,
+                    time_us=time_us,
+                    policy_step=policy_step,
+                    action=action_vector,
+                    actuator_ctrl=self._env.sim.data.ctrl,
+                    robot_qpos=self._env.sim.data.qpos[robot_qpos_indexes],
+                )
+            )
         self.control_refresh_count += 1
         self.goal_refresh_count += int(policy_step)
 

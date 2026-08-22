@@ -1,0 +1,22 @@
+schema_version: 1
+contract_id: panda_osc_pose_delta_v1
+representation: delta_eef_pose
+physics_dt_us: 2000
+formal_tick_us: 20000
+actuator_dim: 9
+controller_type: OSC_POSE
+input_type: delta
+input_reference_frame: base
+rotation_representation: rotation_vector
+arm_input_low: [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]
+arm_input_high: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+arm_output_low: [-0.05, -0.05, -0.05, -0.5, -0.5, -0.5]
+arm_output_high: [0.05, 0.05, 0.05, 0.5, 0.5, 0.5]
+gripper_input_low: -1.0
+gripper_input_high: 1.0
+gripper_open_command: -1.0
+gripper_close_command: 1.0
+interpolation: null
+kp: 150.0
+damping_ratio: 1.0
+uncouple_position_orientation: true
