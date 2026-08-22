@@ -1,0 +1,9 @@
+schema_version: 1
+expert_id: panda_ball_feedback_v1
+action_contract_id: panda_osc_pose_delta_v1
+history_ticks: 6
+lead_time_seconds: 0.20
+pregrasp_height_m: 0.10
+pregrasp_tolerance_m: 0.012
+grasp_tolerance_m: 0.016
+lift_offset_m: 0.16

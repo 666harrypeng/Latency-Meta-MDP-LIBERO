@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import numpy as np
 import pytest
 
+from latency_meta_mdp.expert import ExpertPhase
 from latency_meta_mdp.outcomes import OutcomeStatus, TerminalReason
 from latency_meta_mdp.recording import (
     BoundaryRecord,
@@ -13,6 +14,7 @@ from latency_meta_mdp.recording import (
     ControlDebugRecord,
     DeploymentRecord,
     EpisodeMetadata,
+    ExpertAuditRecord,
     HandoffState,
     PadContactRecord,
     PhysicalEventKind,
@@ -45,12 +47,14 @@ def _metadata(
         action_contract_id=action_contract_id,
         action_dim=action_dim,
         actuator_dim=actuator_dim,
+        expert_id="panda_ball_feedback_v1",
         record_profile=profile,
         config_sha256={
             "runtime": "1" * 64,
             "task": "2" * 64,
             "motion": "3" * 64,
             "control": "4" * 64,
+            "expert": "5" * 64,
         },
         motion_profile={"schema_version": 1, "type": "cubic_hermite"},
     )
@@ -134,6 +138,17 @@ def _transition(tick: int, *, action_dim: int = 7) -> TransitionRecord:
         target_formal_tick=tick + 1,
         expert_action=np.zeros(action_dim),
         action_mask=np.ones(action_dim, dtype=bool),
+        expert_audit=ExpertAuditRecord(
+            expert_id="panda_ball_feedback_v1",
+            source_physics_step=tick * 10,
+            source_formal_tick=tick,
+            source_time_us=tick * 20_000,
+            phase=ExpertPhase.PREGRASP,
+            history_start_time_us=max(0, tick - 5) * 20_000,
+            history_sample_count=min(tick + 1, 6),
+            target_eef_position_world=np.zeros(3),
+            estimated_object_velocity_world=np.zeros(3),
+        ),
     )
 
 
@@ -237,6 +252,7 @@ def test_deployment_view_excludes_all_raw_privileged_and_audit_fields() -> None:
         "formal_tick_us",
         "action_contract_id",
         "action_dim",
+        "expert_id",
         "boundaries",
         "transitions",
     }
@@ -246,6 +262,7 @@ def test_deployment_view_excludes_all_raw_privileged_and_audit_fields() -> None:
     assert not hasattr(view.boundaries[0], "privileged")
     assert not hasattr(view.boundaries[0], "control_debug")
     assert not hasattr(view.boundaries[0], "outcome_status")
+    assert not hasattr(view.transitions[0], "expert_audit")
 
 
 def test_deployment_view_refuses_an_unvalidated_episode() -> None:
@@ -285,11 +302,12 @@ def test_records_deep_copy_and_freeze_mutable_input() -> None:
         action_contract_id="panda_osc_pose_delta_v1",
         action_dim=7,
         actuator_dim=9,
+        expert_id="panda_ball_feedback_v1",
         record_profile=RecordProfile.SFT,
         config_sha256={
             name: str(index) * 64
             for index, name in enumerate(
-                ("runtime", "task", "motion", "control"), start=1
+                ("runtime", "task", "motion", "control", "expert"), start=1
             )
         },
         motion_profile=profile,
@@ -380,6 +398,24 @@ def test_episode_metadata_rejects_a_mixed_controller_contract() -> None:
     wrong_action = _transition(0, action_dim=8)
     with pytest.raises(ValueError, match="action_dim"):
         wrong_action.validate(metadata)
+
+
+def test_transition_rejects_misaligned_expert_audit_source_time() -> None:
+    metadata = _metadata()
+    transition = _transition(0)
+    invalid = replace(
+        transition,
+        expert_audit=replace(
+            transition.expert_audit,
+            source_physics_step=10,
+            source_formal_tick=1,
+            source_time_us=20_000,
+            history_start_time_us=20_000,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="expert audit source"):
+        invalid.validate(metadata)
 
 
 def test_complete_episode_rejects_impossible_success_event_order() -> None:

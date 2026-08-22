@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from latency_meta_mdp.expert import ExpertPhase
 from latency_meta_mdp.handoff import HandoffState
 from latency_meta_mdp.outcomes import OutcomeStatus, TerminalReason
 
@@ -38,7 +39,7 @@ class PhysicalEventKind(str, Enum):
     FAILURE = "failure"
 
 
-_CONFIG_NAMES = frozenset({"runtime", "task", "motion", "control"})
+_CONFIG_NAMES = frozenset({"runtime", "task", "motion", "control", "expert"})
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _CAMERA_NAMES = frozenset({"agentview", "robot0_eye_in_hand"})
 
@@ -263,6 +264,7 @@ class EpisodeMetadata:
     action_contract_id: str
     action_dim: int
     actuator_dim: int
+    expert_id: str
     record_profile: RecordProfile
     config_sha256: Mapping[str, str]
     motion_profile: Mapping[str, Any]
@@ -294,10 +296,14 @@ class EpisodeMetadata:
             or self.actuator_dim != 9
         ):
             raise ValueError("episode metadata does not match the selected Panda action contract")
+        if self.expert_id != "panda_ball_feedback_v1":
+            raise ValueError("episode metadata does not match the selected scripted expert")
         if not isinstance(self.record_profile, RecordProfile):
             raise TypeError("record_profile must be a RecordProfile")
         if set(self.config_sha256) != _CONFIG_NAMES:
-            raise ValueError("config_sha256 must contain runtime, task, motion, and control")
+            raise ValueError(
+                "config_sha256 must contain runtime, task, motion, control, and expert"
+            )
         if any(_SHA256.fullmatch(value) is None for value in self.config_sha256.values()):
             raise ValueError("config_sha256 values must be lowercase SHA-256 strings")
         if not self.motion_profile:
@@ -357,11 +363,53 @@ class BoundaryRecord:
 
 
 @dataclass(frozen=True)
+class ExpertAuditRecord:
+    expert_id: str
+    source_physics_step: int
+    source_formal_tick: int
+    source_time_us: int
+    phase: ExpertPhase
+    history_start_time_us: int
+    history_sample_count: int
+    target_eef_position_world: np.ndarray
+    estimated_object_velocity_world: np.ndarray
+
+    def __post_init__(self) -> None:
+        if self.expert_id != "panda_ball_feedback_v1":
+            raise ValueError("expert audit identifier is invalid")
+        if (
+            self.source_physics_step < 0
+            or self.source_formal_tick < 0
+            or self.source_time_us < 0
+            or self.source_physics_step != self.source_formal_tick * 10
+            or self.source_time_us != self.source_formal_tick * 20_000
+        ):
+            raise ValueError("expert audit source does not match the formal clock")
+        if not isinstance(self.phase, ExpertPhase):
+            raise TypeError("expert audit phase must be an ExpertPhase")
+        if (
+            self.history_start_time_us < 0
+            or self.history_start_time_us % 20_000
+            or self.history_start_time_us > self.source_time_us
+            or isinstance(self.history_sample_count, bool)
+            or not isinstance(self.history_sample_count, int)
+            or self.history_sample_count <= 0
+            or self.history_sample_count
+            != (self.source_time_us - self.history_start_time_us) // 20_000 + 1
+        ):
+            raise ValueError("expert audit history window is invalid")
+        for name in ("target_eef_position_world", "estimated_object_velocity_world"):
+            value = _readonly_vector(getattr(self, name), name=name, length=3)
+            object.__setattr__(self, name, value)
+
+
+@dataclass(frozen=True)
 class TransitionRecord:
     source_formal_tick: int
     target_formal_tick: int
     expert_action: np.ndarray
     action_mask: np.ndarray
+    expert_audit: ExpertAuditRecord
 
     def __post_init__(self) -> None:
         if self.source_formal_tick < 0 or self.target_formal_tick != self.source_formal_tick + 1:
@@ -375,10 +423,19 @@ class TransitionRecord:
         mask.setflags(write=False)
         object.__setattr__(self, "expert_action", action)
         object.__setattr__(self, "action_mask", mask)
+        if not isinstance(self.expert_audit, ExpertAuditRecord):
+            raise TypeError("expert_audit must be an ExpertAuditRecord")
 
     def validate(self, metadata: EpisodeMetadata) -> None:
         if self.expert_action.shape != (metadata.action_dim,):
             raise ValueError("expert_action does not match metadata action_dim")
+        if (
+            self.expert_audit.expert_id != metadata.expert_id
+            or self.expert_audit.source_formal_tick != self.source_formal_tick
+            or self.expert_audit.source_physics_step != self.source_formal_tick * 10
+            or self.expert_audit.source_time_us != self.source_formal_tick * 20_000
+        ):
+            raise ValueError("expert audit source does not match the transition")
 
 
 @dataclass(frozen=True)
@@ -437,6 +494,14 @@ class DeploymentBoundaryView:
 
 
 @dataclass(frozen=True)
+class DeploymentTransitionView:
+    source_formal_tick: int
+    target_formal_tick: int
+    expert_action: np.ndarray
+    action_mask: np.ndarray
+
+
+@dataclass(frozen=True)
 class DeploymentEpisodeView:
     schema_version: int
     task_id: str
@@ -444,8 +509,9 @@ class DeploymentEpisodeView:
     formal_tick_us: int
     action_contract_id: str
     action_dim: int
+    expert_id: str
     boundaries: tuple[DeploymentBoundaryView, ...]
-    transitions: tuple[TransitionRecord, ...]
+    transitions: tuple[DeploymentTransitionView, ...]
 
 
 @dataclass(frozen=True)
@@ -471,6 +537,7 @@ class SynchronizedEpisode:
             formal_tick_us=self.metadata.formal_tick_us,
             action_contract_id=self.metadata.action_contract_id,
             action_dim=self.metadata.action_dim,
+            expert_id=self.metadata.expert_id,
             boundaries=tuple(
                 DeploymentBoundaryView(
                     formal_tick_index=boundary.formal_tick_index,
@@ -479,7 +546,15 @@ class SynchronizedEpisode:
                 )
                 for boundary in self.boundaries
             ),
-            transitions=tuple(self.transitions),
+            transitions=tuple(
+                DeploymentTransitionView(
+                    source_formal_tick=transition.source_formal_tick,
+                    target_formal_tick=transition.target_formal_tick,
+                    expert_action=transition.expert_action,
+                    action_mask=transition.action_mask,
+                )
+                for transition in self.transitions
+            ),
         )
 
     def validate_complete(self) -> None:
