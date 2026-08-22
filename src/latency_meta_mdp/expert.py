@@ -13,6 +13,7 @@ import yaml
 
 from latency_meta_mdp.control import ActionContract
 from latency_meta_mdp.handoff import HandoffState
+from latency_meta_mdp.outcomes import OutcomeStatus
 from latency_meta_mdp.snapshots import BoundarySnapshot
 
 
@@ -86,6 +87,8 @@ class ExpertConfig:
     pregrasp_tolerance_m: float
     grasp_tolerance_m: float
     lift_offset_m: float
+    max_translation_goal_offset_m: float
+    collection_max_duration_us: int
 
     def __post_init__(self) -> None:
         if self.schema_version != 1 or self.expert_id != "panda_ball_feedback_v1":
@@ -104,10 +107,20 @@ class ExpertConfig:
             "pregrasp_tolerance_m",
             "grasp_tolerance_m",
             "lift_offset_m",
+            "max_translation_goal_offset_m",
         ):
             value = getattr(self, name)
             if not np.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
+        if (
+            isinstance(self.collection_max_duration_us, bool)
+            or not isinstance(self.collection_max_duration_us, int)
+            or self.collection_max_duration_us <= 0
+            or self.collection_max_duration_us % 20_000
+        ):
+            raise ValueError(
+                "collection_max_duration_us must be a positive formal-grid time"
+            )
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any]) -> ExpertConfig:
@@ -121,6 +134,37 @@ def load_expert_config(path: Path) -> ExpertConfig:
     if not isinstance(raw, dict):
         raise ValueError("expert config must be a YAML mapping")
     return ExpertConfig.from_mapping(raw)
+
+
+def is_qualified_expert_episode(
+    *,
+    status: OutcomeStatus,
+    terminal_time_us: int | None,
+    max_duration_us: int,
+) -> bool:
+    """Return whether a successful expert rollout is admissible for collection."""
+
+    if not isinstance(status, OutcomeStatus):
+        raise TypeError("status must be an OutcomeStatus")
+    if (
+        isinstance(max_duration_us, bool)
+        or not isinstance(max_duration_us, int)
+        or max_duration_us <= 0
+        or max_duration_us % 20_000
+    ):
+        raise ValueError("max_duration_us must be a positive formal-grid time")
+    if terminal_time_us is not None and (
+        isinstance(terminal_time_us, bool)
+        or not isinstance(terminal_time_us, int)
+        or terminal_time_us < 0
+        or terminal_time_us % 20_000
+    ):
+        raise ValueError("terminal_time_us must be a non-negative formal-grid time")
+    return bool(
+        status is OutcomeStatus.SUCCESS
+        and terminal_time_us is not None
+        and terminal_time_us < max_duration_us
+    )
 
 
 @dataclass(frozen=True)
@@ -154,6 +198,18 @@ class ScriptedBallExpert:
     def __init__(self, *, action_contract: ActionContract, config: ExpertConfig) -> None:
         if action_contract.contract_id != config.action_contract_id:
             raise ValueError("expert and action contract identifiers do not match")
+        translation_axis_limit = float(
+            np.min(
+                np.minimum(
+                    np.abs(action_contract.arm_output_low[:3]),
+                    np.abs(action_contract.arm_output_high[:3]),
+                )
+            )
+        )
+        if config.max_translation_goal_offset_m > translation_axis_limit:
+            raise ValueError(
+                "expert translation goal offset must fit inside every controller axis"
+            )
         self.action_contract = action_contract
         self.config = config
         self._history: deque[tuple[int, np.ndarray]] = deque(maxlen=config.history_ticks)
@@ -243,6 +299,12 @@ class ScriptedBallExpert:
             gripper = self.action_contract.gripper_close_command
 
         position_error_base = observation.world_to_base_rotation @ (target - eef_position)
+        max_translation_goal_offset_m = self.config.max_translation_goal_offset_m
+        error_norm = float(np.linalg.norm(position_error_base))
+        if error_norm > max_translation_goal_offset_m:
+            position_error_base = position_error_base * (
+                max_translation_goal_offset_m / error_norm
+            )
         normalized_translation = np.clip(
             position_error_base / self.action_contract.arm_output_high[:3],
             self.action_contract.arm_input_low[:3],

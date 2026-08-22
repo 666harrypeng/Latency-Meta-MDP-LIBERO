@@ -7,6 +7,7 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
+import latency_meta_mdp.expert as expert_module
 from latency_meta_mdp.backend import FormalStepExecutor, RoboSuitePlant
 from latency_meta_mdp.control import load_action_contract
 from latency_meta_mdp.expert import (
@@ -225,7 +226,75 @@ def test_expert_rotates_world_position_error_into_the_base_frame() -> None:
         handoff_state=HandoffState.DRIVEN,
     )
 
-    np.testing.assert_allclose(decision.action[:3], [0.0, -1.0, 1.0], atol=0, rtol=0)
+    physical_translation = contract.scale_arm_action(decision.action[:6])[:3]
+    expected_direction = np.array([0.0, -1.0, 0.1])
+    np.testing.assert_allclose(
+        physical_translation,
+        0.03 * expected_direction / np.linalg.norm(expected_direction),
+        atol=1e-12,
+        rtol=0,
+    )
+
+
+def test_expert_caps_translation_goal_offset_by_physical_l2_norm() -> None:
+    contract = load_action_contract(_CONTROL_CONFIG)
+    expert = ScriptedBallExpert(
+        action_contract=contract,
+        config=load_expert_config(_EXPERT_CONFIG),
+    )
+    observation = ExpertObservation(
+        physics_step_index=0,
+        formal_tick_index=0,
+        time_us=0,
+        ball_position_world=np.array([1.0, 1.0, 0.70]),
+        eef_position_world=np.array([0.0, 0.0, 0.80]),
+        world_to_base_rotation=np.eye(3),
+    )
+
+    decision = expert.next_action(
+        observation=observation,
+        handoff_state=HandoffState.DRIVEN,
+    )
+    physical_translation = contract.scale_arm_action(decision.action[:6])[:3]
+
+    assert np.linalg.norm(physical_translation) == pytest.approx(0.03)
+    np.testing.assert_allclose(
+        physical_translation / np.linalg.norm(physical_translation),
+        np.array([1.0, 1.0, 0.0]) / np.sqrt(2.0),
+        atol=1e-12,
+        rtol=0,
+    )
+
+
+def test_expert_collection_requires_success_strictly_before_four_seconds() -> None:
+    config = load_expert_config(_EXPERT_CONFIG)
+
+    assert expert_module.is_qualified_expert_episode(
+        status=OutcomeStatus.SUCCESS,
+        terminal_time_us=3_980_000,
+        max_duration_us=config.collection_max_duration_us,
+    )
+    assert not expert_module.is_qualified_expert_episode(
+        status=OutcomeStatus.SUCCESS,
+        terminal_time_us=4_000_000,
+        max_duration_us=config.collection_max_duration_us,
+    )
+    assert not expert_module.is_qualified_expert_episode(
+        status=OutcomeStatus.FAILURE,
+        terminal_time_us=3_000_000,
+        max_duration_us=config.collection_max_duration_us,
+    )
+
+
+def test_expert_rejects_goal_offset_that_would_restore_axiswise_clipping() -> None:
+    contract = load_action_contract(_CONTROL_CONFIG)
+    config = replace(
+        load_expert_config(_EXPERT_CONFIG),
+        max_translation_goal_offset_m=0.051,
+    )
+
+    with pytest.raises(ValueError, match="translation goal offset"):
+        ScriptedBallExpert(action_contract=contract, config=config)
 
 
 @pytest.mark.parametrize(
@@ -241,6 +310,11 @@ def test_expert_intercepts_dynamic_seeds_before_deadline(level: int, seed: int) 
         assert tracker.status is OutcomeStatus.SUCCESS
         assert tracker.handoff_us is not None
         assert tracker.handoff_us < 3_000_000
+        assert expert_module.is_qualified_expert_episode(
+            status=tracker.status,
+            terminal_time_us=tracker.terminal_time_us,
+            max_duration_us=expert.config.collection_max_duration_us,
+        )
         assert handoff.state is HandoffState.PHYSICAL
         assert expert.phase is ExpertPhase.LIFT
     finally:

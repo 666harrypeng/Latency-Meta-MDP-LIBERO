@@ -7,3 +7,5 @@ pregrasp_height_m: 0.10
 pregrasp_tolerance_m: 0.012
 grasp_tolerance_m: 0.016
 lift_offset_m: 0.16
+max_translation_goal_offset_m: 0.03
+collection_max_duration_us: 4000000
