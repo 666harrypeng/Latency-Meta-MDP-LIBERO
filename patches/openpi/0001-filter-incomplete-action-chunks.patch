@@ -1,0 +1,120 @@
+diff --git a/src/openpi/training/config.py b/src/openpi/training/config.py
+index 4ca47e1..138ccd5 100644
+--- a/src/openpi/training/config.py
++++ b/src/openpi/training/config.py
+@@ -90,6 +90,10 @@ class DataConfig:
+     # If true, will use the LeRobot dataset task to define the prompt.
+     prompt_from_task: bool = False
+ 
++    # Number of source frames to exclude from the end of every LeRobot episode. This is useful
++    # when fixed-horizon action targets must not cross an episode boundary.
++    drop_n_last_frames: int = 0
++
+     # Only used for RLDS data loader (ie currently only used for DROID).
+     rlds_data_dir: str | None = None
+     # Action space for DROID dataset.
+diff --git a/src/openpi/training/data_loader.py b/src/openpi/training/data_loader.py
+index e2ee7dd..d8cfb12 100644
+--- a/src/openpi/training/data_loader.py
++++ b/src/openpi/training/data_loader.py
+@@ -62,6 +62,36 @@ class TransformedDataset(Dataset[T_co]):
+         return len(self._dataset)
+ 
+ 
++class EpisodeTailFilteredDataset(Dataset[T_co]):
++    """Index view that excludes a fixed number of source frames per episode."""
++
++    def __init__(self, dataset: Dataset[T_co], *, drop_n_last_frames: int):
++        if (
++            isinstance(drop_n_last_frames, bool)
++            or not isinstance(drop_n_last_frames, int)
++            or drop_n_last_frames < 0
++        ):
++            raise ValueError("drop_n_last_frames must be a non-negative integer")
++        episode_data_index = typing.cast(typing.Any, dataset).episode_data_index
++        indices: list[int] = []
++        for start, end in zip(
++            episode_data_index["from"], episode_data_index["to"], strict=True
++        ):
++            start_index = int(start.item())
++            end_index = int(end.item())
++            if end_index - start_index <= drop_n_last_frames:
++                raise ValueError("drop_n_last_frames leaves an episode with no valid source frames")
++            indices.extend(range(start_index, end_index - drop_n_last_frames))
++        self._dataset = dataset
++        self._indices = tuple(indices)
++
++    def __getitem__(self, index: SupportsIndex) -> T_co:
++        return self._dataset[self._indices[index.__index__()]]
++
++    def __len__(self) -> int:
++        return len(self._indices)
++
++
+ class IterableTransformedDataset(IterableDataset[T_co]):
+     def __init__(
+         self,
+@@ -145,6 +175,12 @@ def create_torch_dataset(
+         },
+     )
+ 
++    if data_config.drop_n_last_frames:
++        dataset = EpisodeTailFilteredDataset(
++            dataset,
++            drop_n_last_frames=data_config.drop_n_last_frames,
++        )
++
+     if data_config.prompt_from_task:
+         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
+ 
+diff --git a/src/openpi/training/data_loader_test.py b/src/openpi/training/data_loader_test.py
+index d15a735..4b48b2d 100644
+--- a/src/openpi/training/data_loader_test.py
++++ b/src/openpi/training/data_loader_test.py
+@@ -1,12 +1,46 @@
+ import dataclasses
++import typing
+ 
+ import jax
++import pytest
++import torch
+ 
+ from openpi.models import pi0_config
+ from openpi.training import config as _config
+ from openpi.training import data_loader as _data_loader
+ 
+ 
++class _EpisodeIndexedDataset:
++    episode_data_index: typing.ClassVar = {
++        "from": torch.tensor([0, 5]),
++        "to": torch.tensor([5, 9]),
++    }
++
++    def __getitem__(self, index):
++        return int(index)
++
++    def __len__(self):
++        return 9
++
++
++def test_episode_tail_filtered_dataset_drops_source_indices_per_episode():
++    dataset = _data_loader.EpisodeTailFilteredDataset(
++        _EpisodeIndexedDataset(),
++        drop_n_last_frames=2,
++    )
++
++    assert len(dataset) == 5
++    assert [dataset[index] for index in range(len(dataset))] == [0, 1, 2, 5, 6]
++
++
++def test_episode_tail_filtered_dataset_rejects_an_episode_without_a_valid_source():
++    with pytest.raises(ValueError, match="no valid source frames"):
++        _data_loader.EpisodeTailFilteredDataset(
++            _EpisodeIndexedDataset(),
++            drop_n_last_frames=4,
++        )
++
++
+ def test_torch_data_loader():
+     config = pi0_config.Pi0Config(action_dim=24, action_horizon=50, max_token_len=48)
+     dataset = _data_loader.FakeDataset(config, 16)
