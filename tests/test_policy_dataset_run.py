@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+import importlib
+import json
+from pathlib import Path
+
+import pytest
+
+from latency_meta_mdp.artifacts import sha256_file
+from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
+from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.policy_dataset_run import convert_pilot_run_to_lerobot
+from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.sft_profile import load_sft_profile
+
+
+class _FakeLeRobotDataset:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.frames: list[dict] = []
+        (root / "meta").mkdir(parents=True)
+        (root / "meta" / "info.json").write_text("{}\n", encoding="utf-8")
+
+    def add_frame(self, frame: dict) -> None:
+        self.frames.append(frame)
+
+    def save_episode(self) -> None:
+        data_dir = self.root / "data"
+        data_dir.mkdir(exist_ok=True)
+        episode_index = len(list(data_dir.glob("episode_*.txt")))
+        (data_dir / f"episode_{episode_index:06d}.txt").write_text(
+            f"{len(self.frames)}\n",
+            encoding="utf-8",
+        )
+        self.frames = []
+
+
+class _FakeDatasetFactory:
+    def __init__(self) -> None:
+        self.roots: list[Path] = []
+
+    def __call__(self, **kwargs) -> _FakeLeRobotDataset:
+        root = Path(kwargs["root"])
+        self.roots.append(root)
+        return _FakeLeRobotDataset(root)
+
+
+def _write_json(path: Path, value: dict) -> None:
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _source_pilot(tmp_path: Path) -> Path:
+    root = tmp_path / "raw-pilot"
+    rows = []
+    artifacts = {}
+    for level in (1, 2, 3):
+        episode = collect_expert_episode(
+            project_root=Path.cwd(),
+            spec=ExpertEpisodeSpec(
+                episode_id=f"l{level}-seed-000010-attempt-000",
+                level=level,
+                scene_seed=10,
+                motion_seed=10,
+                expert_seed=10,
+                record_profile=RecordProfile.SFT,
+                camera_width=8,
+                camera_height=8,
+            ),
+        )
+        episode_root = root / "episodes" / f"L{level}" / "seed_000010"
+        manifest = write_synchronized_episode_artifact(
+            episode=episode,
+            output_dir=episode_root,
+        )
+        relative_manifest = manifest.relative_to(root).as_posix()
+        artifacts[relative_manifest] = sha256_file(manifest)
+        rows.append(
+            {
+                "episode_id": episode.metadata.episode_id,
+                "level": level,
+                "seed": 10,
+                "boundary_count": len(episode.boundaries),
+                "transition_count": len(episode.transitions),
+                "handoff_time_us": 0,
+                "terminal_time_us": episode.boundaries[-1].time_us,
+                "episode_manifest": relative_manifest,
+                "review_video": f"review/L{level}.mp4",
+            }
+        )
+    source_manifest = root / "manifest.json"
+    _write_json(
+        source_manifest,
+        {
+            "schema_version": 1,
+            "format_id": "expert_pilot_run_v1",
+            "run_id": "test-pilot",
+            "implementation_revision": "1" * 40,
+            "implementation_source_sha256": "2" * 64,
+            "implementation_dirty": False,
+            "record_profile": "sft",
+            "camera_width": 8,
+            "camera_height": 8,
+            "review_video_fps": 50,
+            "episode_count": 3,
+            "episodes": rows,
+            "artifacts": artifacts,
+        },
+    )
+    return source_manifest
+
+
+def test_convert_pilot_run_writes_three_atomic_level_specific_datasets(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_manifest = _source_pilot(tmp_path)
+    profile_path = Path("configs/policy/pi05_panda_ball_full_sft_v1.yaml")
+    profile = load_sft_profile(profile_path)
+    output = tmp_path / "derived"
+    factory = _FakeDatasetFactory()
+
+    manifest_path = convert_pilot_run_to_lerobot(
+        source_manifest=source_manifest,
+        output_dir=output,
+        profile_path=profile_path,
+        dataset_factory=factory,
+    )
+
+    assert manifest_path == output / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["format_id"] == "metamdp_lerobot_pilot_run_v1"
+    assert manifest["source_manifest_sha256"] == sha256_file(source_manifest)
+    assert manifest["sft_profile_sha256"] == sha256_file(profile_path)
+    assert manifest["episode_count"] == 3
+    assert set(row["level"] for row in manifest["datasets"]) == {1, 2, 3}
+    assert len(factory.roots) == 3
+    for row in manifest["datasets"]:
+        level = row["level"]
+        assert row["repo_id"] == profile.levels[level].repo_id
+        assert row["episode_count"] == 1
+        assert row["frame_count"] > row["valid_action_chunk_source_count"]
+        dataset_manifest = output / row["dataset_manifest"]
+        assert dataset_manifest.is_file()
+        assert row["dataset_manifest_sha256"] == sha256_file(dataset_manifest)
+
+    cli = importlib.import_module("latency_meta_mdp.cli.convert_sft_pilot")
+    cli_output = tmp_path / "derived-cli"
+    result = cli.main(
+        [
+            "--source-manifest",
+            str(source_manifest),
+            "--output-dir",
+            str(cli_output),
+            "--profile",
+            str(profile_path),
+        ],
+        dataset_factory=_FakeDatasetFactory(),
+    )
+    assert result == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert Path(printed["manifest"]) == cli_output / "manifest.json"
