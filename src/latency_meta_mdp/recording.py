@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from latency_meta_mdp.handoff import HandoffState
 from latency_meta_mdp.outcomes import OutcomeStatus, TerminalReason
 
 
@@ -26,13 +27,6 @@ class RecordProfile(str, Enum):
     @property
     def includes_control_debug(self) -> bool:
         return self is RecordProfile.PILOT_DEBUG
-
-
-class HandoffState(str, Enum):
-    DRIVEN = "driven"
-    CONTACT_PENDING = "contact_pending"
-    PHYSICAL = "physical"
-    FAILURE = "failure"
 
 
 class PhysicalEventKind(str, Enum):

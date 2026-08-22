@@ -174,6 +174,21 @@ class MotionProfile(Protocol):
     def to_mapping(self) -> dict[str, Any]: ...
 
 
+def motion_sample_to_mapping(
+    sample: MotionSample,
+    *,
+    motion_level: int,
+) -> dict[str, np.ndarray]:
+    return {
+        "motion_level": np.array(motion_level, dtype=np.int64),
+        "motion_terminal": np.array(sample.terminal, dtype=np.bool_),
+        "segment_index": np.array(sample.segment_index, dtype=np.int64),
+        "target_acceleration": sample.acceleration,
+        "target_position": sample.position,
+        "target_velocity": sample.velocity,
+    }
+
+
 @dataclass(frozen=True)
 class DrivenBallWorld:
     """Apply an analytic motion profile to the task object before each MuJoCo ``step1``."""
@@ -193,14 +208,7 @@ class DrivenBallWorld:
         qvel = np.concatenate([sample.velocity, np.zeros(3)])
         env.sim.data.set_joint_qpos(env.task_object.joints[0], qpos)
         env.sim.data.set_joint_qvel(env.task_object.joints[0], qvel)
-        return {
-            "motion_level": np.array(self.motion_level, dtype=np.int64),
-            "motion_terminal": np.array(sample.terminal, dtype=np.bool_),
-            "segment_index": np.array(sample.segment_index, dtype=np.int64),
-            "target_acceleration": sample.acceleration,
-            "target_position": sample.position,
-            "target_velocity": sample.velocity,
-        }
+        return motion_sample_to_mapping(sample, motion_level=self.motion_level)
 
 
 def _sample(

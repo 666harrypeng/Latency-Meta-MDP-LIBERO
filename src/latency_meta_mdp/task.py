@@ -178,6 +178,7 @@ def _make_environment_class() -> type[Any]:
             self.motion_deadline_us: int | None = None
             self.task_failure = False
             self.terminal_reason: str | None = None
+            self.external_outcome_authority: Any | None = None
             super().__init__(
                 robots="Panda",
                 controller_configs=controller,
@@ -261,6 +262,7 @@ def _make_environment_class() -> type[Any]:
             self.motion_deadline_us = None
             self.task_failure = False
             self.terminal_reason = None
+            self.external_outcome_authority = None
             qpos = np.concatenate(
                 [np.asarray(self.task_spec.ball_initial_position), np.array([1.0, 0.0, 0.0, 0.0])]
             )
@@ -294,6 +296,8 @@ def _make_environment_class() -> type[Any]:
                 self.motion_deadline_us = time_us
 
         def evaluate_boundary_terminal(self, time_us: int) -> None:
+            if self.external_outcome_authority is not None:
+                return
             if (
                 self.motion_deadline_us is not None
                 and time_us >= self.motion_deadline_us

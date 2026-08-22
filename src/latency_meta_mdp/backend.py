@@ -112,6 +112,17 @@ class AppliedControlSample:
 ControlObserver = Callable[[AppliedControlSample], None]
 
 
+@dataclass(frozen=True)
+class PreparedPhysicsPoint:
+    physics_step_index: int
+    formal_tick_index: int
+    time_us: int
+    at_formal_boundary: bool
+
+
+PhysicsPointObserver = Callable[[PreparedPhysicsPoint], Mapping[str, Any] | None]
+
+
 class RoboSuitePlant:
     """Narrow adapter around a mounted-Panda RoboSuite environment."""
 
@@ -122,6 +133,7 @@ class RoboSuitePlant:
         snapshotter: BoundarySnapshotter,
         world_writer: WorldWriter | None = None,
         control_observer: ControlObserver | None = None,
+        physics_point_observer: PhysicsPointObserver | None = None,
     ) -> None:
         import mujoco
 
@@ -137,6 +149,7 @@ class RoboSuitePlant:
         self._snapshotter = snapshotter
         self._world_writer = world_writer
         self._control_observer = control_observer
+        self._physics_point_observer = physics_point_observer
         self._commanded_world: Mapping[str, Any] = {}
         self.world_write_count = 0
         self.step1_count = 0
@@ -163,6 +176,22 @@ class RoboSuitePlant:
 
     def step1(self) -> None:
         self._env.sim.step1()
+        if self._physics_point_observer is not None:
+            time_us = round(float(self._env.sim.data.time) * 1_000_000)
+            physics_step_index = time_us // 2_000
+            updates = self._physics_point_observer(
+                PreparedPhysicsPoint(
+                    physics_step_index=physics_step_index,
+                    formal_tick_index=physics_step_index // 10,
+                    time_us=time_us,
+                    at_formal_boundary=physics_step_index % 10 == 0,
+                )
+            )
+            if updates is not None:
+                overlap = set(self._commanded_world) & set(updates)
+                if overlap:
+                    raise ValueError(f"physics observer overwrote world fields: {sorted(overlap)}")
+                self._commanded_world = {**self._commanded_world, **updates}
         self.step1_count += 1
 
     def materialize_boundary(self, ledger: ClockLedger) -> Any:
