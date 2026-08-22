@@ -11,9 +11,10 @@ import numpy as np
 
 from latency_meta_mdp.artifacts import sha256_file
 from latency_meta_mdp.backend import FormalStepExecutor, PreparedPhysicsPoint, RoboSuitePlant
-from latency_meta_mdp.config import load_runtime_config
+from latency_meta_mdp.config import RuntimeConfig, load_runtime_config
 from latency_meta_mdp.control import ActionContract, load_action_contract
 from latency_meta_mdp.expert import (
+    ExpertConfig,
     ExpertDecision,
     ExpertObservation,
     ScriptedBallExpert,
@@ -249,13 +250,29 @@ def _transition_record(decision: ExpertDecision) -> TransitionRecord:
     )
 
 
-def collect_expert_episode(
+@dataclass(frozen=True)
+class ExpertEpisodeRuntime:
+    runtime_config: RuntimeConfig
+    contract: ActionContract
+    expert_config: ExpertConfig
+    env: Any
+    tracker: EpisodeOutcomeTracker
+    handoff: OneWayHandoff
+    event_capture: _PhysicalEventCapture
+    executor: FormalStepExecutor
+    expert: ScriptedBallExpert
+    metadata: EpisodeMetadata
+
+    def close(self) -> None:
+        self.env.close()
+
+
+def build_expert_episode_runtime(
     *,
     project_root: Path,
     spec: ExpertEpisodeSpec,
-) -> SynchronizedEpisode:
-    """Run and validate one synchronized zero-latency expert episode."""
-
+) -> ExpertEpisodeRuntime:
+    """Construct one fresh episode-local runtime without advancing it."""
     root = project_root.resolve()
     paths = {
         "runtime": root / "configs/runtime/robosuite_v1.yaml",
@@ -266,15 +283,15 @@ def collect_expert_episode(
     }
     if any(not path.is_file() for path in paths.values()):
         raise FileNotFoundError("expert collection configuration is incomplete")
-    runtime = load_runtime_config(paths["runtime"])
+    runtime_config = load_runtime_config(paths["runtime"])
     contract: ActionContract = load_action_contract(paths["control"])
     expert_config = load_expert_config(paths["expert"])
     motion_config = load_motion_config(paths["motion"])
     task_spec = load_task_spec(paths["task"])
     if (
-        contract.physics_dt_us != runtime.physics_dt_us
-        or contract.formal_tick_us != runtime.formal_tick_us
-        or runtime.camera_stride_ticks != 1
+        contract.physics_dt_us != runtime_config.physics_dt_us
+        or contract.formal_tick_us != runtime_config.formal_tick_us
+        or runtime_config.camera_stride_ticks != 1
     ):
         raise ValueError("collection configuration does not share one formal clock")
 
@@ -285,8 +302,8 @@ def collect_expert_episode(
         controller_config=contract.to_robosuite_config(),
     )
     criteria = OutcomeCriteria(
-        physics_dt_us=runtime.physics_dt_us,
-        formal_tick_us=runtime.formal_tick_us,
+        physics_dt_us=runtime_config.physics_dt_us,
+        formal_tick_us=runtime_config.formal_tick_us,
         stable_grasp_dwell_us=40_000,
         lift_height_m=task_spec.lift_success_height_m,
         lift_dwell_us=100_000,
@@ -322,8 +339,8 @@ def collect_expert_episode(
             control_observer=handoff.on_control_applied,
         ),
         ledger=ClockLedger(
-            physics_dt_us=runtime.physics_dt_us,
-            formal_tick_us=runtime.formal_tick_us,
+            physics_dt_us=runtime_config.physics_dt_us,
+            formal_tick_us=runtime_config.formal_tick_us,
         ),
     )
     expert = ScriptedBallExpert(action_contract=contract, config=expert_config)
@@ -340,8 +357,8 @@ def collect_expert_episode(
         scene_seed=spec.scene_seed,
         motion_seed=spec.motion_seed,
         expert_seed=spec.expert_seed,
-        physics_dt_us=runtime.physics_dt_us,
-        formal_tick_us=runtime.formal_tick_us,
+        physics_dt_us=runtime_config.physics_dt_us,
+        formal_tick_us=runtime_config.formal_tick_us,
         action_contract_id=contract.contract_id,
         action_dim=contract.action_dim,
         actuator_dim=contract.actuator_dim,
@@ -350,6 +367,37 @@ def collect_expert_episode(
         config_sha256={name: sha256_file(path) for name, path in paths.items()},
         motion_profile=profile.to_mapping(),
     )
+    return ExpertEpisodeRuntime(
+        runtime_config=runtime_config,
+        contract=contract,
+        expert_config=expert_config,
+        env=env,
+        tracker=tracker,
+        handoff=handoff,
+        event_capture=event_capture,
+        executor=executor,
+        expert=expert,
+        metadata=metadata,
+    )
+
+
+def collect_expert_episode(
+    *,
+    project_root: Path,
+    spec: ExpertEpisodeSpec,
+) -> SynchronizedEpisode:
+    """Run and validate one synchronized zero-latency expert episode."""
+
+    episode_runtime = build_expert_episode_runtime(project_root=project_root, spec=spec)
+    runtime = episode_runtime.runtime_config
+    env = episode_runtime.env
+    tracker = episode_runtime.tracker
+    handoff = episode_runtime.handoff
+    event_capture = episode_runtime.event_capture
+    executor = episode_runtime.executor
+    expert = episode_runtime.expert
+    expert_config = episode_runtime.expert_config
+    metadata = episode_runtime.metadata
     boundaries: list[BoundaryRecord] = []
     transitions: list[TransitionRecord] = []
     try:
@@ -405,4 +453,4 @@ def collect_expert_episode(
         episode.validate_complete()
         return episode
     finally:
-        env.close()
+        episode_runtime.close()
