@@ -1,0 +1,8 @@
+schema_version: 1
+calibration_id: panda_endpoint_reachability_v1
+scene_seed: 7
+x_values_m: [-0.16, -0.12, -0.08, -0.04, 0.0, 0.04, 0.08, 0.12, 0.16, 0.20, 0.24]
+y_values_m: [-0.24, -0.20, -0.16, -0.12, -0.08, -0.04, 0.0, 0.04, 0.08, 0.12, 0.16, 0.20, 0.24]
+interior_margin_cells: 1
+camera_size_px: 8
+handoff_deadline_us: 3000000
