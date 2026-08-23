@@ -11,6 +11,7 @@ from latency_meta_mdp.motion import (
     build_motion_profile,
     load_motion_config,
     motion_profile_from_mapping,
+    sample_shared_geometry,
 )
 
 _CONFIG_ROOT = Path("configs/motion")
@@ -30,9 +31,9 @@ def test_motion_configs_are_strict_and_level_specific() -> None:
     assert [config.level for config in configs] == [0, 1, 2, 3]
     assert [config.profile_id for config in configs] == [
         "dynamic_grasp_lift_l0",
-        "dynamic_grasp_lift_l1_v2",
-        "dynamic_grasp_lift_l2_v2",
-        "dynamic_grasp_lift_l3_v2",
+        "dynamic_grasp_lift_l1_v3",
+        "dynamic_grasp_lift_l2_v3",
+        "dynamic_grasp_lift_l3_v3",
     ]
     assert all(config.anchor_time_us % 20_000 == 0 for config in configs)
 
@@ -62,10 +63,10 @@ def test_level1_is_constant_velocity_and_hits_anchor() -> None:
     )
     np.testing.assert_allclose(accelerations, 0.0, atol=0, rtol=0)
     speed = np.linalg.norm(velocities[0, :2])
-    assert config.min_speed_mps <= speed <= config.max_speed_mps
-    np.testing.assert_allclose(
-        samples[-1].position[:2], config.anchor_position_xy, atol=1e-12, rtol=0
-    )
+    chord_length = speed * config.anchor_time_us / 1_000_000
+    assert config.min_chord_length_m < chord_length < config.max_chord_length_m
+    geometry = sample_shared_geometry(config=config, seed=7)
+    np.testing.assert_array_equal(samples[-1].position[:2], geometry.end_xy)
     assert samples[-1].terminal is True
     assert all(config.contains(sample.position[:2]) for sample in samples)
 
@@ -87,10 +88,11 @@ def test_level2_is_smooth_curved_and_bounded() -> None:
         relative = sample.position[:2] - samples[0].position[:2]
         cross_magnitude = abs(chord[0] * relative[1] - chord[1] * relative[0])
         offsets.append(cross_magnitude / chord_length)
-    assert 1e-3 <= max(offsets) <= config.curve_offset_max_m
-    np.testing.assert_allclose(
-        samples[-1].position[:2], config.anchor_position_xy, atol=1e-12, rtol=0
+    assert config.curve_deviation_range_m[0] <= max(offsets) <= (
+        config.curve_deviation_range_m[1]
     )
+    geometry = sample_shared_geometry(config=config, seed=7)
+    np.testing.assert_array_equal(samples[-1].position[:2], geometry.end_xy)
     assert all(config.contains(sample.position[:2]) for sample in samples)
 
 
@@ -111,9 +113,8 @@ def test_level3_has_position_continuity_and_bounded_velocity_jumps() -> None:
         config.max_speed_mps + 1e-12
     )
     assert all(config.contains(sample.position[:2]) for sample in samples)
-    np.testing.assert_allclose(
-        samples[-1].position[:2], config.anchor_position_xy, atol=1e-12, rtol=0
-    )
+    geometry = sample_shared_geometry(config=config, seed=7)
+    np.testing.assert_array_equal(samples[-1].position[:2], geometry.end_xy)
 
 
 def test_profiles_are_seed_deterministic() -> None:
@@ -147,32 +148,22 @@ def test_train_seed_bank_has_both_level2_curve_directions() -> None:
     assert signs.count(1) >= 70
 
 
-def test_train_seed_bank_speed_samples_have_no_boundary_atoms() -> None:
-    for level, upper_scale in ((1, 1.0), (2, 0.65), (3, 0.60)):
-        config = config_for(level)
-        speeds = []
-        for seed in range(1_000, 1_200):
-            profile = build_motion_profile(config=config, seed=seed, workspace_z=0.833)
-            if level == 1:
-                speeds.append(float(np.linalg.norm(profile.velocity_xy)))
-            elif level == 2:
-                duration_s = profile.segment.duration_us / 1_000_000
-                speeds.append(
-                    float(
-                        np.linalg.norm(profile.segment.end_xy - profile.segment.start_xy)
-                        / duration_s
-                    )
-                )
-            else:
-                speeds.extend(
-                    float(
-                        np.linalg.norm(segment.end_xy - segment.start_xy)
-                        / (segment.duration_us / 1_000_000)
-                    )
-                    for segment in profile.segments
-                )
-        upper = config.max_speed_mps * upper_scale
-        assert all(config.min_speed_mps < speed < upper for speed in speeds)
+def test_train_seed_bank_chord_lengths_have_no_boundary_atoms() -> None:
+    config = config_for(1)
+    chord_lengths = []
+    for seed in range(1_000, 1_200):
+        geometry = sample_shared_geometry(config=config, seed=seed)
+        chord_lengths.append(float(np.linalg.norm(geometry.end_xy - geometry.start_xy)))
+
+    assert all(
+        config.min_chord_length_m < length < config.max_chord_length_m
+        for length in chord_lengths
+    )
+    assert all(
+        abs(length - config.min_chord_length_m) > 1e-12
+        and abs(length - config.max_chord_length_m) > 1e-12
+        for length in chord_lengths
+    )
 
 
 @pytest.mark.parametrize("level", [0, 1, 2, 3])
@@ -206,7 +197,7 @@ def test_dynamic_profiles_hold_anchor_after_terminal_deadline(level: int) -> Non
     after_deadline = profile.sample(config.anchor_time_us + 400_000)
     assert at_deadline.terminal is True
     assert after_deadline.terminal is True
-    np.testing.assert_allclose(after_deadline.position[:2], config.anchor_position_xy, atol=1e-12)
+    np.testing.assert_array_equal(after_deadline.position[:2], at_deadline.position[:2])
     np.testing.assert_allclose(after_deadline.velocity, np.zeros(3), atol=0, rtol=0)
     np.testing.assert_allclose(after_deadline.acceleration, np.zeros(3), atol=0, rtol=0)
 
@@ -221,7 +212,7 @@ def test_deserialization_rejects_discontinuous_or_off_grid_segments() -> None:
 
     off_grid = profile.to_mapping()
     off_grid["segments"][0]["duration_us"] += 1
-    with pytest.raises(ValueError, match="20 ms grid"):
+    with pytest.raises(ValueError, match="20 ms formal-grid"):
         motion_profile_from_mapping(off_grid, config=config)
 
 
@@ -230,19 +221,22 @@ def test_deserialization_rejects_out_of_bounds_profile() -> None:
     profile = build_motion_profile(config=config, seed=7, workspace_z=0.833)
     mapping = profile.to_mapping()
     mapping["start_xy"] = [100.0, 100.0]
+    mapping["end_xy"] = (
+        np.asarray(mapping["start_xy"])
+        + np.asarray(mapping["velocity_xy"]) * config.anchor_time_us / 1_000_000
+    ).tolist()
 
     with pytest.raises(ValueError, match="physical contract"):
         motion_profile_from_mapping(mapping, config=config)
 
 
-def test_deserialization_rejects_subminimum_level1_speed() -> None:
+def test_deserialization_rejects_inconsistent_level1_endpoint_velocity() -> None:
     config = config_for(1)
     profile = build_motion_profile(config=config, seed=7, workspace_z=0.833)
     mapping = profile.to_mapping()
-    mapping["start_xy"] = list(config.anchor_position_xy)
-    mapping["velocity_xy"] = [0.0, 0.0]
+    mapping["end_xy"] = mapping["start_xy"]
 
-    with pytest.raises(ValueError, match="minimum speed"):
+    with pytest.raises(ValueError, match="endpoint and velocity"):
         motion_profile_from_mapping(mapping, config=config)
 
 
@@ -251,7 +245,7 @@ def test_motion_config_rejects_nonfinite_scalar(tmp_path: Path) -> None:
     path.write_text(
         (_CONFIG_ROOT / "dynamic_grasp_lift_l1.yaml")
         .read_text()
-        .replace("max_speed_mps: 0.10", "max_speed_mps: .inf")
+        .replace("max_speed_mps: 0.18", "max_speed_mps: .inf")
     )
 
     with pytest.raises(ValueError, match="max_speed_mps must be finite"):

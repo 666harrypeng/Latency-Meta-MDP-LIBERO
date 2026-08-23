@@ -76,13 +76,21 @@ def test_bulk_motion_coverage_passes_all_three_seed_banks(tmp_path: Path) -> Non
     ]
     train = coverage["splits"][0]
     assert train["seed_count"] == 200
-    assert train["levels"][1]["curve_sign_counts"] == {"negative": 110, "positive": 90}
-    assert train["levels"][2]["segment_count_counts"] == {"2": 102, "3": 98}
+    assert train["shared_geometry_matches_across_levels"] is True
+    level2 = train["levels"][1]
+    assert level2["curve_sign_counts"]["negative"] >= 70
+    assert level2["curve_sign_counts"]["positive"] >= 70
+    assert level2["cubic_degree_counts"] == {"3": 200}
+    level3 = train["levels"][2]
+    assert 120 <= level3["segment_count_counts"]["2"] <= 180
+    assert 20 <= level3["segment_count_counts"]["3"] <= 80
+    assert level3["segment_kind_counts"]["line"] > 0
+    assert level3["segment_kind_counts"]["cubic"] > 0
     assert all(
-        level["speed_boundary_hit_count"] == 0
+        level["chord_boundary_hit_count"] == 0
         for split in coverage["splits"]
         for level in split["levels"]
     )
 
-    assert coverage["format_id"] == "panda_ball_bulk_motion_coverage_v1"
+    assert coverage["format_id"] == "panda_ball_bulk_motion_coverage_v2"
     assert coverage["eligible"] is (not coverage["implementation_dirty"])

@@ -13,7 +13,14 @@ import numpy as np
 
 from latency_meta_mdp.artifacts import collect_implementation_provenance, sha256_file
 from latency_meta_mdp.bulk_plan import BulkCollectionPlan, SeedBank, load_bulk_collection_plan
-from latency_meta_mdp.motion import MotionConfig, build_motion_profile, load_motion_config
+from latency_meta_mdp.motion import (
+    CubicPolynomialProfile,
+    MotionConfig,
+    PiecewisePolynomialProfile,
+    build_motion_profile,
+    load_motion_config,
+    sample_shared_geometry,
+)
 from latency_meta_mdp.task import load_task_spec
 
 
@@ -31,20 +38,47 @@ def _level_coverage(
     seeds: tuple[int, ...],
     workspace_z: float,
 ) -> dict[str, Any]:
-    speeds: list[float] = []
     quadrants: Counter[int] = Counter()
     curve_signs: Counter[str] = Counter()
     segment_counts: Counter[int] = Counter()
+    segment_kinds: Counter[str] = Counter()
+    cubic_degrees: Counter[int] = Counter()
+    chord_lengths: list[float] = []
+    path_lengths: list[float] = []
+    deviations: list[float] = []
+    peak_speeds: list[float] = []
+    peak_accelerations: list[float] = []
     jumps: list[float] = []
-    upper_scale = {1: 1.0, 2: 0.65, 3: 0.60}[config.level]
-    speed_upper = config.max_speed_mps * upper_scale
+    turn_angles: list[float] = []
+    change_times: list[float] = []
 
     for seed in seeds:
         profile = build_motion_profile(config=config, seed=seed, workspace_z=workspace_z)
-        start = profile.sample(0).position[:2]
+        samples = [
+            profile.sample(time_us)
+            for time_us in range(0, config.anchor_time_us + 1, 20_000)
+        ]
+        positions = np.stack([sample.position[:2] for sample in samples])
+        speeds = np.array([np.linalg.norm(sample.velocity[:2]) for sample in samples])
+        accelerations = np.array(
+            [np.linalg.norm(sample.acceleration[:2]) for sample in samples]
+        )
+        start = positions[0]
         midpoint = profile.sample(config.anchor_time_us // 2).position[:2]
-        end = profile.sample(config.anchor_time_us).position[:2]
+        end = positions[-1]
         chord = end - start
+        chord_length = float(np.linalg.norm(chord))
+        path_length = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
+        relative = positions - start
+        deviation = float(
+            np.max(np.abs(chord[0] * relative[:, 1] - chord[1] * relative[:, 0]))
+            / chord_length
+        )
+        chord_lengths.append(chord_length)
+        path_lengths.append(path_length)
+        deviations.append(deviation)
+        peak_speeds.append(float(speeds.max()))
+        peak_accelerations.append(float(accelerations.max()))
         angle = float(np.arctan2(chord[1], chord[0])) % (2.0 * np.pi)
         quadrants[int(angle // (np.pi / 2.0))] += 1
         deviation = midpoint - 0.5 * (start + end)
@@ -52,53 +86,75 @@ def _level_coverage(
         if abs(signed_curve) > 1e-12:
             curve_signs["positive" if signed_curve > 0.0 else "negative"] += 1
 
-        if config.level == 1:
-            speeds.append(float(np.linalg.norm(profile.velocity_xy)))
-        elif config.level == 2:
-            duration_s = profile.segment.duration_us / 1_000_000
-            speeds.append(
-                float(
-                    np.linalg.norm(profile.segment.end_xy - profile.segment.start_xy)
-                    / duration_s
-                )
+        if isinstance(profile, CubicPolynomialProfile):
+            degree = max(
+                index
+                for index, coefficient in enumerate(profile.coefficients_xy)
+                if np.linalg.norm(coefficient) > 1e-12
             )
-        else:
+            cubic_degrees[degree] += 1
+        elif isinstance(profile, PiecewisePolynomialProfile):
             segment_counts[profile.segment_count] += 1
-            for segment in profile.segments:
-                duration_s = segment.duration_us / 1_000_000
-                speeds.append(
-                    float(np.linalg.norm(segment.end_xy - segment.start_xy) / duration_s)
+            segment_kinds.update(segment.kind for segment in profile.segments)
+            change_times.extend(time_us / 1_000_000 for time_us in profile.change_times_us)
+            for left, right in zip(profile.segments, profile.segments[1:]):
+                jumps.append(
+                    float(np.linalg.norm(right.start_velocity_xy - left.end_velocity_xy))
                 )
-            jumps.extend(
-                float(np.linalg.norm(right.start_velocity_xy - left.end_velocity_xy))
-                for left, right in zip(profile.segments, profile.segments[1:])
-            )
+                cosine = np.clip(
+                    np.dot(left.end_velocity_xy, right.start_velocity_xy)
+                    / (
+                        np.linalg.norm(left.end_velocity_xy)
+                        * np.linalg.norm(right.start_velocity_xy)
+                    ),
+                    -1.0,
+                    1.0,
+                )
+                turn_angles.append(float(np.degrees(np.arccos(cosine))))
 
-    speed_boundary_hits = sum(
-        abs(speed - config.min_speed_mps) <= 1e-12
-        or abs(speed - speed_upper) <= 1e-12
-        for speed in speeds
+    if config.min_chord_length_m is None or config.max_chord_length_m is None:
+        raise ValueError("dynamic chord bounds are missing")
+    chord_boundary_hits = sum(
+        abs(length - config.min_chord_length_m) <= 1e-12
+        or abs(length - config.max_chord_length_m) <= 1e-12
+        for length in chord_lengths
     )
     quadrants_complete = set(quadrants) == {0, 1, 2, 3}
     signs_complete = config.level == 1 or set(curve_signs) == {"negative", "positive"}
     segments_complete = config.level != 3 or set(segment_counts) == {2, 3}
+    kinds_complete = config.level != 3 or set(segment_kinds) == {"line", "cubic"}
+    degrees_complete = config.level != 2 or cubic_degrees == {3: len(seeds)}
     jumps_valid = config.level != 3 or all(
         config.velocity_jump_range_mps[0]
         <= jump
         <= config.velocity_jump_range_mps[1]
         for jump in jumps
     )
+    turns_valid = config.level != 3 or all(
+        config.turn_angle_degrees_range[0]
+        <= angle
+        <= config.turn_angle_degrees_range[1]
+        for angle in turn_angles
+    )
     passed = bool(
-        speed_boundary_hits == 0
+        chord_boundary_hits == 0
         and quadrants_complete
         and signs_complete
         and segments_complete
+        and kinds_complete
+        and degrees_complete
         and jumps_valid
+        and turns_valid
     )
     return {
         "level": config.level,
         "profile_id": config.profile_id,
         "passed": passed,
+        "chord_length_quantiles_m": _quantiles(chord_lengths),
+        "path_length_quantiles_m": _quantiles(path_lengths),
+        "maximum_deviation_quantiles_m": _quantiles(deviations),
+        "peak_speed_quantiles_mps": _quantiles(peak_speeds),
+        "peak_acceleration_quantiles_mps2": _quantiles(peak_accelerations),
         "quadrant_counts": {str(index): quadrants[index] for index in range(4)},
         "curve_sign_counts": {
             "negative": curve_signs["negative"],
@@ -108,10 +164,17 @@ def _level_coverage(
             "2": segment_counts[2],
             "3": segment_counts[3],
         },
-        "speed_sample_count": len(speeds),
-        "speed_quantiles_mps": _quantiles(speeds),
-        "speed_boundary_hit_count": speed_boundary_hits,
+        "segment_kind_counts": {
+            "line": segment_kinds["line"],
+            "cubic": segment_kinds["cubic"],
+        },
+        "cubic_degree_counts": {
+            str(degree): count for degree, count in sorted(cubic_degrees.items()) if count
+        },
+        "chord_boundary_hit_count": chord_boundary_hits,
         "velocity_jump_quantiles_mps": _quantiles(jumps) if jumps else None,
+        "turn_angle_quantiles_degrees": _quantiles(turn_angles) if turn_angles else None,
+        "change_time_quantiles_seconds": _quantiles(change_times) if change_times else None,
     }
 
 
@@ -146,6 +209,20 @@ def build_bulk_motion_coverage(
     )
     splits = []
     for name, bank in split_banks:
+        shared_geometry_matches = all(
+            all(
+                np.array_equal(geometry.start_xy, geometries[0].start_xy)
+                and np.array_equal(geometry.end_xy, geometries[0].end_xy)
+                for geometry in geometries[1:]
+            )
+            for geometries in (
+                tuple(
+                    sample_shared_geometry(config=configs[level], seed=seed)
+                    for level in plan.levels
+                )
+                for seed in bank.seeds
+            )
+        )
         levels = [
             _level_coverage(
                 config=configs[level],
@@ -161,12 +238,15 @@ def build_bulk_motion_coverage(
                 "seed_count": bank.count,
                 "collect_expert": bank.collect_expert,
                 "levels": levels,
-                "passed": all(level["passed"] for level in levels),
+                "shared_geometry_matches_across_levels": shared_geometry_matches,
+                "passed": shared_geometry_matches and all(
+                    level["passed"] for level in levels
+                ),
             }
         )
     return {
         "schema_version": 1,
-        "format_id": "panda_ball_bulk_motion_coverage_v1",
+        "format_id": "panda_ball_bulk_motion_coverage_v2",
         "collection_id": plan.collection_id,
         "motion_configs": config_rows,
         "splits": splits,

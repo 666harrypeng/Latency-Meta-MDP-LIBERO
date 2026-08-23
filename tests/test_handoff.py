@@ -100,6 +100,7 @@ def test_stable_contact_commits_one_boundary_handoff_and_preserves_twist() -> No
         )
         profile = ConstantVelocityProfile(
             start_xy=grip_position[:2],
+            end_xy=grip_position[:2] + np.array([0.003, 0.0]),
             velocity_xy=np.array([0.001, 0.0]),
             anchor_time_us=3_000_000,
             workspace_z=float(grip_position[2]),
