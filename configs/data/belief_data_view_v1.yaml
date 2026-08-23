@@ -1,0 +1,6 @@
+schema_version: 1
+view_id: belief_data_view_v1
+history_ticks: 6
+buffer_protocol_status: unbound
+target_representation_status: model_neutral_raw
+action_chunk_alignment_status: unbound
