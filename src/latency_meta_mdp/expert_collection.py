@@ -383,12 +383,12 @@ def build_expert_episode_runtime(
     )
 
 
-def collect_expert_episode(
+def run_expert_episode_attempt(
     *,
     project_root: Path,
     spec: ExpertEpisodeSpec,
 ) -> SynchronizedEpisode:
-    """Run and validate one synchronized zero-latency expert episode."""
+    """Run one terminal synchronized attempt without hiding ordinary task failure."""
 
     episode_runtime = build_expert_episode_runtime(project_root=project_root, spec=spec)
     runtime = episode_runtime.runtime_config
@@ -436,13 +436,11 @@ def collect_expert_episode(
             )
             if tracker.status is not OutcomeStatus.RUNNING:
                 break
-        if not is_qualified_expert_episode(
-            status=tracker.status,
-            terminal_time_us=tracker.terminal_time_us,
-            max_duration_us=expert_config.collection_max_duration_us,
-        ):
-            raise RuntimeError("expert attempt did not satisfy collection qualification")
-        if tracker.terminal_reason is None:
+        if tracker.status is OutcomeStatus.RUNNING:
+            raise RuntimeError(
+                "expert attempt exhausted its collection budget without terminal state"
+            )
+        if tracker.terminal_reason is None or tracker.terminal_time_us is None:
             raise RuntimeError("terminal expert attempt is missing its reason")
         episode = SynchronizedEpisode(
             metadata=metadata,
@@ -456,3 +454,24 @@ def collect_expert_episode(
         return episode
     finally:
         episode_runtime.close()
+
+
+def collect_expert_episode(
+    *,
+    project_root: Path,
+    spec: ExpertEpisodeSpec,
+) -> SynchronizedEpisode:
+    """Run one attempt and admit only a qualified expert success."""
+
+    episode = run_expert_episode_attempt(project_root=project_root, spec=spec)
+    expert_config = load_expert_config(
+        project_root.resolve() / "configs/expert/panda_ball_feedback_v1.yaml"
+    )
+    terminal_time_us = episode.boundaries[-1].time_us
+    if not is_qualified_expert_episode(
+        status=episode.terminal_status,
+        terminal_time_us=terminal_time_us,
+        max_duration_us=expert_config.collection_max_duration_us,
+    ):
+        raise RuntimeError("expert attempt did not satisfy collection qualification")
+    return episode

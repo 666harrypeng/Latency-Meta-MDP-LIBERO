@@ -47,6 +47,7 @@ class BulkCollectionPlan:
     first_tranche_count: int
     minimum_first_attempt_success_rate: float
     review_video_count_per_level: int
+    review_video_fps: int
     train: SeedBank
     development: SeedBank
     test: SeedBank
@@ -67,6 +68,7 @@ class BulkCollectionPlan:
             "camera_height",
             "first_tranche_count",
             "review_video_count_per_level",
+            "review_video_fps",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -108,6 +110,7 @@ def load_bulk_collection_plan(path: Path) -> BulkCollectionPlan:
         "first_tranche_count",
         "minimum_first_attempt_success_rate",
         "review_video_count_per_level",
+        "review_video_fps",
         "seed_banks",
     }
     if not isinstance(raw, dict) or set(raw) != expected:

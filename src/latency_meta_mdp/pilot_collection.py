@@ -6,18 +6,17 @@ import json
 import os
 import re
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import yaml
 
 from latency_meta_mdp.artifacts import collect_implementation_provenance, sha256_file
 from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
 from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
 from latency_meta_mdp.recording import PhysicalEventKind, RecordProfile, SynchronizedEpisode
+from latency_meta_mdp.review_video import write_review_video
 
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -91,64 +90,6 @@ def _write_json(path: Path, value: Any) -> None:
         os.fsync(handle.fileno())
 
 
-def _write_review_video(
-    *,
-    episode: SynchronizedEpisode,
-    output_path: Path,
-    fps: int,
-) -> None:
-    height, width, channels = episode.boundaries[0].deployment.images[
-        "agentview"
-    ].rgb.shape
-    if channels != 3:
-        raise ValueError("review video requires RGB policy cameras")
-    process = subprocess.Popen(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-n",
-            "-f",
-            "rawvideo",
-            "-pixel_format",
-            "rgb24",
-            "-video_size",
-            f"{width * 2}x{height}",
-            "-framerate",
-            str(fps),
-            "-i",
-            "-",
-            "-an",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
-            "-pix_fmt",
-            "yuv420p",
-            str(output_path),
-        ],
-        stdin=subprocess.PIPE,
-    )
-    if process.stdin is None:
-        raise RuntimeError("ffmpeg did not create its review-video input pipe")
-    try:
-        for boundary in episode.boundaries:
-            agent = boundary.deployment.images["agentview"].rgb
-            wrist = boundary.deployment.images["robot0_eye_in_hand"].rgb
-            if agent.shape != (height, width, 3) or wrist.shape != (height, width, 3):
-                raise ValueError("review video cameras changed shape within one episode")
-            process.stdin.write(np.concatenate([agent, wrist], axis=1).tobytes())
-    finally:
-        process.stdin.close()
-    return_code = process.wait()
-    if return_code:
-        output_path.unlink(missing_ok=True)
-        raise RuntimeError(f"ffmpeg review-video encoding failed with exit code {return_code}")
-
-
 def _event_time(episode: SynchronizedEpisode, kind: PhysicalEventKind) -> int:
     matches = [event.time_us for event in episode.physical_events if event.kind is kind]
     if len(matches) != 1:
@@ -203,7 +144,7 @@ def collect_expert_pilot_run(
                 )
                 review_path = staging / "review" / f"L{level}_seed_{seed:06d}.mp4"
                 review_path.parent.mkdir(parents=True, exist_ok=True)
-                _write_review_video(
+                write_review_video(
                     episode=episode,
                     output_path=review_path,
                     fps=spec.review_video_fps,

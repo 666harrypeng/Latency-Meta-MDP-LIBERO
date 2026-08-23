@@ -29,6 +29,8 @@ def test_bulk_plan_locks_level_specific_train_and_evaluation_seed_banks() -> Non
     assert plan.excluded_pilot_seeds == (10, 11, 12)
     assert plan.first_tranche_count == 25
     assert plan.minimum_first_attempt_success_rate == 0.98
+    assert plan.review_video_count_per_level == 3
+    assert plan.review_video_fps == 50
     assert plan.same_master_seeds_across_levels is True
 
 

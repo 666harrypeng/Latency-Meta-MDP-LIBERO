@@ -9,6 +9,7 @@ excluded_pilot_seeds: [10, 11, 12]
 first_tranche_count: 25
 minimum_first_attempt_success_rate: 0.98
 review_video_count_per_level: 3
+review_video_fps: 50
 seed_banks:
   train:
     start: 1000

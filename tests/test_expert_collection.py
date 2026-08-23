@@ -11,6 +11,69 @@ from latency_meta_mdp.outcomes import OutcomeStatus
 from latency_meta_mdp.recording import RecordProfile
 
 
+def test_run_expert_episode_attempt_preserves_a_terminal_task_failure(monkeypatch) -> None:
+    from dataclasses import replace
+
+    from latency_meta_mdp.expert import ExpertDecision, ExpertPhase
+    from latency_meta_mdp.expert_collection import (
+        ExpertEpisodeSpec,
+        build_expert_episode_runtime,
+        run_expert_episode_attempt,
+    )
+    from latency_meta_mdp.outcomes import OutcomeStatus, TerminalReason
+
+    class HoldOpenExpert:
+        def __init__(self, action) -> None:
+            self._action = action
+
+        def next_action(self, *, observation, handoff_state):
+            del handoff_state
+            return ExpertDecision(
+                source_physics_step=observation.physics_step_index,
+                source_formal_tick=observation.formal_tick_index,
+                source_time_us=observation.time_us,
+                history_start_time_us=observation.time_us,
+                history_sample_count=1,
+                action=self._action,
+                phase=ExpertPhase.PREGRASP,
+                target_eef_position=observation.eef_position_world,
+                estimated_object_velocity=np.zeros(3),
+            )
+
+    original_builder = build_expert_episode_runtime
+
+    def build_failure_runtime(*, project_root, spec):
+        runtime = original_builder(project_root=project_root, spec=spec)
+        action = runtime.contract.compose_action(
+            arm_reference=np.zeros(6),
+            gripper_command=runtime.contract.gripper_open_command,
+        )
+        return replace(runtime, expert=HoldOpenExpert(action))
+
+    monkeypatch.setattr(
+        "latency_meta_mdp.expert_collection.build_expert_episode_runtime",
+        build_failure_runtime,
+    )
+    episode = run_expert_episode_attempt(
+        project_root=Path.cwd(),
+        spec=ExpertEpisodeSpec(
+            episode_id="l1-seed-000010-failure-attempt",
+            level=1,
+            scene_seed=10,
+            motion_seed=10,
+            expert_seed=10,
+            record_profile=RecordProfile.BELIEF,
+            camera_width=8,
+            camera_height=8,
+        ),
+    )
+
+    assert episode.terminal_status is OutcomeStatus.FAILURE
+    assert episode.terminal_reason is TerminalReason.GRASP_DEADLINE_MISSED
+    assert episode.boundaries[-1].time_us == 3_000_000
+    episode.validate_complete()
+
+
 def test_collect_expert_episode_builds_one_complete_synchronized_pilot() -> None:
     collection = importlib.import_module("latency_meta_mdp.expert_collection")
     spec = collection.ExpertEpisodeSpec(
