@@ -115,7 +115,7 @@ def test_convert_pilot_run_writes_three_atomic_level_specific_datasets(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     source_manifest = _source_pilot(tmp_path)
-    profile_path = Path("configs/policy/pi05_panda_ball_full_sft_v1.yaml")
+    profile_path = Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
     profile = load_sft_profile(profile_path)
     output = tmp_path / "derived"
     factory = _FakeDatasetFactory()
@@ -166,13 +166,13 @@ def test_convert_pilot_run_writes_three_atomic_level_specific_datasets(
         return {
             "metadata_fps": 50,
             "episode_count": 1,
-            "frame_count": expected + 15,
+            "frame_count": expected + 49,
             "source_count": expected,
             "norm_source_count": expected,
             "norm_batch_sizes": [expected],
             "no_action_padding": True,
             "train_state_shape": [4, 32],
-            "train_action_shape": [4, 16, 32],
+            "train_action_shape": [4, 50, 32],
         }
 
     certification_dir = tmp_path / "certification"

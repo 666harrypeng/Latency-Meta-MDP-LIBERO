@@ -48,12 +48,14 @@ def test_checked_in_belief_data_view_config_is_valid() -> None:
     from latency_meta_mdp.belief_data_artifact import load_belief_data_view_config
 
     config = load_belief_data_view_config(
-        Path("configs/data/belief_data_view_v1.yaml")
+        Path("configs/data/belief_data_view_h50_v2.yaml")
     )
 
-    assert config.view_id == "belief_data_view_v1"
+    assert config.view_id == "belief_data_view_h50_v2"
     assert config.history_ticks == 6
-    assert config.buffer_protocol_status == "unbound"
+    assert config.temporal_contract.contract_id == "h50_e25_d20_k6_v1"
+    assert config.buffer_protocol_status == "sharp_teacher_buffer_bound"
+    assert config.action_chunk_alignment_status == "return_time"
 
 
 def test_belief_data_certification_is_atomic_and_preserves_open_design_items(
@@ -67,21 +69,24 @@ def test_belief_data_certification_is_atomic_and_preserves_open_design_items(
     result = certify_belief_data_contract(
         project_root=Path.cwd(),
         source_bulk_manifest=source_manifest,
-        view_config_path=Path("configs/data/belief_data_view_v1.yaml"),
+        view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
         latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
         output_dir=output,
     )
 
     report = json.loads(result.read_text(encoding="utf-8"))
-    assert report["format_id"] == "belief_raw_index_certification_v1"
+    assert report["format_id"] == "belief_raw_index_certification_v2"
     assert report["raw_index_ready"]
+    assert report["teacher_buffer_ready"]
     assert report["eligible"] is (not report["implementation_dirty"])
     assert not report["belief_training_ready"]
     assert report["open_design_items"] == [
-        "action_buffer_protocol",
         "belief_target_representation",
-        "action_chunk_alignment",
+        "belief_action_policy_interface",
     ]
+    assert report["temporal_contract_id"] == "h50_e25_d20_k6_v1"
+    assert report["prediction_horizon"] == 50
+    assert report["launch_trigger_horizon"] == 25
     assert report["latency_condition_dim"] == 20
     assert report["history_sample_count"] == 6
     assert report["history_span_ms"] == 100
@@ -94,7 +99,7 @@ def test_belief_data_certification_is_atomic_and_preserves_open_design_items(
         certify_belief_data_contract(
             project_root=Path.cwd(),
             source_bulk_manifest=source_manifest,
-            view_config_path=Path("configs/data/belief_data_view_v1.yaml"),
+            view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
             latency_law_path=Path(
                 "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
             ),

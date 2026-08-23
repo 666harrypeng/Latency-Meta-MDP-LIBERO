@@ -13,6 +13,7 @@ import yaml
 
 from latency_meta_mdp.control import ActionContract
 from latency_meta_mdp.latency_harness import Arrival, LaunchContext, LogicalLatencyHarness
+from latency_meta_mdp.temporal_contract import TemporalContract, load_temporal_contract
 
 TObservation = TypeVar("TObservation")
 
@@ -21,45 +22,54 @@ TObservation = TypeVar("TObservation")
 class ActionChunkClientConfig:
     schema_version: int
     protocol_id: str
-    prediction_horizon: int
-    execution_horizon: int
+    temporal_contract: TemporalContract
     bootstrap_mode: str
     handoff_strategy: str
     arrival_write_mode: str
+    chunk_alignment: str
     max_pending_requests: int
     starvation_action: str
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1 or self.protocol_id != "sharp_action_chunk_v1":
+        if self.schema_version != 2 or self.protocol_id != "sharp_return_time_chunk_v2":
             raise ValueError("unsupported action-chunk client schema or protocol")
-        for name in ("prediction_horizon", "execution_horizon"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise TypeError(f"{name} must be an integer")
-            if value <= 0:
-                raise ValueError(f"{name} must be positive")
-        if self.execution_horizon > self.prediction_horizon:
-            raise ValueError("execution_horizon cannot exceed prediction_horizon")
+        if not isinstance(self.temporal_contract, TemporalContract):
+            raise TypeError("temporal_contract must be a TemporalContract")
         if self.bootstrap_mode != "warm_start":
             raise ValueError("only warm_start bootstrap is supported")
         if self.handoff_strategy != "sharp_replace":
             raise ValueError("only sharp_replace handoff is supported")
         if self.arrival_write_mode != "from_arrival":
             raise ValueError("only from_arrival chunk writes are supported")
+        if self.chunk_alignment != "return_time":
+            raise ValueError("only return_time chunk alignment is supported")
         if self.max_pending_requests != 1:
             raise ValueError("the client supports exactly one pending request")
         if self.starvation_action != "hold":
             raise ValueError("only explicit hold starvation is supported")
 
     @property
+    def prediction_horizon(self) -> int:
+        return self.temporal_contract.prediction_horizon
+
+    @property
+    def launch_trigger_horizon(self) -> int:
+        return self.temporal_contract.launch_trigger_horizon
+
+    @property
     def guaranteed_delay_ticks(self) -> int:
-        return self.prediction_horizon - self.execution_horizon
+        return self.temporal_contract.remaining_buffer_coverage
 
 
 def load_action_chunk_client_config(path: Path) -> ActionChunkClientConfig:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or set(raw) != set(ActionChunkClientConfig.__dataclass_fields__):
         raise ValueError("action-chunk client config fields are invalid")
+    temporal_path = raw["temporal_contract"]
+    if not isinstance(temporal_path, str) or not temporal_path:
+        raise ValueError("temporal_contract must be a non-empty relative path")
+    resolved_temporal_path = (path.parent / temporal_path).resolve()
+    raw["temporal_contract"] = load_temporal_contract(resolved_temporal_path)
     return ActionChunkClientConfig(**raw)
 
 
@@ -150,7 +160,7 @@ class BootstrapRecord:
     wall_duration_ns: int
 
     def __post_init__(self) -> None:
-        if self.protocol_id != "sharp_action_chunk_v1":
+        if self.protocol_id != "sharp_return_time_chunk_v2":
             raise ValueError("bootstrap record protocol is invalid")
         for name in (
             "installed_chunk_id",
@@ -181,6 +191,8 @@ class SharpActionChunkClient(Generic[TObservation]):
     ) -> None:
         if action_contract.formal_tick_us != harness.formal_tick_us:
             raise ValueError("chunk client and harness must share one formal clock")
+        if config.temporal_contract.formal_tick_us != harness.formal_tick_us:
+            raise ValueError("client config and harness must share one formal clock")
         if not callable(simulation_time_reader) or not callable(monotonic_ns):
             raise TypeError("client clocks must be callable")
         self.action_contract = action_contract
@@ -415,7 +427,7 @@ class SharpActionChunkClient(Generic[TObservation]):
             if (
                 not arrived_this_boundary
                 and not self.harness.pending
-                and self._actions_consumed >= self.config.execution_horizon
+                and self._actions_consumed >= self.config.launch_trigger_horizon
             ):
                 immediate = self.harness.launch(observation=observation, infer=infer)
                 if immediate is not None:

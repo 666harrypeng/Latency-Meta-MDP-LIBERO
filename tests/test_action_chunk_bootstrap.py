@@ -11,7 +11,7 @@ from latency_meta_mdp.control import load_action_contract
 from latency_meta_mdp.latency_harness import FixedDelaySampler, LogicalLatencyHarness
 
 _CONTROL_CONFIG = Path("configs/control/panda_osc_pose_delta_v1.yaml")
-_CLIENT_CONFIG = Path("configs/client/sharp_chunk_h16_e8_v1.yaml")
+_CLIENT_CONFIG = Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
 
 
 class _SimulationClock:
@@ -27,8 +27,8 @@ def _module():
 
 
 def _chunk() -> np.ndarray:
-    result = np.zeros((16, 7), dtype=float)
-    result[:, 0] = np.arange(16) / 100
+    result = np.zeros((50, 7), dtype=float)
+    result[:, 0] = np.arange(50) / 100
     result[:, -1] = -1.0
     return result
 
@@ -68,7 +68,7 @@ def test_warm_bootstrap_installs_chunk_while_simulation_remains_at_zero() -> Non
     assert record.wall_end_ns == 180
     assert record.wall_duration_ns == 80
     assert record.installed_chunk_id == 0
-    assert record.protocol_id == "sharp_action_chunk_v1"
+    assert record.protocol_id == "sharp_return_time_chunk_v2"
     assert client.active_cursor == 0
     assert client.actions_consumed_since_activation == 0
     assert [event.kind for event in client.chunk_events] == [
@@ -102,7 +102,7 @@ def test_malformed_bootstrap_chunk_leaves_no_partial_active_state() -> None:
     with pytest.raises(ValueError, match="shape"):
         client.bootstrap(
             observation="initial",
-            infer=lambda observation: np.zeros((15, 7)),
+            infer=lambda observation: np.zeros((49, 7)),
         )
 
     assert client.active_actions is None

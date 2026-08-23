@@ -10,9 +10,16 @@ from typing import Any
 import numpy as np
 
 from latency_meta_mdp.artifacts import sha256_file
+from latency_meta_mdp.temporal_contract import load_temporal_contract
 
 FORMAL_TICK_US = 20_000
-ACTION_HORIZON = 16
+_TEMPORAL_CONTRACT = load_temporal_contract(
+    Path(__file__).resolve().parents[2]
+    / "configs/temporal/h50_e25_d20_k6_v1.yaml"
+)
+ACTION_HORIZON = _TEMPORAL_CONTRACT.prediction_horizon
+LAUNCH_TRIGGER_HORIZON = _TEMPORAL_CONTRACT.launch_trigger_horizon
+TEMPORAL_CONTRACT_ID = _TEMPORAL_CONTRACT.contract_id
 POLICY_STATE_DIM = 8
 ACTION_DIM = 7
 ACTION_CONTRACT_ID = "panda_osc_pose_delta_v1"

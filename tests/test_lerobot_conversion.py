@@ -10,7 +10,7 @@ from latency_meta_mdp.lerobot_conversion import write_lerobot_policy_dataset
 from latency_meta_mdp.policy_data import ACTION_DIM, ACTION_HORIZON, POLICY_STATE_DIM, PolicyEpisode
 
 
-def _policy_episode(*, episode_id: str, level: int = 1, frame_count: int = 18) -> PolicyEpisode:
+def _policy_episode(*, episode_id: str, level: int = 1, frame_count: int = 52) -> PolicyEpisode:
     return PolicyEpisode(
         episode_id=episode_id,
         task_id="dynamic_grasp_lift",
@@ -57,7 +57,7 @@ class _FakeDatasetFactory:
         return self.instance
 
 
-def test_writer_preserves_50hz_policy_fields_and_declares_complete_h16_sampling(
+def test_writer_preserves_50hz_policy_fields_and_declares_complete_h50_sampling(
     tmp_path: Path,
 ) -> None:
     factory = _FakeDatasetFactory()
@@ -78,11 +78,12 @@ def test_writer_preserves_50hz_policy_fields_and_declares_complete_h16_sampling(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["format_id"] == "metamdp_lerobot_v21"
     assert manifest["fps"] == 50
-    assert manifest["action_horizon"] == 16
-    assert manifest["execution_horizon"] == 8
-    assert manifest["drop_n_last_frames"] == 15
+    assert manifest["temporal_contract_id"] == "h50_e25_d20_k6_v1"
+    assert manifest["action_horizon"] == 50
+    assert manifest["launch_trigger_horizon"] == 25
+    assert manifest["drop_n_last_frames"] == 49
     assert manifest["episode_count"] == 2
-    assert manifest["frame_count"] == 36
+    assert manifest["frame_count"] == 104
     assert manifest["valid_action_chunk_source_count"] == 6
     assert [row["valid_action_chunk_source_count"] for row in manifest["episodes"]] == [3, 3]
 

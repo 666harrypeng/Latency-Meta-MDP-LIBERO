@@ -61,15 +61,21 @@ def test_belief_indices_use_unpadded_history_and_valid_future_boundaries(
     tmp_path: Path,
 ) -> None:
     from latency_meta_mdp.belief_data import build_belief_sample_indices, load_belief_episode
+    from latency_meta_mdp.temporal_contract import load_temporal_contract
 
     view = load_belief_episode(_belief_episode_dir(tmp_path))
+    contract = load_temporal_contract(
+        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
+    )
     indices = build_belief_sample_indices(
         episode=view,
-        history_ticks=6,
+        temporal_contract=contract,
         delay_ticks=tuple(range(1, 21)),
     )
 
     assert indices
+    assert indices[0].source_tick == 25
+    assert indices[0].history_start_tick == 20
     assert all(index.history_start_tick == index.source_tick - 5 for index in indices)
     assert all(
         index.target_tick == index.source_tick + index.branch_delay_tick
@@ -80,10 +86,8 @@ def test_belief_indices_use_unpadded_history_and_valid_future_boundaries(
         index.source_tick + index.branch_delay_tick <= view.transition_count
         for index in indices
     )
-    expected_count = sum(
-        max(0, view.transition_count - delay_tick - 6 + 2)
-        for delay_tick in range(1, 21)
-    )
+    valid_source_count = view.transition_count - 25 - 25 + 1
+    expected_count = valid_source_count * 20
     assert len(indices) == expected_count
     assert {index.branch_delay_tick for index in indices} == set(range(1, 21))
 
@@ -92,29 +96,34 @@ def test_launch_history_and_return_target_do_not_cross_privilege_boundary(
     tmp_path: Path,
 ) -> None:
     from latency_meta_mdp.belief_data import (
+        SharpTeacherBufferAdapter,
         build_belief_sample_indices,
         build_launch_history,
         build_return_target,
         load_belief_episode,
         teacher_forced_pre_return_actions,
     )
+    from latency_meta_mdp.temporal_contract import load_temporal_contract
 
     view = load_belief_episode(_belief_episode_dir(tmp_path))
+    contract = load_temporal_contract(
+        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
+    )
     index = build_belief_sample_indices(
         episode=view,
-        history_ticks=6,
+        temporal_contract=contract,
         delay_ticks=(4,),
     )[0]
     history = build_launch_history(episode=view, index=index)
     target = build_return_target(episode=view, index=index)
     actions = teacher_forced_pre_return_actions(episode=view, index=index)
 
-    assert history.boundary_tick.tolist() == list(range(6))
+    assert history.boundary_tick.tolist() == list(range(20, 26))
     assert history.agentview_rgb.shape == (6, 8, 8, 3)
     assert not hasattr(history, "object_pose")
     assert not hasattr(history, "branch_delay_tick")
     assert target.branch_delay_tick == 4
-    assert target.target_tick == 9
+    assert target.target_tick == 29
     np.testing.assert_array_equal(
         target.object_pose,
         view.supervision.object_pose[target.target_tick],
@@ -127,6 +136,19 @@ def test_launch_history_and_return_target_do_not_cross_privilege_boundary(
         actions,
         view.expert_actions[index.source_tick : index.target_tick],
     )
+
+    buffer = SharpTeacherBufferAdapter(contract).build(
+        episode=view,
+        source_tick=index.source_tick,
+    )
+    assert buffer.protocol_id == "sharp_return_time_chunk_v2"
+    assert buffer.source_tick == 25
+    assert buffer.chunk_start_tick == 0
+    assert buffer.active_cursor == 25
+    assert buffer.full_chunk.shape == (50, 7)
+    assert buffer.remaining_actions.shape == (25, 7)
+    np.testing.assert_array_equal(buffer.full_chunk, view.expert_actions[:50])
+    np.testing.assert_array_equal(buffer.remaining_actions, view.expert_actions[25:50])
 
 
 def test_belief_loader_rejects_nonbelief_episode(tmp_path: Path) -> None:

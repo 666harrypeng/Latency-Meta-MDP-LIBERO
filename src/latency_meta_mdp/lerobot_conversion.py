@@ -17,12 +17,13 @@ from latency_meta_mdp.policy_data import (
     ACTION_DIM,
     ACTION_HORIZON,
     FORMAL_TICK_US,
+    LAUNCH_TRIGGER_HORIZON,
     POLICY_STATE_DIM,
+    TEMPORAL_CONTRACT_ID,
     PolicyEpisode,
 )
 
 FPS = 50
-EXECUTION_HORIZON = 8
 OPENPI_REVISION = "15a9616a00943ada6c20a0f158e3adb39df2ccac"
 LEROBOT_REVISION = "0cf864870cf29f4738d3ade893e6fd13fbd7cdb5"
 
@@ -39,7 +40,7 @@ def _validate_episode(episode: PolicyEpisode) -> tuple[int, int, int]:
     frame_count = len(episode.source_formal_tick)
     expected_valid_count = frame_count - ACTION_HORIZON + 1
     if episode.action_horizon != ACTION_HORIZON or expected_valid_count <= 0:
-        raise ValueError("policy episode cannot provide the canonical H16 target")
+        raise ValueError("policy episode cannot provide the canonical H50 target")
     if not (
         episode.source_formal_tick.shape == (frame_count,)
         and episode.source_time_us.shape == (frame_count,)
@@ -206,8 +207,9 @@ def write_lerobot_policy_dataset(
                 "instruction": episodes[0].instruction,
                 "fps": FPS,
                 "formal_tick_us": FORMAL_TICK_US,
+                "temporal_contract_id": TEMPORAL_CONTRACT_ID,
                 "action_horizon": ACTION_HORIZON,
-                "execution_horizon": EXECUTION_HORIZON,
+                "launch_trigger_horizon": LAUNCH_TRIGGER_HORIZON,
                 "drop_n_last_frames": ACTION_HORIZON - 1,
                 "state_contract": "eef_xyz_rotvec_gripper_qpos_v1",
                 "state_dim": POLICY_STATE_DIM,

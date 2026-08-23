@@ -11,14 +11,15 @@ from latency_meta_mdp.sft_profile import SFTProfile, load_sft_profile
 
 def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() -> None:
     profile = load_sft_profile(
-        Path("configs/policy/pi05_panda_ball_full_sft_v1.yaml")
+        Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
     )
 
-    assert profile.profile_id == "pi05_panda_ball_full_sft_v1"
+    assert profile.profile_id == "pi05_panda_ball_full_sft_h50_v2"
     assert profile.full_parameter is True
-    assert profile.action_horizon == 16
-    assert profile.execution_horizon == 8
-    assert profile.drop_n_last_frames == 15
+    assert profile.temporal_contract.contract_id == "h50_e25_d20_k6_v1"
+    assert profile.action_horizon == 50
+    assert profile.launch_trigger_horizon == 25
+    assert profile.drop_n_last_frames == 49
     assert profile.fps == 50
     assert profile.state_dim == 8
     assert profile.source_action_dim == 7
@@ -33,22 +34,23 @@ def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() ->
     assert len({level.config_name for level in profile.levels.values()}) == 3
     assert len({level.repo_id for level in profile.levels.values()}) == 3
     for level, level_profile in profile.levels.items():
-        assert level_profile.config_name == f"pi05_panda_ball_l{level}_full"
+        assert level_profile.config_name == f"pi05_panda_ball_l{level}_full_h50"
         assert f"-l{level}-" in level_profile.repo_id
+        assert level_profile.repo_id.endswith("-50hz-h50-v2")
 
 
 def test_sft_profile_rejects_a_tail_filter_that_does_not_match_horizon() -> None:
     profile = load_sft_profile(
-        Path("configs/policy/pi05_panda_ball_full_sft_v1.yaml")
+        Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
     )
 
     with pytest.raises(ValueError, match="action_horizon - 1"):
-        replace(profile, drop_n_last_frames=14)
+        replace(profile, drop_n_last_frames=48)
 
 
 def test_sft_profile_rejects_cross_level_dataset_reuse() -> None:
     profile = load_sft_profile(
-        Path("configs/policy/pi05_panda_ball_full_sft_v1.yaml")
+        Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
     )
     shared = profile.levels[1]
 

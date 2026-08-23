@@ -18,7 +18,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--profile",
         type=Path,
-        default=Path("configs/policy/pi05_panda_ball_full_sft_v1.yaml"),
+        default=Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"),
     )
     return parser
 

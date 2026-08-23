@@ -165,7 +165,7 @@ def run_action_chunk_zero_delay_parity(
     camera_width: int,
     camera_height: int,
 ) -> ActionChunkParityResult:
-    """Require exact L1 parity using reference actions repackaged into H16 chunks."""
+    """Require exact L1 parity using reference actions repackaged into H50 chunks."""
 
     direct = run_direct_expert_trace(
         project_root=project_root,
@@ -185,7 +185,7 @@ def run_action_chunk_zero_delay_parity(
     )
     runtime = build_expert_episode_runtime(project_root=project_root, spec=spec)
     config = load_action_chunk_client_config(
-        project_root / "configs/client/sharp_chunk_h16_e8_v1.yaml"
+        project_root / "configs/client/sharp_return_time_h50_e25_v1.yaml"
     )
     harness: LogicalLatencyHarness[BoundarySnapshot, np.ndarray] = LogicalLatencyHarness(
         formal_tick_us=runtime.runtime_config.formal_tick_us,

@@ -16,7 +16,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--view-config",
         type=Path,
-        default=Path("configs/data/belief_data_view_v1.yaml"),
+        default=Path("configs/data/belief_data_view_h50_v2.yaml"),
     )
     parser.add_argument(
         "--latency-law",

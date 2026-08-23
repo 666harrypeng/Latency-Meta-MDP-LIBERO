@@ -111,7 +111,8 @@ def write_action_chunk_parity_artifact(
         "motion": root / "configs/motion/dynamic_grasp_lift_l1.yaml",
         "control": root / "configs/control/panda_osc_pose_delta_v1.yaml",
         "expert": root / "configs/expert/panda_ball_feedback_v1.yaml",
-        "client": root / "configs/client/sharp_chunk_h16_e8_v1.yaml",
+        "client": root / "configs/client/sharp_return_time_h50_e25_v1.yaml",
+        "temporal": root / "configs/temporal/h50_e25_d20_k6_v1.yaml",
     }
     if any(not path.is_file() for path in config_paths.values()):
         raise FileNotFoundError("action-chunk parity configuration is incomplete")
@@ -145,7 +146,10 @@ def write_action_chunk_parity_artifact(
                 "mismatches": [],
                 "generator_kind": result.generator_kind,
                 "prediction_horizon": client_config.prediction_horizon,
-                "execution_horizon": client_config.execution_horizon,
+                "launch_trigger_horizon": client_config.launch_trigger_horizon,
+                "maximum_delay_ticks": (
+                    client_config.temporal_contract.maximum_delay_ticks
+                ),
                 "bootstrap_simulation_time_before_us": (
                     result.bootstrap.simulation_time_before_us
                 ),
@@ -174,8 +178,8 @@ def write_action_chunk_parity_artifact(
         _write_json(
             staging / "manifest.json",
             {
-                "schema_version": 1,
-                "format_id": "sharp_action_chunk_parity_v1",
+                "schema_version": 2,
+                "format_id": "sharp_return_time_chunk_parity_v2",
                 "eligible": not provenance.dirty,
                 "blockers": [] if not provenance.dirty else ["implementation_dirty"],
                 "seed": seed,

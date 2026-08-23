@@ -62,8 +62,9 @@ def _build_config(profile: SFTProfile, level: int) -> Any:
             "fps": profile.fps,
             "state_dim": profile.state_dim,
             "source_action_dim": profile.source_action_dim,
+            "temporal_contract_id": profile.temporal_contract.contract_id,
             "prediction_horizon": profile.action_horizon,
-            "execution_horizon": profile.execution_horizon,
+            "launch_trigger_horizon": profile.launch_trigger_horizon,
             "action_contract_id": "panda_osc_pose_delta_v1",
         },
     )

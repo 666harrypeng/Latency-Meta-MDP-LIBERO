@@ -44,7 +44,7 @@ def test_rotation_matrix_to_rotvec_uses_canonical_shortest_axis_angle() -> None:
     )
 
 
-def test_load_policy_episode_builds_same_tick_8d_state_and_complete_h16_sources(
+def test_load_policy_episode_builds_same_tick_8d_state_and_complete_h50_sources(
     tmp_path: Path,
 ) -> None:
     episode = collect_expert_episode(
@@ -69,6 +69,7 @@ def test_load_policy_episode_builds_same_tick_8d_state_and_complete_h16_sources(
     assert policy_episode.state.shape == (transition_count, POLICY_STATE_DIM)
     assert policy_episode.actions.shape == (transition_count, ACTION_DIM)
     assert policy_episode.action_horizon == ACTION_HORIZON
+    assert ACTION_HORIZON == 50
     assert policy_episode.agentview_rgb.shape == (transition_count, 8, 8, 3)
     assert policy_episode.wrist_rgb.shape == (transition_count, 8, 8, 3)
     assert policy_episode.valid_action_chunk_sources.tolist() == list(

@@ -34,7 +34,7 @@ def test_action_chunk_parity_artifact_is_exact_versioned_and_no_overwrite(
     )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["format_id"] == "sharp_action_chunk_parity_v1"
+    assert manifest["format_id"] == "sharp_return_time_chunk_parity_v2"
     assert manifest["eligible"] is (not manifest["implementation_dirty"])
     assert manifest["blockers"] == (
         [] if manifest["eligible"] else ["implementation_dirty"]
@@ -46,6 +46,7 @@ def test_action_chunk_parity_artifact_is_exact_versioned_and_no_overwrite(
         "control",
         "expert",
         "client",
+        "temporal",
     }
     assert all(len(value) == 64 for value in manifest["config_sha256"].values())
     assert set(manifest["artifacts"]) == {
@@ -70,9 +71,10 @@ def test_action_chunk_parity_artifact_is_exact_versioned_and_no_overwrite(
     report = json.loads((output_dir / "report.json").read_text(encoding="utf-8"))
     assert report["exact"] is True
     assert report["generator_kind"] == "reference_action_replay_oracle"
-    assert report["prediction_horizon"] == 16
-    assert report["execution_horizon"] == 8
-    assert report["chunk_launch_ticks"][:3] == [8, 16, 24]
+    assert report["prediction_horizon"] == 50
+    assert report["launch_trigger_horizon"] == 25
+    assert report["maximum_delay_ticks"] == 20
+    assert report["chunk_launch_ticks"][:3] == [25, 50, 75]
     assert report["starvation_ticks"] == []
     assert report["bootstrap_simulation_time_before_us"] == 0
     assert report["bootstrap_simulation_time_after_us"] == 0

@@ -10,6 +10,7 @@ from typing import Any, Protocol
 import numpy as np
 
 from latency_meta_mdp.artifacts import sha256_file
+from latency_meta_mdp.temporal_contract import TemporalContract
 
 FORMAL_TICK_US = 20_000
 PHYSICS_DT_US = 2_000
@@ -164,9 +165,55 @@ class BeliefReturnTarget:
 
 
 class ActionBufferAdapter(Protocol):
-    """Protocol boundary for future H16/E8 teacher-buffer reconstruction."""
+    """Protocol boundary for teacher-forced deployment-buffer reconstruction."""
 
     def build(self, *, episode: BeliefEpisodeView, source_tick: int) -> Any: ...
+
+
+@dataclass(frozen=True)
+class SharpTeacherBuffer:
+    protocol_id: str
+    source_tick: int
+    chunk_start_tick: int
+    active_cursor: int
+    full_chunk: np.ndarray
+    remaining_actions: np.ndarray
+
+
+class SharpTeacherBufferAdapter:
+    """Reconstruct the H50 chunk state visible at the E25 launch boundary."""
+
+    def __init__(self, temporal_contract: TemporalContract) -> None:
+        if not isinstance(temporal_contract, TemporalContract):
+            raise TypeError("temporal_contract must be a TemporalContract")
+        self.temporal_contract = temporal_contract
+
+    def build(
+        self,
+        *,
+        episode: BeliefEpisodeView,
+        source_tick: int,
+    ) -> SharpTeacherBuffer:
+        chunk_start, chunk_stop = self.temporal_contract.teacher_chunk_bounds(
+            source_tick=source_tick,
+            episode_action_count=episode.transition_count,
+        )
+        remaining_start, remaining_stop = (
+            self.temporal_contract.teacher_remaining_bounds(
+                source_tick=source_tick,
+                episode_action_count=episode.transition_count,
+            )
+        )
+        return SharpTeacherBuffer(
+            protocol_id="sharp_return_time_chunk_v2",
+            source_tick=source_tick,
+            chunk_start_tick=chunk_start,
+            active_cursor=self.temporal_contract.launch_trigger_horizon,
+            full_chunk=_readonly(episode.expert_actions[chunk_start:chunk_stop]),
+            remaining_actions=_readonly(
+                episode.expert_actions[remaining_start:remaining_stop]
+            ),
+        )
 
 
 def load_belief_episode(episode_dir: Path) -> BeliefEpisodeView:
@@ -332,30 +379,35 @@ def load_belief_episode(episode_dir: Path) -> BeliefEpisodeView:
 def build_belief_sample_indices(
     *,
     episode: BeliefEpisodeView,
-    history_ticks: int,
+    temporal_contract: TemporalContract,
     delay_ticks: tuple[int, ...],
 ) -> tuple[BeliefSampleIndex, ...]:
-    if isinstance(history_ticks, bool) or not isinstance(history_ticks, int) or history_ticks <= 0:
-        raise ValueError("history_ticks must be a positive integer")
+    if not isinstance(temporal_contract, TemporalContract):
+        raise TypeError("temporal_contract must be a TemporalContract")
     if (
         not delay_ticks
         or len(set(delay_ticks)) != len(delay_ticks)
         or any(
-            isinstance(delay, bool) or not isinstance(delay, int) or delay <= 0
+            isinstance(delay, bool)
+            or not isinstance(delay, int)
+            or not 1 <= delay <= temporal_contract.maximum_delay_ticks
             for delay in delay_ticks
         )
     ):
-        raise ValueError("delay_ticks must be unique positive integers")
+        raise ValueError("delay_ticks must be unique ticks within the temporal contract")
+    source_interval = temporal_contract.belief_source_interval(
+        episode_action_count=episode.transition_count
+    )
     indices = []
-    for source_tick in range(history_ticks - 1, episode.transition_count):
+    for source_tick in range(source_interval.minimum, source_interval.maximum + 1):
         for delay_tick in delay_ticks:
             target_tick = source_tick + delay_tick
-            if target_tick > episode.transition_count:
-                continue
             indices.append(
                 BeliefSampleIndex(
                     episode_id=episode.episode_id,
-                    history_start_tick=source_tick - history_ticks + 1,
+                    history_start_tick=(
+                        source_tick - temporal_contract.history_sample_count + 1
+                    ),
                     source_tick=source_tick,
                     branch_delay_tick=delay_tick,
                     target_tick=target_tick,

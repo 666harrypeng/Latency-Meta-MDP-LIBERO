@@ -28,7 +28,7 @@ def test_real_l1_replay_chunks_exactly_match_direct_expert_trace() -> None:
     assert result.chunk.terminal_status is OutcomeStatus.SUCCESS
     assert result.bootstrap.simulation_time_before_us == 0
     assert result.bootstrap.simulation_time_after_us == 0
-    assert result.chunk_launch_ticks[:3] == (8, 16, 24)
+    assert result.chunk_launch_ticks[:3] == (25, 50, 75)
     assert result.starvation_ticks == ()
     assert result.generator_kind == "reference_action_replay_oracle"
 
@@ -47,16 +47,16 @@ def test_chunk_parity_records_sharp_zero_delay_install_and_index_zero_execution(
         for event in result.chunk_events
         if event.kind.value == "chunk_install"
     ]
-    assert [event.formal_tick for event in installs[:3]] == [8, 16, 24]
+    assert [event.formal_tick for event in installs[:3]] == [25, 50, 75]
     assert all(event.installed_chunk_index == 0 for event in installs)
-    assert all(event.discarded_action_count == 8 for event in installs)
+    assert all(event.discarded_action_count == 25 for event in installs)
     executed = [
         event
         for event in result.chunk_events
         if event.kind.value == "chunk_action_execute"
     ]
-    assert executed[8].formal_tick == 8
-    assert executed[8].executed_chunk_index == 0
+    assert executed[25].formal_tick == 25
+    assert executed[25].executed_chunk_index == 0
 
 
 def test_chunk_parity_diagnostic_names_mutated_action_transition() -> None:

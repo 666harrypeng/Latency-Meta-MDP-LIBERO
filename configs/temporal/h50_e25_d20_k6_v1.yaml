@@ -1,0 +1,8 @@
+schema_version: 1
+contract_id: h50_e25_d20_k6_v1
+formal_tick_us: 20000
+control_frequency_hz: 50
+prediction_horizon: 50
+launch_trigger_horizon: 25
+maximum_delay_ticks: 20
+history_sample_count: 6

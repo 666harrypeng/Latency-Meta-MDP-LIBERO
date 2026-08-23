@@ -1,4 +1,4 @@
-"""Certify warm-start sharp H16/E8 execution on a real L1 rollout."""
+"""Certify warm-start sharp H50/E25 execution on a real L1 rollout."""
 
 from __future__ import annotations
 

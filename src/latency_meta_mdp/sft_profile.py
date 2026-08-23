@@ -10,6 +10,8 @@ from types import MappingProxyType
 
 import yaml
 
+from latency_meta_mdp.temporal_contract import TemporalContract, load_temporal_contract
+
 _GIT_SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_CONFIG_NAME = re.compile(r"^[a-z0-9][a-z0-9_]*$")
@@ -37,8 +39,7 @@ class SFTProfile:
     openpi_patch_sha256: str
     base_checkpoint: str
     full_parameter: bool
-    action_horizon: int
-    execution_horizon: int
+    temporal_contract: TemporalContract
     fps: int
     state_dim: int
     source_action_dim: int
@@ -60,7 +61,7 @@ class SFTProfile:
     def __post_init__(self) -> None:
         levels = dict(self.levels)
         object.__setattr__(self, "levels", MappingProxyType(levels))
-        if self.schema_version != 1 or self.profile_id != "pi05_panda_ball_full_sft_v1":
+        if self.schema_version != 2 or self.profile_id != "pi05_panda_ball_full_sft_h50_v2":
             raise ValueError("unsupported SFT profile schema or identifier")
         if not self.full_parameter:
             raise ValueError("the canonical Panda-ball profile requires full-parameter SFT")
@@ -70,8 +71,8 @@ class SFTProfile:
             raise ValueError("OpenPI revision and patch hash have invalid digest formats")
         if not self.base_checkpoint:
             raise ValueError("base_checkpoint must be non-empty")
-        if self.action_horizon <= 0 or not 0 < self.execution_horizon <= self.action_horizon:
-            raise ValueError("SFT action and execution horizons are invalid")
+        if not isinstance(self.temporal_contract, TemporalContract):
+            raise TypeError("temporal_contract must be a TemporalContract")
         if self.drop_n_last_frames != self.action_horizon - 1:
             raise ValueError("drop_n_last_frames must equal action_horizon - 1")
         if (self.fps, self.state_dim, self.source_action_dim) != (50, 8, 7):
@@ -108,12 +109,26 @@ class SFTProfile:
         if len({profile.repo_id for profile in levels.values()}) != len(levels):
             raise ValueError("level dataset repo ids must be unique")
 
+    @property
+    def action_horizon(self) -> int:
+        return self.temporal_contract.prediction_horizon
+
+    @property
+    def launch_trigger_horizon(self) -> int:
+        return self.temporal_contract.launch_trigger_horizon
+
 
 def load_sft_profile(path: Path) -> SFTProfile:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or not isinstance(raw.get("levels"), dict):
         raise ValueError("SFT profile must be a mapping with level definitions")
     level_rows = raw.pop("levels")
+    temporal_path = raw.get("temporal_contract")
+    if not isinstance(temporal_path, str) or not temporal_path:
+        raise ValueError("SFT temporal_contract must be a non-empty relative path")
+    raw["temporal_contract"] = load_temporal_contract(
+        (path.parent / temporal_path).resolve()
+    )
     if any(not isinstance(row, dict) for row in level_rows.values()):
         raise ValueError("SFT level definitions must be mappings")
     levels = {

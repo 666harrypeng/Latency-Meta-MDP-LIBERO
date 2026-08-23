@@ -16,42 +16,50 @@ from latency_meta_mdp.artifacts import collect_implementation_provenance, sha256
 from latency_meta_mdp.belief_data import (
     BeliefDeploymentStream,
     BeliefSupervisionStream,
+    SharpTeacherBufferAdapter,
     build_belief_sample_indices,
     load_belief_episode,
 )
 from latency_meta_mdp.latency_law import load_latency_law
+from latency_meta_mdp.temporal_contract import TemporalContract, load_temporal_contract
 
 
 @dataclass(frozen=True)
 class BeliefDataViewConfig:
     schema_version: int
     view_id: str
-    history_ticks: int
+    temporal_contract: TemporalContract
     buffer_protocol_status: str
     target_representation_status: str
     action_chunk_alignment_status: str
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1 or self.view_id != "belief_data_view_v1":
+        if self.schema_version != 2 or self.view_id != "belief_data_view_h50_v2":
             raise ValueError("unsupported belief data view schema or identifier")
-        if (
-            isinstance(self.history_ticks, bool)
-            or not isinstance(self.history_ticks, int)
-            or self.history_ticks <= 0
-        ):
-            raise ValueError("history_ticks must be a positive integer")
-        if self.buffer_protocol_status != "unbound":
-            raise ValueError("belief data v1 must leave the buffer protocol unbound")
+        if not isinstance(self.temporal_contract, TemporalContract):
+            raise TypeError("temporal_contract must be a TemporalContract")
+        if self.buffer_protocol_status != "sharp_teacher_buffer_bound":
+            raise ValueError("belief data v2 requires the sharp teacher buffer")
         if self.target_representation_status != "model_neutral_raw":
-            raise ValueError("belief data v1 must retain model-neutral raw targets")
-        if self.action_chunk_alignment_status != "unbound":
-            raise ValueError("belief data v1 must leave action chunk alignment unbound")
+            raise ValueError("belief data v2 must retain model-neutral raw targets")
+        if self.action_chunk_alignment_status != "return_time":
+            raise ValueError("belief data v2 requires return-time chunk alignment")
+
+    @property
+    def history_ticks(self) -> int:
+        return self.temporal_contract.history_sample_count
 
 
 def load_belief_data_view_config(path: Path) -> BeliefDataViewConfig:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or set(raw) != set(BeliefDataViewConfig.__dataclass_fields__):
         raise ValueError("belief data view config fields are invalid")
+    temporal_path = raw["temporal_contract"]
+    if not isinstance(temporal_path, str) or not temporal_path:
+        raise ValueError("temporal_contract must be a non-empty relative path")
+    raw["temporal_contract"] = load_temporal_contract(
+        (path.parent / temporal_path).resolve()
+    )
     return BeliefDataViewConfig(**raw)
 
 
@@ -102,6 +110,13 @@ def certify_belief_data_contract(
 
     config = load_belief_data_view_config(view_config_path)
     law = load_latency_law(latency_law_path)
+    if (
+        law.bin_count != config.temporal_contract.maximum_delay_ticks
+        or round(law.control_tick_seconds * 1_000_000)
+        != config.temporal_contract.formal_tick_us
+    ):
+        raise ValueError("latency law and temporal contract are inconsistent")
+    buffer_adapter = SharpTeacherBufferAdapter(config.temporal_contract)
     provenance = collect_implementation_provenance(project)
     episode_counts: Counter[int] = Counter()
     boundary_counts: Counter[int] = Counter()
@@ -109,15 +124,22 @@ def certify_belief_data_contract(
     branch_counts: Counter[int] = Counter()
     per_delay: dict[int, Counter[int]] = defaultdict(Counter)
     episode_ids: dict[int, list[str]] = defaultdict(list)
+    teacher_buffer_counts: Counter[int] = Counter()
     for relative in admitted:
         if not isinstance(relative, str):
             raise ValueError("admitted episode manifest paths must be strings")
         view = load_belief_episode((source_root / relative).parent)
         indices = build_belief_sample_indices(
             episode=view,
-            history_ticks=config.history_ticks,
+            temporal_contract=config.temporal_contract,
             delay_ticks=law.delay_ticks,
         )
+        source_interval = config.temporal_contract.belief_source_interval(
+            episode_action_count=view.transition_count
+        )
+        for source_tick in range(source_interval.minimum, source_interval.maximum + 1):
+            buffer_adapter.build(episode=view, source_tick=source_tick)
+            teacher_buffer_counts[view.level] += 1
         episode_counts[view.level] += 1
         boundary_counts[view.level] += view.boundary_count
         transition_counts[view.level] += view.transition_count
@@ -142,30 +164,36 @@ def certify_belief_data_contract(
             "boundary_count": boundary_counts[level],
             "transition_count": transition_counts[level],
             "branch_index_count": branch_counts[level],
+            "teacher_buffer_source_count": teacher_buffer_counts[level],
             "per_delay_index_count": delay_counts,
         }
 
     blockers = [] if raw_index_ready else ["raw_or_delay_index_contract_failed"]
     if provenance.dirty:
         blockers.append("implementation_dirty")
-    open_items = [
-        "action_buffer_protocol",
-        "belief_target_representation",
-        "action_chunk_alignment",
-    ]
+    open_items = ["belief_target_representation", "belief_action_policy_interface"]
     report = {
-        "schema_version": 1,
-        "format_id": "belief_raw_index_certification_v1",
+        "schema_version": 2,
+        "format_id": "belief_raw_index_certification_v2",
         "implementation_revision": provenance.revision,
         "implementation_source_sha256": provenance.source_sha256,
         "implementation_dirty": provenance.dirty,
         "source_bulk_manifest": source_path.as_posix(),
         "source_bulk_manifest_sha256": sha256_file(source_path),
         "view_config_sha256": sha256_file(view_config_path),
+        "temporal_contract_sha256": sha256_file(
+            Path(__file__).resolve().parents[2]
+            / "configs/temporal/h50_e25_d20_k6_v1.yaml"
+        ),
         "latency_law_sha256": sha256_file(latency_law_path),
         "view_id": config.view_id,
+        "temporal_contract_id": config.temporal_contract.contract_id,
+        "prediction_horizon": config.temporal_contract.prediction_horizon,
+        "launch_trigger_horizon": (
+            config.temporal_contract.launch_trigger_horizon
+        ),
         "history_sample_count": config.history_ticks,
-        "history_span_ms": (config.history_ticks - 1) * 20,
+        "history_span_ms": config.temporal_contract.history_span_us // 1_000,
         "delay_ticks": list(law.delay_ticks),
         "latency_condition_dim": len(law.condition_vector),
         "latency_condition_probabilities": law.condition_vector.tolist(),
@@ -175,6 +203,9 @@ def certify_belief_data_contract(
             BeliefSupervisionStream.__dataclass_fields__
         ),
         "raw_index_ready": raw_index_ready,
+        "teacher_buffer_ready": raw_index_ready and all(
+            teacher_buffer_counts[level] > 0 for level in episode_counts
+        ),
         "belief_training_ready": False,
         "open_design_items": open_items,
         "levels": levels,
