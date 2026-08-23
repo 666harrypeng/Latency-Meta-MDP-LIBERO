@@ -51,6 +51,7 @@ def _level_coverage(
     jumps: list[float] = []
     turn_angles: list[float] = []
     change_times: list[float] = []
+    curvature_change_times: list[float] = []
 
     for seed in seeds:
         profile = build_motion_profile(config=config, seed=seed, workspace_z=workspace_z)
@@ -81,19 +82,42 @@ def _level_coverage(
         peak_accelerations.append(float(accelerations.max()))
         angle = float(np.arctan2(chord[1], chord[0])) % (2.0 * np.pi)
         quadrants[int(angle // (np.pi / 2.0))] += 1
-        deviation = midpoint - 0.5 * (start + end)
-        signed_curve = float(chord[0] * deviation[1] - chord[1] * deviation[0])
-        if abs(signed_curve) > 1e-12:
-            curve_signs["positive" if signed_curve > 0.0 else "negative"] += 1
-
         if isinstance(profile, CubicPolynomialProfile):
+            first_waypoint = profile.waypoint_positions_xy[1]
+            first_fraction = profile.waypoint_times_us[1] / config.anchor_time_us
+            first_deviation = first_waypoint - (start + first_fraction * chord)
+            signed_curve = float(
+                chord[0] * first_deviation[1] - chord[1] * first_deviation[0]
+            )
+            curve_signs["positive" if signed_curve > 0.0 else "negative"] += 1
             degree = max(
                 index
                 for index, coefficient in enumerate(profile.coefficients_xy)
                 if np.linalg.norm(coefficient) > 1e-12
             )
             cubic_degrees[degree] += 1
+            curvature_cross = np.array(
+                [
+                    sample.velocity[0] * sample.acceleration[1]
+                    - sample.velocity[1] * sample.acceleration[0]
+                    for sample in samples
+                ]
+            )
+            meaningful = np.flatnonzero(np.abs(curvature_cross) > 1e-10)
+            signs = np.sign(curvature_cross[meaningful])
+            changes = np.flatnonzero(signs[1:] != signs[:-1])
+            if len(changes) != 1:
+                raise RuntimeError("validated L2 profile lost its curvature sign change")
+            curvature_change_times.append(
+                float(meaningful[changes[0] + 1] * 20_000 / 1_000_000)
+            )
         elif isinstance(profile, PiecewisePolynomialProfile):
+            midpoint_deviation = midpoint - 0.5 * (start + end)
+            signed_curve = float(
+                chord[0] * midpoint_deviation[1] - chord[1] * midpoint_deviation[0]
+            )
+            if abs(signed_curve) > 1e-12:
+                curve_signs["positive" if signed_curve > 0.0 else "negative"] += 1
             segment_counts[profile.segment_count] += 1
             segment_kinds.update(segment.kind for segment in profile.segments)
             change_times.extend(time_us / 1_000_000 for time_us in profile.change_times_us)
@@ -175,6 +199,9 @@ def _level_coverage(
         "velocity_jump_quantiles_mps": _quantiles(jumps) if jumps else None,
         "turn_angle_quantiles_degrees": _quantiles(turn_angles) if turn_angles else None,
         "change_time_quantiles_seconds": _quantiles(change_times) if change_times else None,
+        "curvature_change_time_quantiles_seconds": (
+            _quantiles(curvature_change_times) if curvature_change_times else None
+        ),
     }
 
 

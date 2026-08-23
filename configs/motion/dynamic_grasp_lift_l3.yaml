@@ -2,6 +2,7 @@ schema_version: 2
 profile_id: dynamic_grasp_lift_l3_v3
 level: 3
 path_bounds_xy: [-0.12, 0.12, -0.20, 0.20]
+endpoint_bounds_xy: [-0.06, 0.06, -0.14, 0.14]
 anchor_time_us: 3000000
 min_chord_length_m: 0.18
 max_chord_length_m: 0.26
@@ -9,7 +10,10 @@ min_path_length_m: 0.18
 max_path_length_m: 0.36
 max_speed_mps: 0.18
 max_continuous_acceleration_mps2: 0.75
-curve_deviation_range_m: [0.04, 0.085]
+l2_waypoint_deviation_range_m: [0.025, 0.045]
+l3_waypoint_deviation_range_m: [0.04, 0.085]
+l2_internal_waypoint_times_us: [900000, 1800000]
+l2_curvature_change_time_us_range: [400000, 1500000]
 segment_count_three_probability: 0.25
 cubic_segment_probability: 0.50
 two_segment_change_time_us_range: [700000, 1100000]

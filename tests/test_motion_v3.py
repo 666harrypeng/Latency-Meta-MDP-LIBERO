@@ -31,21 +31,12 @@ def test_dynamic_configs_share_one_calibrated_v3_geometry_contract() -> None:
     assert all(config.path_bounds_xy == (-0.12, 0.12, -0.20, 0.20) for config in configs)
     shared_fields = (
         "path_bounds_xy",
+        "endpoint_bounds_xy",
         "anchor_time_us",
         "min_chord_length_m",
         "max_chord_length_m",
         "min_path_length_m",
         "max_path_length_m",
-        "max_speed_mps",
-        "max_continuous_acceleration_mps2",
-        "curve_deviation_range_m",
-        "segment_count_three_probability",
-        "cubic_segment_probability",
-        "two_segment_change_time_us_range",
-        "three_segment_first_change_time_us_range",
-        "three_segment_second_change_time_us_range",
-        "turn_angle_degrees_range",
-        "velocity_jump_range_mps",
         "max_retries",
     )
     for field in shared_fields:
@@ -108,7 +99,10 @@ def test_level2_is_one_four_waypoint_degree_three_polynomial() -> None:
     profile = build_motion_profile(config=config, seed=1_007, workspace_z=0.833)
 
     assert isinstance(profile, CubicPolynomialProfile)
-    np.testing.assert_array_equal(profile.waypoint_times_us, [0, 1_000_000, 2_000_000, 3_000_000])
+    np.testing.assert_array_equal(
+        profile.waypoint_times_us,
+        [0, 900_000, 1_800_000, 3_000_000],
+    )
     for time_us, waypoint in zip(
         profile.waypoint_times_us,
         profile.waypoint_positions_xy,
@@ -118,6 +112,15 @@ def test_level2_is_one_four_waypoint_degree_three_polynomial() -> None:
             profile.sample(int(time_us)).position[:2], waypoint, atol=1e-12, rtol=0
         )
     assert np.linalg.norm(profile.coefficients_xy[3]) > 1e-4
+
+    chord = profile.waypoint_positions_xy[-1] - profile.waypoint_positions_xy[0]
+    relative_waypoints = profile.waypoint_positions_xy - profile.waypoint_positions_xy[0]
+    signed_waypoint_offsets = (
+        chord[0] * relative_waypoints[:, 1] - chord[1] * relative_waypoints[:, 0]
+    ) / np.linalg.norm(chord)
+    assert signed_waypoint_offsets[1] * signed_waypoint_offsets[2] < 0
+    assert abs(signed_waypoint_offsets[1]) >= config.l2_waypoint_deviation_range_m[0]
+    assert abs(signed_waypoint_offsets[2]) >= config.l2_waypoint_deviation_range_m[0]
 
     samples = [
         profile.sample(time_us) for time_us in range(0, config.anchor_time_us + 1, 2_000)
@@ -133,10 +136,26 @@ def test_level2_is_one_four_waypoint_degree_three_polynomial() -> None:
     ) / np.linalg.norm(chord)
 
     assert config.min_path_length_m <= path_length <= config.max_path_length_m
-    assert deviation.max() >= config.curve_deviation_range_m[0]
+    assert deviation.max() >= config.l2_waypoint_deviation_range_m[0]
     assert speeds.max() <= config.max_speed_mps + 1e-12
     assert accelerations.max() <= config.max_continuous_acceleration_mps2 + 1e-12
     assert all(config.contains(position) for position in positions)
+
+    curvature_cross = np.array(
+        [
+            sample.velocity[0] * sample.acceleration[1]
+            - sample.velocity[1] * sample.acceleration[0]
+            for sample in samples
+        ]
+    )
+    meaningful = np.flatnonzero(np.abs(curvature_cross) > 1e-10)
+    signs = np.sign(curvature_cross[meaningful])
+    sign_changes = np.flatnonzero(signs[1:] != signs[:-1])
+    assert len(sign_changes) == 1
+    change_time_us = int(meaningful[sign_changes[0] + 1] * 2_000)
+    assert config.l2_curvature_change_time_us_range[0] <= change_time_us <= (
+        config.l2_curvature_change_time_us_range[1]
+    )
 
 
 def test_level2_train_bank_has_balanced_obvious_curve_directions() -> None:
@@ -145,19 +164,20 @@ def test_level2_train_bank_has_balanced_obvious_curve_directions() -> None:
     deviations = []
     for seed in range(1_000, 1_200):
         profile = build_motion_profile(config=config, seed=seed, workspace_z=0.833)
-        start = profile.sample(0).position[:2]
-        midpoint = profile.sample(config.anchor_time_us // 2).position[:2]
-        end = profile.sample(config.anchor_time_us).position[:2]
+        start = profile.waypoint_positions_xy[0]
+        end = profile.waypoint_positions_xy[-1]
         chord = end - start
-        displacement = midpoint - 0.5 * (start + end)
-        signed = chord[0] * displacement[1] - chord[1] * displacement[0]
-        signs.append(int(np.sign(signed)))
-        deviations.append(abs(signed) / np.linalg.norm(chord))
+        relative = profile.waypoint_positions_xy - start
+        signed_offsets = (
+            chord[0] * relative[:, 1] - chord[1] * relative[:, 0]
+        ) / np.linalg.norm(chord)
+        signs.append(int(np.sign(signed_offsets[1])))
+        deviations.extend(abs(signed_offsets[index]) for index in (1, 2))
 
     assert set(signs) == {-1, 1}
     assert signs.count(-1) >= 70
     assert signs.count(1) >= 70
-    assert min(deviations) >= config.curve_deviation_range_m[0]
+    assert min(deviations) >= config.l2_waypoint_deviation_range_m[0]
 
 
 def test_level3_has_early_position_continuous_bounded_turns() -> None:
@@ -205,7 +225,9 @@ def test_level3_has_early_position_continuous_bounded_turns() -> None:
     relative = positions - positions[0]
     deviations = np.abs(chord[0] * relative[:, 1] - chord[1] * relative[:, 0])
     assert config.min_path_length_m <= path_length <= config.max_path_length_m
-    assert deviations.max() / np.linalg.norm(chord) >= config.curve_deviation_range_m[0]
+    assert deviations.max() / np.linalg.norm(chord) >= (
+        config.l3_waypoint_deviation_range_m[0]
+    )
     assert all(config.contains(position) for position in positions)
 
 

@@ -81,6 +81,8 @@ def test_bulk_motion_coverage_passes_all_three_seed_banks(tmp_path: Path) -> Non
     assert level2["curve_sign_counts"]["negative"] >= 70
     assert level2["curve_sign_counts"]["positive"] >= 70
     assert level2["cubic_degree_counts"] == {"3": 200}
+    assert level2["curvature_change_time_quantiles_seconds"]["min"] >= 0.4
+    assert level2["curvature_change_time_quantiles_seconds"]["max"] <= 1.5
     level3 = train["levels"][2]
     assert 120 <= level3["segment_count_counts"]["2"] <= 180
     assert 20 <= level3["segment_count_counts"]["3"] <= 80

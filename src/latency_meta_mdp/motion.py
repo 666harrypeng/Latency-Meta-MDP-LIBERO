@@ -29,6 +29,7 @@ class MotionConfig:
     profile_id: str
     level: int
     path_bounds_xy: tuple[float, float, float, float]
+    endpoint_bounds_xy: tuple[float, float, float, float] | None
     stationary_position_xy: tuple[float, float] | None
     anchor_time_us: int
     min_chord_length_m: float | None
@@ -37,7 +38,10 @@ class MotionConfig:
     max_path_length_m: float | None
     max_speed_mps: float | None
     max_continuous_acceleration_mps2: float | None
-    curve_deviation_range_m: tuple[float, float] | None
+    l2_waypoint_deviation_range_m: tuple[float, float] | None
+    l3_waypoint_deviation_range_m: tuple[float, float] | None
+    l2_internal_waypoint_times_us: tuple[int, int] | None
+    l2_curvature_change_time_us_range: tuple[int, int] | None
     segment_count_three_probability: float | None
     cubic_segment_probability: float | None
     two_segment_change_time_us_range: tuple[int, int] | None
@@ -64,7 +68,11 @@ class MotionConfig:
         }
         dynamic = {
             "cubic_segment_probability",
-            "curve_deviation_range_m",
+            "endpoint_bounds_xy",
+            "l2_waypoint_deviation_range_m",
+            "l3_waypoint_deviation_range_m",
+            "l2_curvature_change_time_us_range",
+            "l2_internal_waypoint_times_us",
             "max_chord_length_m",
             "max_continuous_acceleration_mps2",
             "max_path_length_m",
@@ -120,6 +128,11 @@ class MotionConfig:
             profile_id=raw["profile_id"],
             level=level,
             path_bounds_xy=_tuple(raw["path_bounds_xy"], name="path_bounds_xy", length=4),
+            endpoint_bounds_xy=(
+                _tuple(raw["endpoint_bounds_xy"], name="endpoint_bounds_xy", length=4)
+                if level
+                else None
+            ),
             stationary_position_xy=(
                 _tuple(raw["stationary_position_xy"], name="stationary_position_xy", length=2)
                 if level == 0
@@ -134,8 +147,41 @@ class MotionConfig:
             max_continuous_acceleration_mps2=scalars.get(
                 "max_continuous_acceleration_mps2"
             ),
-            curve_deviation_range_m=(
-                _tuple(raw["curve_deviation_range_m"], name="curve_deviation_range_m", length=2)
+            l2_waypoint_deviation_range_m=(
+                _tuple(
+                    raw["l2_waypoint_deviation_range_m"],
+                    name="l2_waypoint_deviation_range_m",
+                    length=2,
+                )
+                if level
+                else None
+            ),
+            l3_waypoint_deviation_range_m=(
+                _tuple(
+                    raw["l3_waypoint_deviation_range_m"],
+                    name="l3_waypoint_deviation_range_m",
+                    length=2,
+                )
+                if level
+                else None
+            ),
+            l2_internal_waypoint_times_us=(
+                _tuple(
+                    raw["l2_internal_waypoint_times_us"],
+                    name="l2_internal_waypoint_times_us",
+                    length=2,
+                    integer=True,
+                )
+                if level
+                else None
+            ),
+            l2_curvature_change_time_us_range=(
+                _tuple(
+                    raw["l2_curvature_change_time_us_range"],
+                    name="l2_curvature_change_time_us_range",
+                    length=2,
+                    integer=True,
+                )
                 if level
                 else None
             ),
@@ -215,7 +261,11 @@ class MotionConfig:
             self.max_path_length_m,
             self.max_speed_mps,
             self.max_continuous_acceleration_mps2,
-            self.curve_deviation_range_m,
+            self.endpoint_bounds_xy,
+            self.l2_waypoint_deviation_range_m,
+            self.l3_waypoint_deviation_range_m,
+            self.l2_internal_waypoint_times_us,
+            self.l2_curvature_change_time_us_range,
             self.segment_count_three_probability,
             self.cubic_segment_probability,
             self.two_segment_change_time_us_range,
@@ -234,8 +284,31 @@ class MotionConfig:
             raise ValueError("maximum path length is invalid")
         if self.max_speed_mps <= 0 or self.max_continuous_acceleration_mps2 <= 0:
             raise ValueError("speed and acceleration limits must be positive")
-        if not 0 < self.curve_deviation_range_m[0] < self.curve_deviation_range_m[1]:
-            raise ValueError("curve deviation range is invalid")
+        endpoint_x_min, endpoint_x_max, endpoint_y_min, endpoint_y_max = (
+            self.endpoint_bounds_xy
+        )
+        if not (
+            x_min <= endpoint_x_min < endpoint_x_max <= x_max
+            and y_min <= endpoint_y_min < endpoint_y_max <= y_max
+        ):
+            raise ValueError("endpoint bounds must be ordered inside path bounds")
+        for name in (
+            "l2_waypoint_deviation_range_m",
+            "l3_waypoint_deviation_range_m",
+        ):
+            lower, upper = getattr(self, name)
+            if not 0 < lower < upper:
+                raise ValueError(f"{name} is invalid")
+        first_waypoint_us, second_waypoint_us = self.l2_internal_waypoint_times_us
+        if not 0 < first_waypoint_us < second_waypoint_us < self.anchor_time_us or (
+            first_waypoint_us % 20_000 or second_waypoint_us % 20_000
+        ):
+            raise ValueError("L2 waypoint times must be ordered on the formal grid")
+        curvature_lower, curvature_upper = self.l2_curvature_change_time_us_range
+        if not 0 < curvature_lower <= curvature_upper < self.anchor_time_us or (
+            curvature_lower % 20_000 or curvature_upper % 20_000
+        ):
+            raise ValueError("L2 curvature-change window must be ordered on the formal grid")
         for name in ("segment_count_three_probability", "cubic_segment_probability"):
             if not 0 < getattr(self, name) < 1:
                 raise ValueError(f"{name} must lie strictly inside (0, 1)")
@@ -283,7 +356,9 @@ def sample_shared_geometry(*, config: MotionConfig, seed: int) -> SharedTrajecto
         raise ValueError("motion seed must be a non-negative integer")
     if config.min_chord_length_m is None or config.max_chord_length_m is None:
         raise ValueError("dynamic chord bounds are missing")
-    x_min, x_max, y_min, y_max = config.path_bounds_xy
+    if config.endpoint_bounds_xy is None:
+        raise ValueError("dynamic endpoint bounds are missing")
+    x_min, x_max, y_min, y_max = config.endpoint_bounds_xy
     rng = np.random.default_rng(np.random.SeedSequence([seed, 0x47454F4D]))
     for _ in range(config.max_retries):
         start = rng.uniform([x_min, y_min], [x_max, y_max])
@@ -461,9 +536,14 @@ class CubicPolynomialProfile:
         times = np.array(self.waypoint_times_us, dtype=np.int64, copy=True)
         positions = np.array(self.waypoint_positions_xy, dtype=float, copy=True)
         coefficients = np.array(self.coefficients_xy, dtype=float, copy=True)
-        expected_times = np.linspace(0, self.anchor_time_us, 4, dtype=np.int64)
-        if times.shape != (4,) or not np.array_equal(times, expected_times):
-            raise ValueError("cubic waypoint times must divide the anchor duration into thirds")
+        if (
+            times.shape != (4,)
+            or times[0] != 0
+            or times[-1] != self.anchor_time_us
+            or np.any(np.diff(times) <= 0)
+            or np.any(times % 20_000)
+        ):
+            raise ValueError("cubic waypoint times must be ordered on the formal grid")
         if positions.shape != (4, 2) or coefficients.shape != (4, 2):
             raise ValueError("cubic positions and coefficients have invalid shapes")
         if not np.all(np.isfinite(positions)) or not np.all(np.isfinite(coefficients)):
@@ -839,6 +919,43 @@ def _validate_profile_contract(profile: MotionProfile, config: MotionConfig) -> 
             raise ValueError("cubic polynomial duration does not match config")
         if np.linalg.norm(profile.coefficients_xy[3]) <= 1e-4:
             raise ValueError("Level 2 polynomial must retain a non-trivial cubic term")
+        if config.l2_waypoint_deviation_range_m is None:
+            raise ValueError("Level 2 waypoint deviation range is missing")
+        chord = profile.waypoint_positions_xy[-1] - profile.waypoint_positions_xy[0]
+        relative = profile.waypoint_positions_xy - profile.waypoint_positions_xy[0]
+        signed_offsets = (
+            chord[0] * relative[:, 1] - chord[1] * relative[:, 0]
+        ) / np.linalg.norm(chord)
+        if signed_offsets[1] * signed_offsets[2] >= 0:
+            raise ValueError("Level 2 internal waypoints must lie on opposite chord sides")
+        if any(
+            not config.l2_waypoint_deviation_range_m[0]
+            <= abs(signed_offsets[index])
+            <= config.l2_waypoint_deviation_range_m[1]
+            for index in (1, 2)
+        ):
+            raise ValueError("Level 2 waypoint deviation is outside configured bounds")
+        if config.l2_curvature_change_time_us_range is None:
+            raise ValueError("Level 2 curvature-change window is missing")
+        curvature_cross = []
+        curvature_times = range(0, config.anchor_time_us + 1, 20_000)
+        for time_us in curvature_times:
+            sample = profile.sample(time_us)
+            curvature_cross.append(
+                sample.velocity[0] * sample.acceleration[1]
+                - sample.velocity[1] * sample.acceleration[0]
+            )
+        curvature_cross_array = np.asarray(curvature_cross)
+        meaningful = np.flatnonzero(np.abs(curvature_cross_array) > 1e-10)
+        signs = np.sign(curvature_cross_array[meaningful])
+        changes = np.flatnonzero(signs[1:] != signs[:-1])
+        if len(changes) != 1:
+            raise ValueError("Level 2 must contain exactly one curvature sign change")
+        change_time_us = int(meaningful[changes[0] + 1] * 20_000)
+        if not config.l2_curvature_change_time_us_range[0] <= change_time_us <= (
+            config.l2_curvature_change_time_us_range[1]
+        ):
+            raise ValueError("Level 2 curvature sign change is outside configured window")
     elif isinstance(profile, PiecewisePolynomialProfile):
         if profile.anchor_time_us != config.anchor_time_us:
             raise ValueError("piecewise polynomial duration does not match config")
@@ -888,10 +1005,16 @@ def _validate_profile_contract(profile: MotionProfile, config: MotionConfig) -> 
         if not config.min_path_length_m <= path_length <= config.max_path_length_m:
             raise ValueError("motion profile path length is outside configured bounds")
         if config.level in {2, 3}:
-            if config.curve_deviation_range_m is None or not (
-                config.curve_deviation_range_m[0]
-                <= deviation
-                <= config.curve_deviation_range_m[1]
+            deviation_range = (
+                config.l2_waypoint_deviation_range_m
+                if config.level == 2
+                else config.l3_waypoint_deviation_range_m
+            )
+            maximum_deviation = (
+                deviation_range[1] * 2 if config.level == 2 else deviation_range[1]
+            ) if deviation_range is not None else None
+            if deviation_range is None or not deviation_range[0] <= deviation <= (
+                maximum_deviation
             ):
                 raise ValueError(
                     f"Level {config.level} curve deviation is outside configured bounds"
@@ -919,18 +1042,17 @@ def _build_level1(
 def _cubic_from_waypoints(
     *,
     waypoints_xy: np.ndarray,
+    waypoint_times_us: np.ndarray,
     anchor_time_us: int,
     workspace_z: float,
 ) -> CubicPolynomialProfile:
-    parameters = np.array([0.0, 1 / 3, 2 / 3, 1.0])
+    parameters = waypoint_times_us / anchor_time_us
     vandermonde = np.stack(
         [np.ones(4), parameters, parameters**2, parameters**3], axis=1
     )
     coefficients = np.linalg.solve(vandermonde, waypoints_xy)
     return CubicPolynomialProfile(
-        waypoint_times_us=np.array(
-            [0, anchor_time_us // 3, 2 * anchor_time_us // 3, anchor_time_us]
-        ),
+        waypoint_times_us=waypoint_times_us,
         waypoint_positions_xy=waypoints_xy,
         coefficients_xy=coefficients,
         anchor_time_us=anchor_time_us,
@@ -944,25 +1066,34 @@ def _build_level2(
     geometry: SharedTrajectoryGeometry,
     workspace_z: float,
 ) -> MotionProfile:
-    if config.curve_deviation_range_m is None:
-        raise ValueError("Level 2 curve deviation range is missing")
+    if config.l2_waypoint_deviation_range_m is None:
+        raise ValueError("Level 2 waypoint deviation range is missing")
+    if config.l2_internal_waypoint_times_us is None:
+        raise ValueError("Level 2 waypoint times are missing")
     chord = geometry.end_xy - geometry.start_xy
     direction = chord / np.linalg.norm(chord)
     perpendicular = np.array([-direction[1], direction[0]])
+    first_time_us, second_time_us = config.l2_internal_waypoint_times_us
+    first_fraction = first_time_us / config.anchor_time_us
+    second_fraction = second_time_us / config.anchor_time_us
+    waypoint_times = np.array(
+        [0, first_time_us, second_time_us, config.anchor_time_us], dtype=np.int64
+    )
     for _ in range(config.max_retries):
         curve_sign = -1.0 if int(rng.integers(0, 2)) == 0 else 1.0
-        first_offset = curve_sign * rng.uniform(*config.curve_deviation_range_m)
-        second_offset = curve_sign * rng.uniform(*config.curve_deviation_range_m)
+        first_offset = curve_sign * rng.uniform(*config.l2_waypoint_deviation_range_m)
+        second_offset = -curve_sign * rng.uniform(*config.l2_waypoint_deviation_range_m)
         waypoints = np.stack(
             [
                 geometry.start_xy,
-                geometry.start_xy + chord / 3 + perpendicular * first_offset,
-                geometry.start_xy + 2 * chord / 3 + perpendicular * second_offset,
+                geometry.start_xy + first_fraction * chord + perpendicular * first_offset,
+                geometry.start_xy + second_fraction * chord + perpendicular * second_offset,
                 geometry.end_xy,
             ]
         )
         profile = _cubic_from_waypoints(
             waypoints_xy=waypoints,
+            waypoint_times_us=waypoint_times,
             anchor_time_us=config.anchor_time_us,
             workspace_z=workspace_z,
         )
@@ -1021,7 +1152,7 @@ def _build_level3(
     required = (
         config.segment_count_three_probability,
         config.cubic_segment_probability,
-        config.curve_deviation_range_m,
+        config.l3_waypoint_deviation_range_m,
         config.two_segment_change_time_us_range,
         config.three_segment_first_change_time_us_range,
         config.three_segment_second_change_time_us_range,
@@ -1047,7 +1178,7 @@ def _build_level3(
         sign = -1.0 if int(rng.integers(0, 2)) == 0 else 1.0
         if count == 2:
             fraction = change_times[0] / config.anchor_time_us
-            offset = sign * rng.uniform(*config.curve_deviation_range_m)
+            offset = sign * rng.uniform(*config.l3_waypoint_deviation_range_m)
             waypoints = [
                 geometry.start_xy,
                 geometry.start_xy + fraction * chord + perpendicular * offset,
@@ -1056,9 +1187,9 @@ def _build_level3(
         else:
             first_fraction = change_times[0] / config.anchor_time_us
             second_fraction = change_times[1] / config.anchor_time_us
-            first_offset = sign * rng.uniform(*config.curve_deviation_range_m)
+            first_offset = sign * rng.uniform(*config.l3_waypoint_deviation_range_m)
             second_sign = -sign if rng.random() < 0.75 else sign
-            second_offset = second_sign * rng.uniform(*config.curve_deviation_range_m)
+            second_offset = second_sign * rng.uniform(*config.l3_waypoint_deviation_range_m)
             waypoints = [
                 geometry.start_xy,
                 geometry.start_xy + first_fraction * chord + perpendicular * first_offset,

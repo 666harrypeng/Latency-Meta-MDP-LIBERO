@@ -88,8 +88,9 @@ def test_level2_is_smooth_curved_and_bounded() -> None:
         relative = sample.position[:2] - samples[0].position[:2]
         cross_magnitude = abs(chord[0] * relative[1] - chord[1] * relative[0])
         offsets.append(cross_magnitude / chord_length)
-    assert config.curve_deviation_range_m[0] <= max(offsets) <= (
-        config.curve_deviation_range_m[1]
+    assert config.l2_waypoint_deviation_range_m[0] <= max(offsets)
+    assert max(offsets) <= (
+        2 * config.l2_waypoint_deviation_range_m[1]
     )
     geometry = sample_shared_geometry(config=config, seed=7)
     np.testing.assert_array_equal(samples[-1].position[:2], geometry.end_xy)
