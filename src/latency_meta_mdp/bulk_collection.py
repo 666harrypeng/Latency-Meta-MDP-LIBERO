@@ -140,20 +140,35 @@ def evaluate_first_tranche_gate(
     results: tuple[BulkAttemptResult, ...],
     minimum_success_rate: float,
 ) -> dict[str, Any]:
+    return evaluate_range_gate(
+        results=results,
+        levels=(1, 2, 3),
+        minimum_success_rate=minimum_success_rate,
+    )
+
+
+def evaluate_range_gate(
+    *,
+    results: tuple[BulkAttemptResult, ...],
+    levels: tuple[int, ...],
+    minimum_success_rate: float,
+) -> dict[str, Any]:
     if not 0 < minimum_success_rate <= 1:
         raise ValueError("minimum_success_rate must lie in (0, 1]")
     identities = [(result.level, result.seed) for result in results]
     if not results or len(set(identities)) != len(identities):
         raise ValueError("bulk results must be non-empty with unique level/seed identities")
-    levels: dict[str, dict[str, Any]] = {}
-    for level in (1, 2, 3):
+    if not levels or tuple(sorted(set(levels))) != levels:
+        raise ValueError("range gate levels must be sorted and unique")
+    level_metrics: dict[str, dict[str, Any]] = {}
+    for level in levels:
         level_results = [result for result in results if result.level == level]
         if not level_results:
             raise ValueError("bulk results must contain every dynamic level")
         attempt_count = len(level_results)
         success_count = sum(result.succeeded for result in level_results)
         required = math.ceil(minimum_success_rate * attempt_count)
-        levels[str(level)] = {
+        level_metrics[str(level)] = {
             "attempt_count": attempt_count,
             "failure_count": attempt_count - success_count,
             "passed": success_count >= required,
@@ -162,9 +177,9 @@ def evaluate_first_tranche_gate(
             "success_rate": success_count / attempt_count,
         }
     return {
-        "levels": levels,
+        "levels": level_metrics,
         "minimum_success_rate": minimum_success_rate,
-        "passed": all(row["passed"] for row in levels.values()),
+        "passed": all(row["passed"] for row in level_metrics.values()),
     }
 
 
@@ -172,6 +187,7 @@ def select_review_attempts(
     *,
     results: tuple[BulkAttemptResult, ...],
     count_per_level: int,
+    levels: tuple[int, ...] = (1, 2, 3),
 ) -> tuple[BulkAttemptResult, ...]:
     if (
         isinstance(count_per_level, bool)
@@ -180,7 +196,7 @@ def select_review_attempts(
     ):
         raise ValueError("count_per_level must be a positive integer")
     selected: list[BulkAttemptResult] = []
-    for level in (1, 2, 3):
+    for level in levels:
         successes = sorted(
             (result for result in results if result.level == level and result.succeeded),
             key=lambda result: result.seed,
@@ -214,10 +230,16 @@ def _handoff_time_us(episode) -> int | None:
     return matches[0] if matches else None
 
 
-def collect_first_tranche(
+def _collect_selected_attempts(
     *,
     project_root: Path,
-    plan_path: Path,
+    plan_file: Path,
+    plan: BulkCollectionPlan,
+    attempts: tuple[BulkAttemptSpec, ...],
+    format_id: str,
+    levels: tuple[int, ...],
+    seed_start: int,
+    seed_count: int,
     output_root: Path,
     run_id: str,
     on_attempt: Callable[[int, int, BulkAttemptResult], None] | None = None,
@@ -227,8 +249,6 @@ def collect_first_tranche(
     if _SAFE_RUN_ID.fullmatch(run_id) is None:
         raise ValueError("run_id must be one safe path component")
     project = project_root.resolve()
-    plan_file = plan_path.resolve()
-    plan = load_bulk_collection_plan(plan_file)
     target = output_root.resolve() / run_id
     if target.exists():
         raise FileExistsError(f"bulk first-tranche run already exists: {target}")
@@ -241,10 +261,10 @@ def collect_first_tranche(
     results: list[BulkAttemptResult] = []
     artifacts: dict[str, str] = {}
     review_videos: dict[tuple[int, int], str] = {}
-    review_success_count = {level: 0 for level in plan.levels}
+    review_count_per_level = min(plan.review_video_count_per_level, seed_count)
+    review_success_count = {level: 0 for level in levels}
     try:
         staging.mkdir()
-        attempts = select_first_tranche(plan)
         for index, attempt in enumerate(attempts, start=1):
             episode_id = f"l{attempt.level}-seed-{attempt.seed:06d}-attempt-000"
             episode = run_expert_episode_attempt(
@@ -281,7 +301,7 @@ def collect_first_tranche(
             results.append(result)
             if (
                 result.succeeded
-                and review_success_count[attempt.level] < plan.review_video_count_per_level
+                and review_success_count[attempt.level] < review_count_per_level
             ):
                 review_path = (
                     staging
@@ -302,13 +322,15 @@ def collect_first_tranche(
                 on_attempt(index, len(attempts), result)
 
         result_tuple = tuple(results)
-        gate = evaluate_first_tranche_gate(
+        gate = evaluate_range_gate(
             results=result_tuple,
+            levels=levels,
             minimum_success_rate=plan.minimum_first_attempt_success_rate,
         )
         selected_reviews = select_review_attempts(
             results=result_tuple,
-            count_per_level=plan.review_video_count_per_level,
+            count_per_level=review_count_per_level,
+            levels=levels,
         )
         expected_review_ids = {(result.level, result.seed) for result in selected_reviews}
         if set(review_videos) != expected_review_ids:
@@ -323,16 +345,16 @@ def collect_first_tranche(
         admitted = [result.episode_manifest for result in result_tuple if result.succeeded]
         manifest = {
             "schema_version": 1,
-            "format_id": "panda_ball_bulk_first_tranche_v1",
+            "format_id": format_id,
             "run_id": run_id,
             "collection_id": plan.collection_id,
             "implementation_revision": provenance.revision,
             "implementation_source_sha256": provenance.source_sha256,
             "implementation_dirty": provenance.dirty,
             "bulk_plan_sha256": sha256_file(plan_file),
-            "levels": list(plan.levels),
-            "seed_start": plan.train.start,
-            "seed_count_per_level": plan.first_tranche_count,
+            "levels": list(levels),
+            "seed_start": seed_start,
+            "seed_count_per_level": seed_count,
             "record_profile": plan.record_profile.value,
             "camera_width": plan.camera_width,
             "camera_height": plan.camera_height,
@@ -356,3 +378,66 @@ def collect_first_tranche(
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return target / "manifest.json"
+
+
+def collect_first_tranche(
+    *,
+    project_root: Path,
+    plan_path: Path,
+    output_root: Path,
+    run_id: str,
+    on_attempt: Callable[[int, int, BulkAttemptResult], None] | None = None,
+) -> Path:
+    """Collect and publish the planned immutable first tranche."""
+
+    plan_file = plan_path.resolve()
+    plan = load_bulk_collection_plan(plan_file)
+    return _collect_selected_attempts(
+        project_root=project_root,
+        plan_file=plan_file,
+        plan=plan,
+        attempts=select_first_tranche(plan),
+        format_id="panda_ball_bulk_first_tranche_v1",
+        levels=plan.levels,
+        seed_start=plan.train.start,
+        seed_count=plan.first_tranche_count,
+        output_root=output_root,
+        run_id=run_id,
+        on_attempt=on_attempt,
+    )
+
+
+def collect_expert_range(
+    *,
+    project_root: Path,
+    plan_path: Path,
+    output_root: Path,
+    run_id: str,
+    levels: tuple[int, ...],
+    seed_start: int,
+    seed_count: int,
+    on_attempt: Callable[[int, int, BulkAttemptResult], None] | None = None,
+) -> Path:
+    """Collect one explicit default-off range inside the formal train bank."""
+
+    plan_file = plan_path.resolve()
+    plan = load_bulk_collection_plan(plan_file)
+    attempts = select_seed_range(
+        plan,
+        levels=levels,
+        seed_start=seed_start,
+        seed_count=seed_count,
+    )
+    return _collect_selected_attempts(
+        project_root=project_root,
+        plan_file=plan_file,
+        plan=plan,
+        attempts=attempts,
+        format_id="panda_ball_bulk_range_v1",
+        levels=levels,
+        seed_start=seed_start,
+        seed_count=seed_count,
+        output_root=output_root,
+        run_id=run_id,
+        on_attempt=on_attempt,
+    )

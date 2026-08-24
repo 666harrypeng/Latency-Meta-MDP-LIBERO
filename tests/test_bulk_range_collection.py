@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from latency_meta_mdp.bulk_plan import load_bulk_collection_plan
 
@@ -66,3 +68,78 @@ def test_seed_range_rejects_out_of_bank_or_invalid_levels(
             seed_start=seed_start,
             seed_count=seed_count,
         )
+
+
+def test_tiny_explicit_range_run_is_atomic_and_preserves_range_identity(
+    tmp_path: Path,
+) -> None:
+    from latency_meta_mdp.bulk_collection import collect_expert_range
+
+    raw = yaml.safe_load(Path("configs/collection/panda_ball_bulk_v1.yaml").read_text())
+    raw["camera_width"] = 8
+    raw["camera_height"] = 8
+    tiny_plan = tmp_path / "tiny_plan.yaml"
+    tiny_plan.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    progress = []
+
+    manifest_path = collect_expert_range(
+        project_root=Path.cwd(),
+        plan_path=tiny_plan,
+        output_root=tmp_path,
+        run_id="tiny-range",
+        levels=(1, 2, 3),
+        seed_start=1025,
+        seed_count=1,
+        on_attempt=lambda index, total, result: progress.append(
+            (index, total, result.level, result.seed, result.succeeded)
+        ),
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["format_id"] == "panda_ball_bulk_range_v1"
+    assert manifest["levels"] == [1, 2, 3]
+    assert manifest["seed_start"] == 1025
+    assert manifest["seed_count_per_level"] == 1
+    assert manifest["attempt_count"] == 3
+    assert manifest["success_count"] == 3
+    assert len(manifest["review_videos"]) == 3
+    assert progress == [
+        (1, 3, 1, 1025, True),
+        (2, 3, 2, 1025, True),
+        (3, 3, 3, 1025, True),
+    ]
+    with pytest.raises(FileExistsError, match="already exists"):
+        collect_expert_range(
+            project_root=Path.cwd(),
+            plan_path=tiny_plan,
+            output_root=tmp_path,
+            run_id="tiny-range",
+            levels=(1, 2, 3),
+            seed_start=1025,
+            seed_count=1,
+        )
+
+
+def test_range_collection_cli_parses_explicit_range(tmp_path: Path) -> None:
+    from latency_meta_mdp.cli.collect_expert_range import _parser
+
+    args = _parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "continuation",
+            "--levels",
+            "1",
+            "2",
+            "3",
+            "--seed-start",
+            "1025",
+            "--seed-count",
+            "175",
+        ]
+    )
+
+    assert args.levels == [1, 2, 3]
+    assert args.seed_start == 1025
+    assert args.seed_count == 175
