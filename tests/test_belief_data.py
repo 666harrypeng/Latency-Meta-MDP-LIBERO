@@ -54,6 +54,13 @@ def test_belief_episode_view_separates_deployment_and_privileged_streams(
     assert view.supervision.commanded_motion_position.shape == (view.boundary_count, 3)
     assert view.supervision.left_pad_contact.dtype == np.bool_
     assert view.expert_actions.shape == (view.transition_count, 7)
+    assert view.expert_phase.shape == (view.transition_count,)
+    assert set(np.unique(view.expert_phase)) <= {
+        "pregrasp",
+        "approach",
+        "close",
+        "lift",
+    }
     assert np.all(view.action_mask)
 
 

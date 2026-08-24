@@ -106,6 +106,7 @@ class BeliefEpisodeView:
     transition_target_tick: np.ndarray
     expert_actions: np.ndarray
     action_mask: np.ndarray
+    expert_phase: np.ndarray
 
     @property
     def boundary_count(self) -> int:
@@ -343,8 +344,16 @@ def load_belief_episode(episode_dir: Path) -> BeliefEpisodeView:
     )
     actions = _require_shape(arrays, "expert_action", (transition_count, ACTION_DIM))
     action_mask = _require_shape(arrays, "action_mask", (transition_count, ACTION_DIM))
+    expert_phase = _require_shape(arrays, "expert_phase", (transition_count,))
     if not np.all(np.isfinite(actions)) or not np.all(action_mask):
         raise ValueError("BELIEF expert actions must be finite and fully valid")
+    if not set(np.unique(expert_phase)) <= {
+        "pregrasp",
+        "approach",
+        "close",
+        "lift",
+    }:
+        raise ValueError("BELIEF expert phases are invalid")
 
     episode_id = metadata.get("episode_id")
     task_id = metadata.get("task_id")
@@ -373,6 +382,7 @@ def load_belief_episode(episode_dir: Path) -> BeliefEpisodeView:
         transition_target_tick=_readonly(target_tick, dtype=np.int64),
         expert_actions=_readonly(actions, dtype=np.float32),
         action_mask=_readonly(action_mask, dtype=np.bool_),
+        expert_phase=_readonly(expert_phase),
     )
 
 

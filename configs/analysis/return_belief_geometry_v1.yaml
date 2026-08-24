@@ -1,0 +1,11 @@
+schema_version: 1
+analysis_id: return_belief_geometry_v1
+central_probability_mass: 0.9
+action_prefix_ticks: 5
+state_scale_floor: 0.000001
+summary_quantiles:
+  - 0.0
+  - 0.1
+  - 0.5
+  - 0.9
+  - 1.0
