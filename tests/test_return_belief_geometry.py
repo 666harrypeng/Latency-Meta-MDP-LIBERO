@@ -38,6 +38,7 @@ def _episode(*, transition_count: int = 100) -> BeliefEpisodeView:
         task_id="dynamic_grasp_lift",
         instruction="Grasp the moving ball and lift it.",
         level=2,
+        scene_seed=10,
         record_profile="belief",
         deployment=BeliefDeploymentStream(
             boundary_tick=tick,

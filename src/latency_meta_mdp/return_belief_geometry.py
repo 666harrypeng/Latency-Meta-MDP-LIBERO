@@ -180,6 +180,22 @@ def build_return_state_stream(episode: BeliefEpisodeView) -> np.ndarray:
     return _readonly(state, dtype=np.float64)
 
 
+def build_absorbing_return_state_stream(
+    tail_view: TerminalAbsorbingTailView,
+) -> np.ndarray:
+    """Extend the 22D state with fixed positions and zero terminal velocities."""
+
+    real_state = build_return_state_stream(tail_view.episode)
+    absorbing_state = np.array(real_state[-1], copy=True)
+    absorbing_state[7:14] = 0.0
+    absorbing_state[15] = 0.0
+    absorbing_state[19:22] = 0.0
+    return tail_view.extend_boundary_array(
+        real_state,
+        absorbing_value=absorbing_state,
+    )
+
+
 def build_return_contexts(
     *,
     episode: BeliefEpisodeView,
@@ -266,15 +282,7 @@ def build_absorbing_return_contexts(
         temporal_contract.formal_tick_us
     ):
         raise ValueError("latency law and temporal contract clocks disagree")
-    real_state = build_return_state_stream(episode)
-    absorbing_state = np.array(real_state[-1], copy=True)
-    absorbing_state[7:14] = 0.0
-    absorbing_state[15] = 0.0
-    absorbing_state[19:22] = 0.0
-    state = tail_view.extend_boundary_array(
-        real_state,
-        absorbing_value=absorbing_state,
-    )
+    state = build_absorbing_return_state_stream(tail_view)
     relative_positions = tail_view.extend_boundary_array(
         episode.supervision.relative_geometry
     )

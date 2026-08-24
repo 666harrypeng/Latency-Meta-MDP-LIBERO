@@ -1,0 +1,11 @@
+schema_version: 1
+split_id: belief_training_split_v1
+formal_seed_start: 1000
+formal_seed_count: 200
+formal_train_count: 160
+formal_validation_count: 20
+formal_holdout_count: 20
+first_tranche_count: 25
+first_tranche_train_count: 20
+first_tranche_validation_count: 2
+first_tranche_holdout_count: 3

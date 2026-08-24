@@ -99,6 +99,7 @@ class BeliefEpisodeView:
     task_id: str
     instruction: str
     level: int
+    scene_seed: int
     record_profile: str
     deployment: BeliefDeploymentStream
     supervision: BeliefSupervisionStream
@@ -359,6 +360,7 @@ def load_belief_episode(episode_dir: Path) -> BeliefEpisodeView:
     task_id = metadata.get("task_id")
     instruction = metadata.get("instruction")
     level = metadata.get("level")
+    scene_seed = metadata.get("scene_seed")
     if (
         not isinstance(episode_id, str)
         or episode_id != manifest.get("episode_id")
@@ -368,6 +370,9 @@ def load_belief_episode(episode_dir: Path) -> BeliefEpisodeView:
         or isinstance(level, bool)
         or not isinstance(level, int)
         or level not in (1, 2, 3)
+        or isinstance(scene_seed, bool)
+        or not isinstance(scene_seed, int)
+        or scene_seed < 0
     ):
         raise ValueError("BELIEF episode identity is invalid")
     return BeliefEpisodeView(
@@ -375,6 +380,7 @@ def load_belief_episode(episode_dir: Path) -> BeliefEpisodeView:
         task_id=task_id,
         instruction=instruction.strip(),
         level=level,
+        scene_seed=scene_seed,
         record_profile="belief",
         deployment=deployment,
         supervision=supervision,

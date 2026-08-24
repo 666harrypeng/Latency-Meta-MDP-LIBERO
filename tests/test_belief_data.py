@@ -37,6 +37,7 @@ def test_belief_episode_view_separates_deployment_and_privileged_streams(
     view = load_belief_episode(_belief_episode_dir(tmp_path))
 
     assert view.level == 2
+    assert view.scene_seed == 10
     assert view.record_profile == "belief"
     assert view.boundary_count == view.transition_count + 1
     assert view.deployment.agentview_rgb.shape == (view.boundary_count, 8, 8, 3)
