@@ -17,7 +17,10 @@ from latency_meta_mdp.vision_feature_cache import (
     write_episode_vision_feature_cache,
 )
 
-_SOURCE_FORMAT_ID = "panda_ball_bulk_first_tranche_v1"
+_SOURCE_FORMAT_IDS = {
+    "panda_ball_bulk_first_tranche_v1",
+    "panda_ball_formal_corpus_v1",
+}
 _RUN_FORMAT_ID = "vision_feature_cache_run_v1"
 
 
@@ -59,7 +62,7 @@ def _validate_selection(
 def _validate_source(path: Path) -> tuple[dict[str, Any], Path]:
     source = _load_json(path)
     if (
-        source.get("format_id") != _SOURCE_FORMAT_ID
+        source.get("format_id") not in _SOURCE_FORMAT_IDS
         or source.get("eligible") is not True
         or source.get("implementation_dirty") is not False
     ):
@@ -101,9 +104,16 @@ def write_vision_feature_cache_run(
     building.mkdir()
     episodes: list[dict[str, Any]] = []
     try:
+        source_prefix = (
+            "episodes"
+            if source["format_id"] == "panda_ball_formal_corpus_v1"
+            else "attempts"
+        )
         for level in selected_levels:
             for seed in range(seed_start, seed_start + seed_count):
-                source_relative = f"attempts/L{level}/seed_{seed:06d}/manifest.json"
+                source_relative = (
+                    f"{source_prefix}/L{level}/seed_{seed:06d}/manifest.json"
+                )
                 if source_relative not in admitted:
                     raise ValueError(f"bulk source does not admit {source_relative}")
                 source_episode_manifest = source_root / source_relative
@@ -154,7 +164,7 @@ def write_vision_feature_cache_run(
             "implementation_source_sha256": provenance.source_sha256,
             "implementation_dirty": provenance.dirty,
             "source_bulk_manifest_sha256": sha256_file(source_path),
-            "source_bulk_run_id": source["run_id"],
+            "source_bulk_run_id": source.get("run_id", source_root.name),
             "encoder_id": spec.encoder_id,
             "model_id": spec.model_id,
             "model_revision": spec.revision,
