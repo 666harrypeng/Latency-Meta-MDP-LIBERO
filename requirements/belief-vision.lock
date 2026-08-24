@@ -36,6 +36,7 @@ networkx==3.4.2
 numpy==1.26.4
     # via
     #   -r requirements/belief-vision.in
+    #   scipy
     #   transformers
 nvidia-cublas-cu12==12.6.4.1
     # via
@@ -104,6 +105,8 @@ safetensors==0.5.3
     # via
     #   -r requirements/belief-vision.in
     #   transformers
+scipy==1.15.3
+    # via -r requirements/belief-vision.in
 setuptools==84.0.0
     # via triton
 sympy==1.14.0
