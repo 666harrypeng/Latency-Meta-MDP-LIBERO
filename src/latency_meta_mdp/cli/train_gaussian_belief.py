@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from latency_meta_mdp.gaussian_belief_run import train_gaussian_belief_run
+from latency_meta_mdp.belief.gaussian.run import train_gaussian_belief_run
 
 
 def build_parser() -> argparse.ArgumentParser:
