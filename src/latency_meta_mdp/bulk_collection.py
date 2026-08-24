@@ -93,9 +93,46 @@ class BulkAttemptResult:
         }
 
 
+def select_seed_range(
+    plan: BulkCollectionPlan,
+    *,
+    levels: tuple[int, ...],
+    seed_start: int,
+    seed_count: int,
+) -> tuple[BulkAttemptSpec, ...]:
+    normalized_levels = tuple(sorted(set(levels)))
+    if (
+        not levels
+        or normalized_levels != levels
+        or any(level not in plan.levels for level in levels)
+    ):
+        raise ValueError("bulk range levels must be sorted unique planned levels")
+    if (
+        isinstance(seed_start, bool)
+        or not isinstance(seed_start, int)
+        or isinstance(seed_count, bool)
+        or not isinstance(seed_count, int)
+        or seed_count <= 0
+    ):
+        raise ValueError("bulk range seed start/count are invalid")
+    seed_stop = seed_start + seed_count
+    train_stop = plan.train.start + plan.train.count
+    if seed_start < plan.train.start or seed_stop > train_stop:
+        raise ValueError("bulk range lies outside the formal train seed bank")
+    return tuple(
+        BulkAttemptSpec(level=level, seed=seed)
+        for level in levels
+        for seed in range(seed_start, seed_stop)
+    )
+
+
 def select_first_tranche(plan: BulkCollectionPlan) -> tuple[BulkAttemptSpec, ...]:
-    seeds = plan.train.seeds[: plan.first_tranche_count]
-    return tuple(BulkAttemptSpec(level=level, seed=seed) for level in plan.levels for seed in seeds)
+    return select_seed_range(
+        plan,
+        levels=plan.levels,
+        seed_start=plan.train.start,
+        seed_count=plan.first_tranche_count,
+    )
 
 
 def evaluate_first_tranche_gate(
