@@ -25,6 +25,7 @@ def test_checked_in_temporal_contract_derives_locked_durations_and_coverage() ->
     assert contract.remaining_buffer_coverage == 25
     assert contract.remaining_buffer_duration_us == 500_000
     assert contract.history_span_us == 100_000
+    assert contract.target_tail_ticks == 70
     assert contract.no_starvation_guaranteed
 
 

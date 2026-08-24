@@ -19,6 +19,7 @@ from latency_meta_mdp.artifacts import (
 )
 from latency_meta_mdp.belief_data import load_belief_episode
 from latency_meta_mdp.belief_data_artifact import load_belief_data_view_config
+from latency_meta_mdp.control import load_action_contract
 from latency_meta_mdp.latency_law import load_latency_law
 from latency_meta_mdp.return_belief_geometry import (
     RETURN_STATE_DIM,
@@ -26,12 +27,16 @@ from latency_meta_mdp.return_belief_geometry import (
     ActionCompatibilityMetrics,
     ReturnBeliefAuditConfig,
     StateGeometryMetrics,
+    build_absorbing_return_contexts,
     build_return_contexts,
     build_return_state_stream,
     fit_state_normalization,
     load_return_belief_audit_config,
     measure_action_compatibility,
     measure_state_geometry,
+)
+from latency_meta_mdp.terminal_absorbing_tail import (
+    build_terminal_absorbing_tail,
 )
 
 _PHASE_ORDER = ("pregrasp", "approach", "close", "lift")
@@ -220,6 +225,8 @@ def _build_summary(
     episode_ids: dict[int, set[str]],
     state_rows: list[dict[str, Any]],
     action_rows: list[dict[str, Any]],
+    absorbing_tail: dict[str, Any] | None,
+    action_contract_path: Path | None,
 ) -> dict[str, Any]:
     levels: dict[str, Any] = {}
     for level in sorted(episode_ids):
@@ -246,9 +253,13 @@ def _build_summary(
             ),
             "phases": phases,
         }
-    return {
-        "schema_version": 1,
-        "format_id": "return_belief_geometry_summary_v1",
+    summary = {
+        "schema_version": config.schema_version,
+        "format_id": (
+            "return_belief_geometry_summary_v2"
+            if absorbing_tail is not None
+            else "return_belief_geometry_summary_v1"
+        ),
         "analysis_id": config.analysis_id,
         "implementation_revision": provenance.revision,
         "implementation_source_sha256": provenance.source_sha256,
@@ -294,6 +305,14 @@ def _build_summary(
         },
         "levels": levels,
     }
+    if absorbing_tail is not None:
+        if action_contract_path is None:
+            raise ValueError("absorbing summary requires the action contract path")
+        summary["action_contract_config_sha256"] = sha256_file(
+            action_contract_path
+        )
+        summary["absorbing_tail"] = absorbing_tail
+    return summary
 
 
 def write_return_belief_geometry_artifact(
@@ -319,8 +338,14 @@ def write_return_belief_geometry_artifact(
     config = load_return_belief_audit_config(audit_path)
     view_config = load_belief_data_view_config(view_path)
     law = load_latency_law(law_path)
+    action_contract_path: Path | None = None
+    action_contract = None
+    if config.tail_protocol_id is not None:
+        action_contract_path = project / "configs/control/panda_osc_pose_delta_v1.yaml"
+        action_contract = load_action_contract(action_contract_path)
     admitted = source["admitted_episode_manifests"]
     episodes = []
+    tail_views = {}
     state_streams = []
     episode_ids: dict[int, set[str]] = defaultdict(set)
     for relative in admitted:
@@ -331,6 +356,12 @@ def write_return_belief_geometry_artifact(
             raise ValueError("admitted episode path escapes the source root")
         episode = load_belief_episode(manifest_path.parent)
         episodes.append(episode)
+        if action_contract is not None:
+            tail_views[episode.episode_id] = build_terminal_absorbing_tail(
+                episode=episode,
+                temporal_contract=view_config.temporal_contract,
+                action_contract=action_contract,
+            )
         state_streams.append(build_return_state_stream(episode))
         episode_ids[episode.level].add(episode.episode_id)
     normalization = fit_state_normalization(
@@ -339,11 +370,18 @@ def write_return_belief_geometry_artifact(
     state_rows: list[dict[str, Any]] = []
     action_rows: list[dict[str, Any]] = []
     for episode in episodes:
-        contexts = build_return_contexts(
-            episode=episode,
-            temporal_contract=view_config.temporal_contract,
-            latency_law=law,
-        )
+        if action_contract is None:
+            contexts = build_return_contexts(
+                episode=episode,
+                temporal_contract=view_config.temporal_contract,
+                latency_law=law,
+            )
+        else:
+            contexts = build_absorbing_return_contexts(
+                tail_view=tail_views[episode.episode_id],
+                temporal_contract=view_config.temporal_contract,
+                latency_law=law,
+            )
         for context in contexts:
             identity = {
                 "episode_id": context.episode_id,
@@ -363,6 +401,21 @@ def write_return_belief_geometry_artifact(
             if action_metrics is not None:
                 action_rows.append({**identity, **asdict(action_metrics)})
     provenance = collect_implementation_provenance(project)
+    absorbing_tail = None
+    if tail_views:
+        tail_tick_counts = {view.tail_tick_count for view in tail_views.values()}
+        if tail_tick_counts != {view_config.temporal_contract.target_tail_ticks}:
+            raise ValueError("absorbing-tail lengths are inconsistent")
+        absorbing_tail = {
+            "protocol_id": config.tail_protocol_id,
+            "tail_tick_count": view_config.temporal_contract.target_tail_ticks,
+            "episode_count": len(tail_views),
+            "total_virtual_transition_count": sum(
+                view.tail_tick_count for view in tail_views.values()
+            ),
+            "source_rows_are_real_only": True,
+            "virtual_rows_are_target_only": True,
+        }
     summary = _build_summary(
         config=config,
         source=source,
@@ -376,6 +429,8 @@ def write_return_belief_geometry_artifact(
         episode_ids=episode_ids,
         state_rows=state_rows,
         action_rows=action_rows,
+        absorbing_tail=absorbing_tail,
+        action_contract_path=action_contract_path,
     )
     arrays = {
         **_rows_to_arrays(
@@ -404,8 +459,12 @@ def write_return_belief_geometry_artifact(
         _write_json(
             staging / "manifest.json",
             {
-                "schema_version": 1,
-                "format_id": "return_belief_geometry_artifact_v1",
+                "schema_version": config.schema_version,
+                "format_id": (
+                    "return_belief_geometry_artifact_v2"
+                    if absorbing_tail is not None
+                    else "return_belief_geometry_artifact_v1"
+                ),
                 "analysis_id": config.analysis_id,
                 "implementation_revision": provenance.revision,
                 "implementation_source_sha256": provenance.source_sha256,

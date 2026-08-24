@@ -100,6 +100,10 @@ class TemporalContract:
         return (self.history_sample_count - 1) * self.formal_tick_us
 
     @property
+    def target_tail_ticks(self) -> int:
+        return self.prediction_horizon + self.maximum_delay_ticks
+
+    @property
     def no_starvation_guaranteed(self) -> bool:
         return self.maximum_delay_ticks <= self.remaining_buffer_coverage
 

@@ -13,6 +13,7 @@ from scipy.special import ndtri
 from latency_meta_mdp.belief_data import BeliefEpisodeView
 from latency_meta_mdp.latency_law import TruncatedBetaLatencyLaw
 from latency_meta_mdp.temporal_contract import TemporalContract
+from latency_meta_mdp.terminal_absorbing_tail import TerminalAbsorbingTailView
 
 RETURN_STATE_DIM = 22
 RETURN_STATE_NAMES = (
@@ -27,7 +28,8 @@ RETURN_STATE_NAMES = (
     "object_linear_velocity_y",
     "object_linear_velocity_z",
 )
-_PHASES = frozenset({"pregrasp", "approach", "close", "lift"})
+_SOURCE_PHASES = frozenset({"pregrasp", "approach", "close", "lift"})
+_RETURN_PHASES = _SOURCE_PHASES | {"terminal_absorbing"}
 
 
 def _readonly(value: Any, *, dtype: Any | None = None) -> np.ndarray:
@@ -44,9 +46,19 @@ class ReturnBeliefAuditConfig:
     action_prefix_ticks: int
     state_scale_floor: float
     summary_quantiles: tuple[float, ...]
+    tail_protocol_id: str | None
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1 or self.analysis_id != "return_belief_geometry_v1":
+        supported = (
+            self.schema_version == 1
+            and self.analysis_id == "return_belief_geometry_v1"
+            and self.tail_protocol_id is None
+        ) or (
+            self.schema_version == 2
+            and self.analysis_id == "return_belief_geometry_absorbing_v2"
+            and self.tail_protocol_id == "terminal_absorbing_tail_v1"
+        )
+        if not supported:
             raise ValueError("unsupported return-belief audit schema or identifier")
         if not np.isfinite(self.central_probability_mass) or not (
             0.0 < self.central_probability_mass < 1.0
@@ -72,9 +84,12 @@ class ReturnBeliefAuditConfig:
 
 def load_return_belief_audit_config(path: Path) -> ReturnBeliefAuditConfig:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or set(raw) != set(
-        ReturnBeliefAuditConfig.__dataclass_fields__
-    ):
+    if not isinstance(raw, dict):
+        raise ValueError("return-belief audit config fields are invalid")
+    expected = set(ReturnBeliefAuditConfig.__dataclass_fields__)
+    if "tail_protocol_id" not in raw:
+        raw["tail_protocol_id"] = None
+    if set(raw) != expected:
         raise ValueError("return-belief audit config fields are invalid")
     raw["summary_quantiles"] = tuple(raw["summary_quantiles"])
     return ReturnBeliefAuditConfig(**raw)
@@ -94,13 +109,14 @@ class ReturnContext:
     return_phases: np.ndarray
     return_contact: np.ndarray
     return_physical_handoff: np.ndarray
+    return_absorbing: np.ndarray
     action_targets: np.ndarray | None
 
     def __post_init__(self) -> None:
         branch_count = len(self.delay_ticks)
         if not self.episode_id or self.level not in (1, 2, 3) or self.source_tick < 0:
             raise ValueError("return context identity is invalid")
-        if self.source_phase not in _PHASES:
+        if self.source_phase not in _SOURCE_PHASES:
             raise ValueError("return context source phase is invalid")
         shapes = {
             "delay_ticks": (branch_count,),
@@ -111,6 +127,7 @@ class ReturnContext:
             "return_phases": (branch_count,),
             "return_contact": (branch_count,),
             "return_physical_handoff": (branch_count,),
+            "return_absorbing": (branch_count,),
         }
         for name, shape in shapes.items():
             value = np.asarray(getattr(self, name))
@@ -121,7 +138,7 @@ class ReturnContext:
             or not np.all(np.isfinite(self.future_states))
             or not np.all(np.isfinite(self.relative_positions))
             or not np.isclose(self.probabilities.sum(), 1.0, atol=1e-12, rtol=0)
-            or not set(np.unique(self.return_phases)) <= _PHASES
+            or not set(np.unique(self.return_phases)) <= _RETURN_PHASES
         ):
             raise ValueError("return context contains invalid branch data")
         if self.action_targets is not None and self.action_targets.shape != (
@@ -223,6 +240,94 @@ def build_return_contexts(
                 return_physical_handoff=(
                     episode.supervision.handoff_state[targets] == "physical"
                 ),
+                return_absorbing=np.zeros(len(targets), dtype=np.bool_),
+                action_targets=action_targets,
+            )
+        )
+    return tuple(contexts)
+
+
+def build_absorbing_return_contexts(
+    *,
+    tail_view: TerminalAbsorbingTailView,
+    temporal_contract: TemporalContract,
+    latency_law: TruncatedBetaLatencyLaw,
+) -> tuple[ReturnContext, ...]:
+    """Construct complete targets for every real preterminal launch source."""
+
+    episode = tail_view.episode
+    if tail_view.tail_tick_count != temporal_contract.target_tail_ticks:
+        raise ValueError("absorbing tail does not match the temporal contract")
+    if latency_law.delay_ticks != tuple(
+        range(1, temporal_contract.maximum_delay_ticks + 1)
+    ):
+        raise ValueError("latency law and temporal contract delay support disagree")
+    if round(latency_law.control_tick_seconds * 1_000_000) != (
+        temporal_contract.formal_tick_us
+    ):
+        raise ValueError("latency law and temporal contract clocks disagree")
+    real_state = build_return_state_stream(episode)
+    absorbing_state = np.array(real_state[-1], copy=True)
+    absorbing_state[7:14] = 0.0
+    absorbing_state[15] = 0.0
+    absorbing_state[19:22] = 0.0
+    state = tail_view.extend_boundary_array(
+        real_state,
+        absorbing_value=absorbing_state,
+    )
+    relative_positions = tail_view.extend_boundary_array(
+        episode.supervision.relative_geometry
+    )
+    left_contact = tail_view.extend_boundary_array(
+        episode.supervision.left_pad_contact
+    )
+    right_contact = tail_view.extend_boundary_array(
+        episode.supervision.right_pad_contact
+    )
+    handoff_state = tail_view.extend_boundary_array(episode.supervision.handoff_state)
+    minimum = max(
+        temporal_contract.launch_trigger_horizon,
+        temporal_contract.history_sample_count - 1,
+    )
+    maximum = tail_view.real_transition_count - 1
+    if maximum < minimum:
+        raise ValueError("episode has no real source compatible with the temporal contract")
+    delays = np.asarray(latency_law.delay_ticks, dtype=np.int64)
+    contexts = []
+    for source_tick in range(minimum, maximum + 1):
+        if not tail_view.transition_source_valid[source_tick]:
+            raise ValueError("absorbing view marked a real source invalid")
+        targets = source_tick + delays
+        action_targets = np.stack(
+            [
+                tail_view.expert_actions[
+                    target_tick : target_tick
+                    + temporal_contract.prediction_horizon
+                ]
+                for target_tick in targets
+            ]
+        )
+        if action_targets.shape != (
+            len(delays),
+            temporal_contract.prediction_horizon,
+            7,
+        ):
+            raise ValueError("absorbing tail failed to provide complete H50 targets")
+        contexts.append(
+            ReturnContext(
+                episode_id=episode.episode_id,
+                level=episode.level,
+                source_tick=source_tick,
+                source_phase=str(episode.expert_phase[source_tick]),
+                delay_ticks=delays,
+                probabilities=latency_law.probabilities,
+                target_ticks=targets,
+                future_states=state[targets],
+                relative_positions=relative_positions[targets],
+                return_phases=tail_view.expert_phase[targets],
+                return_contact=left_contact[targets] | right_contact[targets],
+                return_physical_handoff=handoff_state[targets] == "physical",
+                return_absorbing=tail_view.boundary_is_absorbing[targets],
                 action_targets=action_targets,
             )
         )
@@ -324,6 +429,7 @@ class StateGeometryMetrics:
     phase_crossing_probability: float
     contact_probability: float
     physical_handoff_probability: float
+    absorbing_target_probability: float
 
     def __post_init__(self) -> None:
         if any(not np.isfinite(value) for value in self.__dict__.values()):
@@ -431,6 +537,9 @@ def measure_state_geometry(
         contact_probability=float(probabilities[context.return_contact].sum()),
         physical_handoff_probability=float(
             probabilities[context.return_physical_handoff].sum()
+        ),
+        absorbing_target_probability=float(
+            probabilities[context.return_absorbing].sum()
         ),
     )
 

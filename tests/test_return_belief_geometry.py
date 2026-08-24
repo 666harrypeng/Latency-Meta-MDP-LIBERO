@@ -166,6 +166,7 @@ def _context(
     phases: np.ndarray | None = None,
     contacts: np.ndarray | None = None,
     handoffs: np.ndarray | None = None,
+    absorbing: np.ndarray | None = None,
     actions: np.ndarray | None = None,
 ):
     from latency_meta_mdp.return_belief_geometry import ReturnContext
@@ -194,6 +195,9 @@ def _context(
         ),
         return_physical_handoff=(
             np.zeros(branch_count, dtype=np.bool_) if handoffs is None else handoffs
+        ),
+        return_absorbing=(
+            np.zeros(branch_count, dtype=np.bool_) if absorbing is None else absorbing
         ),
         action_targets=actions,
     )
@@ -274,6 +278,7 @@ def test_state_geometry_reports_physical_spread_and_transition_probabilities() -
     assert metrics.phase_crossing_probability == 0.75
     assert metrics.contact_probability == 0.75
     assert metrics.physical_handoff_probability == 0.75
+    assert metrics.absorbing_target_probability == 0.0
 
 
 def test_action_compatibility_distinguishes_identical_and_opposite_strategies() -> None:
@@ -313,3 +318,70 @@ def test_action_compatibility_distinguishes_identical_and_opposite_strategies() 
         _context(states, actions=None),
         prefix_ticks=5,
     ) is None
+
+
+def test_absorbing_contexts_cover_every_real_source_and_preserve_v1_behavior() -> None:
+    from latency_meta_mdp.control import load_action_contract
+    from latency_meta_mdp.return_belief_geometry import (
+        build_absorbing_return_contexts,
+        build_return_contexts,
+    )
+    from latency_meta_mdp.terminal_absorbing_tail import (
+        build_terminal_absorbing_tail,
+    )
+
+    episode = _episode()
+    contract = load_temporal_contract(
+        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
+    )
+    law = load_latency_law(
+        Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml")
+    )
+    tail = build_terminal_absorbing_tail(
+        episode=episode,
+        temporal_contract=contract,
+        action_contract=load_action_contract(
+            Path("configs/control/panda_osc_pose_delta_v1.yaml")
+        ),
+    )
+
+    original = build_return_contexts(
+        episode=episode,
+        temporal_contract=contract,
+        latency_law=law,
+    )
+    contexts = build_absorbing_return_contexts(
+        tail_view=tail,
+        temporal_contract=contract,
+        latency_law=law,
+    )
+
+    assert len(original) == 51
+    assert len(contexts) == 75
+    assert contexts[0].source_tick == 25
+    assert contexts[-1].source_tick == 99
+    assert all(context.action_targets is not None for context in contexts)
+    assert {context.source_phase for context in contexts} == {
+        "pregrasp",
+        "approach",
+        "close",
+        "lift",
+    }
+    last = contexts[-1]
+    assert np.all(last.return_absorbing)
+    np.testing.assert_array_equal(
+        last.future_states,
+        np.repeat(last.future_states[:1], 20, axis=0),
+    )
+    np.testing.assert_array_equal(last.future_states[:, 7:14], 0.0)
+    np.testing.assert_array_equal(last.future_states[:, 15], 0.0)
+    np.testing.assert_array_equal(last.future_states[:, 19:22], 0.0)
+    assert last.action_targets is not None
+    np.testing.assert_array_equal(
+        last.action_targets,
+        np.repeat(
+            tail.hold_action[None, None, :],
+            20 * 50,
+            axis=0,
+        ).reshape(20, 50, 7),
+    )

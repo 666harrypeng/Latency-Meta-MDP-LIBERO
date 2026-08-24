@@ -19,7 +19,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--audit-config",
         type=Path,
-        default=Path("configs/analysis/return_belief_geometry_v1.yaml"),
+        default=Path(
+            "configs/analysis/return_belief_geometry_absorbing_v2.yaml"
+        ),
     )
     parser.add_argument(
         "--view-config",
