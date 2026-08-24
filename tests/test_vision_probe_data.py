@@ -57,20 +57,6 @@ def test_first_tranche_probe_split_rejects_seed_outside_the_bank() -> None:
         first_tranche_probe_split(1025)
 
 
-@pytest.mark.parametrize(
-    ("seed", "expected"),
-    ((1000, "train"), (1159, "train"), (1160, "validation"), (1179, "validation"),
-     (1180, "holdout"), (1199, "holdout")),
-)
-def test_formal_probe_split_uses_160_20_20_episode_banks(
-    seed: int,
-    expected: str,
-) -> None:
-    from latency_meta_mdp.vision_probe_data import formal_probe_split
-
-    assert formal_probe_split(seed).value == expected
-
-
 def test_probe_indices_use_unpadded_six_boundary_histories() -> None:
     from latency_meta_mdp.vision_probe_data import build_probe_sample_indices
 

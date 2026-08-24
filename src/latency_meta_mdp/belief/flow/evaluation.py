@@ -105,6 +105,7 @@ def evaluate_level_flow_belief(
     context_limit: int | None = None,
     sample_count: int | None = None,
     step_count: int | None = None,
+    evaluation_split: ProbeSplit = ProbeSplit.HOLDOUT,
 ) -> Path:
     checkpoint = checkpoint_dir.resolve()
     target_dir = output_dir.resolve()
@@ -118,7 +119,7 @@ def evaluate_level_flow_belief(
     selected_step_count = step_count or config.solver_step_count
     if selected_sample_count <= 0 or selected_step_count <= 0:
         raise ValueError("Flow evaluation sample and step counts must be positive")
-    references = corpus.sample_references[ProbeSplit.HOLDOUT]
+    references = corpus.sample_references[evaluation_split]
     selected_count = (
         len(references)
         if context_limit is None
@@ -139,7 +140,7 @@ def evaluate_level_flow_belief(
     for batch_start in range(0, selected_count, config.batch_size):
         batch_stop = min(batch_start + config.batch_size, selected_count)
         contexts = [
-            corpus.materialize(ProbeSplit.HOLDOUT, offset)
+            corpus.materialize(evaluation_split, offset)
             for offset in range(batch_start, batch_stop)
         ]
         vision = np.stack([context.vision_history for context in contexts])
@@ -229,6 +230,7 @@ def evaluate_level_flow_belief(
             "sample_count": selected_sample_count,
             "solver": config.solver,
             "solver_step_count": selected_step_count,
+            "evaluation_split": evaluation_split.value,
         },
     }
     for delay_index, delay in enumerate(delay_ticks):

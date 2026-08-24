@@ -33,6 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/belief/dinov3_flow_belief_v1.yaml"),
     )
+    parser.add_argument("--split-config", type=Path)
     parser.add_argument("--levels", type=int, nargs="+", default=(1, 2, 3))
     parser.add_argument("--device", default="cuda")
     return parser
@@ -48,6 +49,7 @@ def main() -> None:
         temporal_config_path=args.temporal_config,
         latency_law_path=args.latency_law,
         flow_config_path=args.flow_config,
+        split_config_path=args.split_config,
         output_dir=args.output_dir,
         levels=tuple(args.levels),
         device=args.device,

@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from latency_meta_mdp.belief.flow.evaluation_run import evaluate_flow_belief_run
+from latency_meta_mdp.vision_probe_data import ProbeSplit
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +35,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/belief/dinov3_flow_belief_v1.yaml"),
     )
+    parser.add_argument("--split-config", type=Path)
+    parser.add_argument(
+        "--evaluation-split",
+        choices=[split.value for split in ProbeSplit],
+        default=ProbeSplit.HOLDOUT.value,
+    )
     parser.add_argument("--levels", type=int, nargs="+", default=(1, 2, 3))
     parser.add_argument("--device", default="cuda")
     return parser
@@ -50,9 +57,11 @@ def main() -> None:
         temporal_config_path=args.temporal_config,
         latency_law_path=args.latency_law,
         flow_config_path=args.flow_config,
+        split_config_path=args.split_config,
         output_dir=args.output_dir,
         levels=tuple(args.levels),
         device=args.device,
+        evaluation_split=ProbeSplit(args.evaluation_split),
     )
     print(manifest)
 

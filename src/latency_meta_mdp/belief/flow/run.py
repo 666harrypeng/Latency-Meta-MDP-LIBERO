@@ -36,6 +36,7 @@ def train_flow_belief_run(
     output_dir: Path,
     levels: tuple[int, ...],
     device: str,
+    split_config_path: Path | None = None,
 ) -> Path:
     selected_levels = tuple(sorted(set(levels)))
     if not selected_levels or selected_levels != levels or any(
@@ -50,6 +51,8 @@ def train_flow_belief_run(
         "latency_law": latency_law_path.resolve(),
         "flow_config": flow_config_path.resolve(),
     }
+    if split_config_path is not None:
+        inputs["split_config"] = split_config_path.resolve()
     for path in inputs.values():
         if not path.is_file():
             raise FileNotFoundError(f"Flow Belief input does not exist: {path}")
@@ -72,6 +75,7 @@ def train_flow_belief_run(
                 expected_spec=spec,
                 temporal_config_path=inputs["temporal_config"],
                 latency_law_path=inputs["latency_law"],
+                split_plan_path=inputs.get("split_config"),
                 level=level,
             )
             level_manifest = train_level_flow_belief(

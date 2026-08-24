@@ -100,3 +100,55 @@ def test_flow_validation_dataset_enumerates_twenty_delays_with_fixed_draws() -> 
         np.unique(item.delay_ticks, return_counts=True)[1],
         np.full(20, 4),
     )
+
+
+def test_formal_flow_dataset_uses_explicit_180_20_split() -> None:
+    from latency_meta_mdp.belief.common.feature_corpus import (
+        load_level_feature_belief_corpus,
+    )
+    from latency_meta_mdp.belief.flow.config import load_flow_belief_config
+    from latency_meta_mdp.belief.flow.training_data import (
+        FlowBeliefDataset,
+        build_flow_belief_normalization,
+    )
+
+    source = Path(
+        "outputs/bulk/expert/"
+        "panda-ball-formal-train-1000-1199-7571a4c/manifest.json"
+    )
+    cache = Path(
+        "outputs/derived/vision_features/"
+        "dinov3-vits16-formal-1000-1199-408dbe3/manifest.json"
+    )
+    if not source.is_file() or not cache.is_file():
+        pytest.skip("formal Flow dataset requires local artifacts")
+    corpus = load_level_feature_belief_corpus(
+        project_root=Path.cwd(),
+        source_bulk_manifest=source,
+        cache_run_manifest=cache,
+        expected_spec=load_vision_encoder_spec(
+            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+        ),
+        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
+        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        split_plan_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
+        level=1,
+    )
+    config = load_flow_belief_config(
+        Path("configs/belief/dinov3_flow_belief_v1.yaml")
+    )
+
+    assert corpus.episode_counts == {
+        ProbeSplit.TRAIN: 180,
+        ProbeSplit.VALIDATION: 20,
+        ProbeSplit.HOLDOUT: 0,
+    }
+    dataset = FlowBeliefDataset(
+        corpus=corpus,
+        split=ProbeSplit.VALIDATION,
+        normalization=build_flow_belief_normalization(corpus),
+        config=config,
+        exhaustive_queries=True,
+    )
+    assert len(dataset) == corpus.sample_counts[ProbeSplit.VALIDATION]
+    assert dataset[0].delay_ticks.shape == (80,)

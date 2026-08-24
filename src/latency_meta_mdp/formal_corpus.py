@@ -185,12 +185,6 @@ def materialize_formal_corpus(
             "admitted_episode_manifests": linked_manifests,
             "artifacts": dict(sorted(artifacts.items())),
         }
-        if seed_start == 1000 and seed_count == 200:
-            manifest["formal_split"] = {
-                "train": [1000, 1159],
-                "validation": [1160, 1179],
-                "holdout": [1180, 1199],
-            }
         _write_json(building / "manifest.json", manifest)
         os.rename(building, target)
     except BaseException:

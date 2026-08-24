@@ -72,14 +72,15 @@ def test_l1_formal_feature_belief_corpus_uses_160_20_20_splits() -> None:
         ),
         temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
         latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        split_plan_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
         level=1,
     )
 
     assert corpus.episode_counts == {
-        ProbeSplit.TRAIN: 160,
+        ProbeSplit.TRAIN: 180,
         ProbeSplit.VALIDATION: 20,
-        ProbeSplit.HOLDOUT: 20,
+        ProbeSplit.HOLDOUT: 0,
     }
-    assert corpus.sample_counts[ProbeSplit.TRAIN] > 15_000
+    assert corpus.sample_counts[ProbeSplit.TRAIN] > 17_000
     assert corpus.sample_counts[ProbeSplit.VALIDATION] > 1_500
-    assert corpus.sample_counts[ProbeSplit.HOLDOUT] > 1_500
+    assert corpus.sample_counts[ProbeSplit.HOLDOUT] == 0

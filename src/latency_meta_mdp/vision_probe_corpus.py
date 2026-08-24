@@ -10,6 +10,7 @@ from typing import Any
 
 from latency_meta_mdp.artifacts import sha256_file
 from latency_meta_mdp.belief_data import BeliefEpisodeView, load_belief_episode
+from latency_meta_mdp.episode_split import load_episode_split_plan
 from latency_meta_mdp.vision_encoder import VisionEncoderSpec
 from latency_meta_mdp.vision_feature_cache import (
     EpisodeVisionFeatureCache,
@@ -82,6 +83,7 @@ def load_level_probe_corpus(
     expected_spec: VisionEncoderSpec,
     level: int,
     history_sample_count: int,
+    split_plan_path: Path | None = None,
 ) -> VisionProbeCorpus:
     if level not in (1, 2, 3):
         raise ValueError("probe corpus level must be 1, 2, or 3")
@@ -115,8 +117,21 @@ def load_level_probe_corpus(
     records: list[VisionProbeEpisodeRecord] = []
     references: dict[ProbeSplit, list[tuple[int, int]]] = defaultdict(list)
     selected = [item for item in cache_run["episodes"] if item["level"] == level]
-    expected_episode_count = 200 if source_format == "panda_ball_formal_corpus_v1" else 25
-    split_mode = "formal" if expected_episode_count == 200 else "first_tranche"
+    split_plan = (
+        load_episode_split_plan(split_plan_path)
+        if split_plan_path is not None
+        else None
+    )
+    if source_format == "panda_ball_formal_corpus_v1" and split_plan is None:
+        raise ValueError("formal probe corpus requires an explicit split plan")
+    if split_plan is not None and (
+        source.get("seed_start") != split_plan.source_seed_start
+        or source.get("seed_count_per_level") != split_plan.source_seed_count
+    ):
+        raise ValueError("probe split plan does not cover the source corpus")
+    expected_episode_count = (
+        split_plan.source_seed_count if split_plan is not None else 25
+    )
     if len(selected) != expected_episode_count:
         raise ValueError("probe corpus cached episode count disagrees with source mode")
     for item in selected:
@@ -146,7 +161,11 @@ def load_level_probe_corpus(
         indices = build_probe_sample_indices(
             episode=episode,
             history_sample_count=history_sample_count,
-            split_mode=split_mode,
+            split=(
+                ProbeSplit(split_plan.split_for_seed(episode.scene_seed))
+                if split_plan is not None
+                else None
+            ),
         )
         record_index = len(records)
         records.append(

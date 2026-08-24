@@ -14,6 +14,7 @@ from latency_meta_mdp.belief.common.feature_corpus import load_level_feature_bel
 from latency_meta_mdp.belief.flow.config import load_flow_belief_config
 from latency_meta_mdp.belief.flow.evaluation import evaluate_level_flow_belief
 from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
+from latency_meta_mdp.vision_probe_data import ProbeSplit
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -44,9 +45,11 @@ def evaluate_flow_belief_run(
     output_dir: Path,
     levels: tuple[int, ...],
     device: str,
+    split_config_path: Path | None = None,
     context_limit: int | None = None,
     sample_count: int | None = None,
     step_count: int | None = None,
+    evaluation_split: ProbeSplit = ProbeSplit.HOLDOUT,
 ) -> Path:
     selected_levels = tuple(sorted(set(levels)))
     if not selected_levels or selected_levels != levels or any(
@@ -60,6 +63,7 @@ def evaluate_flow_belief_run(
     temporal_path = temporal_config_path.resolve()
     law_path = latency_law_path.resolve()
     flow_config_path = flow_config_path.resolve()
+    split_config_path = split_config_path.resolve() if split_config_path else None
     for path in (
         source_path,
         cache_path,
@@ -71,6 +75,8 @@ def evaluate_flow_belief_run(
     ):
         if not path.is_file():
             raise FileNotFoundError(f"Flow evaluation input does not exist: {path}")
+    if split_config_path is not None and not split_config_path.is_file():
+        raise FileNotFoundError("Flow evaluation split config does not exist")
     training_run = _load_json(flow_run_path)
     if (
         training_run.get("format_id") != "flow_belief_run_v1"
@@ -97,6 +103,7 @@ def evaluate_flow_belief_run(
                 expected_spec=spec,
                 temporal_config_path=temporal_path,
                 latency_law_path=law_path,
+                split_plan_path=split_config_path,
                 level=level,
             )
             checkpoint_dir = flow_run_path.parent / f"L{level}"
@@ -109,6 +116,7 @@ def evaluate_flow_belief_run(
                 context_limit=context_limit,
                 sample_count=sample_count,
                 step_count=step_count,
+                evaluation_split=evaluation_split,
             )
             level_manifests[f"L{level}"] = level_manifest.relative_to(building).as_posix()
         artifacts = {
@@ -135,6 +143,10 @@ def evaluate_flow_belief_run(
             "temporal_config_sha256": sha256_file(temporal_path),
             "latency_law_sha256": sha256_file(law_path),
             "flow_config_sha256": sha256_file(flow_config_path),
+            "split_config_sha256": (
+                sha256_file(split_config_path) if split_config_path else None
+            ),
+            "evaluation_split": evaluation_split.value,
             "levels": list(selected_levels),
             "level_manifests": level_manifests,
             "artifacts": artifacts,

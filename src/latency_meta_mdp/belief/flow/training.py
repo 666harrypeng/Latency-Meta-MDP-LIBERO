@@ -272,13 +272,14 @@ def train_level_flow_belief(
             model,
             loaders[ProbeSplit.VALIDATION],
             device=device,
-        ),
-        "holdout_fixed_flow_mse": _validation_loss(
+        )
+    }
+    if len(datasets[ProbeSplit.HOLDOUT]) > 0:
+        metrics["holdout_fixed_flow_mse"] = _validation_loss(
             model,
             loaders[ProbeSplit.HOLDOUT],
             device=device,
-        ),
-    }
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
     building = target.parent / f"{target.name}.building-{uuid.uuid4().hex}"
     building.mkdir()

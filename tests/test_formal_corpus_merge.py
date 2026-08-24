@@ -128,6 +128,7 @@ def test_formal_merge_hardlinks_exact_complete_seed_coverage(tmp_path: Path) -> 
     assert manifest["episode_count"] == 6
     assert manifest["seed_start"] == 1000
     assert manifest["seed_count_per_level"] == 2
+    assert "formal_split" not in manifest
     linked = manifest_path.parent / "episodes/L1/seed_001000/arrays.npz"
     source = first.parent / "attempts/L1/seed_001000/arrays.npz"
     assert not linked.is_symlink()

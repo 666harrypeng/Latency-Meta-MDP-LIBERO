@@ -158,6 +158,7 @@ def load_level_feature_belief_corpus(
     temporal_config_path: Path,
     latency_law_path: Path,
     level: int,
+    split_plan_path: Path | None = None,
 ) -> FeatureBeliefCorpus:
     temporal_contract = load_temporal_contract(temporal_config_path)
     latency_law = load_latency_law(latency_law_path)
@@ -171,6 +172,7 @@ def load_level_feature_belief_corpus(
         expected_spec=expected_spec,
         level=level,
         history_sample_count=temporal_contract.history_sample_count,
+        split_plan_path=split_plan_path,
     )
     action_contract = load_action_contract(
         project_root.resolve() / "configs/control/panda_osc_pose_delta_v1.yaml"

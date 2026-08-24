@@ -76,13 +76,14 @@ def test_formal_probe_corpus_uses_160_20_20_splits() -> None:
         ),
         level=1,
         history_sample_count=6,
+        split_plan_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
     )
 
     assert corpus.episode_counts == {
-        ProbeSplit.TRAIN: 160,
+        ProbeSplit.TRAIN: 180,
         ProbeSplit.VALIDATION: 20,
-        ProbeSplit.HOLDOUT: 20,
+        ProbeSplit.HOLDOUT: 0,
     }
-    assert corpus.seeds[ProbeSplit.TRAIN] == frozenset(range(1000, 1160))
-    assert corpus.seeds[ProbeSplit.VALIDATION] == frozenset(range(1160, 1180))
-    assert corpus.seeds[ProbeSplit.HOLDOUT] == frozenset(range(1180, 1200))
+    assert corpus.seeds[ProbeSplit.TRAIN] == frozenset(range(1000, 1180))
+    assert corpus.seeds[ProbeSplit.VALIDATION] == frozenset(range(1180, 1200))
+    assert corpus.seeds[ProbeSplit.HOLDOUT] == frozenset()
