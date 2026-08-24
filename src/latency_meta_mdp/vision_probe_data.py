@@ -28,6 +28,16 @@ def first_tranche_probe_split(seed: int) -> ProbeSplit:
     return ProbeSplit.HOLDOUT
 
 
+def formal_probe_split(seed: int) -> ProbeSplit:
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 1000 <= seed <= 1199:
+        raise ValueError("probe seed is outside the formal train bank")
+    if seed <= 1159:
+        return ProbeSplit.TRAIN
+    if seed <= 1179:
+        return ProbeSplit.VALIDATION
+    return ProbeSplit.HOLDOUT
+
+
 def _readonly(value: Any, *, dtype: Any | None = None) -> np.ndarray:
     array = np.array(value, dtype=dtype, copy=True)
     array.setflags(write=False)
@@ -85,6 +95,7 @@ def build_probe_sample_indices(
     *,
     episode: Any,
     history_sample_count: int,
+    split_mode: str = "first_tranche",
 ) -> tuple[VisionProbeSampleIndex, ...]:
     if (
         isinstance(history_sample_count, bool)
@@ -99,7 +110,12 @@ def build_probe_sample_indices(
         or episode.boundary_count < history_sample_count
     ):
         raise ValueError("episode cannot provide the requested probe histories")
-    split = first_tranche_probe_split(episode.scene_seed)
+    if split_mode == "first_tranche":
+        split = first_tranche_probe_split(episode.scene_seed)
+    elif split_mode == "formal":
+        split = formal_probe_split(episode.scene_seed)
+    else:
+        raise ValueError("unsupported probe split mode")
     return tuple(
         VisionProbeSampleIndex(
             episode_id=episode.episode_id,

@@ -26,7 +26,7 @@ from latency_meta_mdp.vision_probe_corpus import (
     VisionProbeCorpus,
     load_level_probe_corpus,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit, first_tranche_probe_split
+from latency_meta_mdp.vision_probe_data import ProbeSplit
 
 
 @dataclass(frozen=True)
@@ -131,7 +131,7 @@ def _build_record(
         episode_id=episode.episode_id,
         level=episode.level,
         scene_seed=episode.scene_seed,
-        split=first_tranche_probe_split(episode.scene_seed),
+        split=source_record.indices[0].split,
         features=source_record.cache.features,
         tail=tail,
         indices=indices,

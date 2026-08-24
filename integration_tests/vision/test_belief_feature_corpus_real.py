@@ -46,3 +46,40 @@ def test_l1_feature_belief_corpus_uses_level_specific_episode_splits() -> None:
     assert sample.target_states.shape == (20, 22)
     assert not hasattr(sample, "agentview_history")
     assert not hasattr(sample, "realized_delay_tick")
+
+
+def test_l1_formal_feature_belief_corpus_uses_160_20_20_splits() -> None:
+    source = Path(
+        "outputs/bulk/expert/"
+        "panda-ball-formal-train-1000-1199-7571a4c/manifest.json"
+    )
+    cache = Path(
+        "outputs/derived/vision_features/"
+        "dinov3-vits16-formal-1000-1199-408dbe3/manifest.json"
+    )
+    if not source.is_file() or not cache.is_file():
+        pytest.skip("formal feature belief corpus requires local artifacts")
+    from latency_meta_mdp.belief.common.feature_corpus import (
+        load_level_feature_belief_corpus,
+    )
+
+    corpus = load_level_feature_belief_corpus(
+        project_root=Path.cwd(),
+        source_bulk_manifest=source,
+        cache_run_manifest=cache,
+        expected_spec=load_vision_encoder_spec(
+            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+        ),
+        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
+        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        level=1,
+    )
+
+    assert corpus.episode_counts == {
+        ProbeSplit.TRAIN: 160,
+        ProbeSplit.VALIDATION: 20,
+        ProbeSplit.HOLDOUT: 20,
+    }
+    assert corpus.sample_counts[ProbeSplit.TRAIN] > 15_000
+    assert corpus.sample_counts[ProbeSplit.VALIDATION] > 1_500
+    assert corpus.sample_counts[ProbeSplit.HOLDOUT] > 1_500

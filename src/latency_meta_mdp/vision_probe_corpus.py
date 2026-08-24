@@ -89,8 +89,12 @@ def load_level_probe_corpus(
     cache_path = cache_run_manifest.resolve()
     source = _load_json(source_path)
     cache_run = _load_json(cache_path)
+    source_format = source.get("format_id")
     if (
-        source.get("format_id") != "panda_ball_bulk_first_tranche_v1"
+        source_format not in {
+            "panda_ball_bulk_first_tranche_v1",
+            "panda_ball_formal_corpus_v1",
+        }
         or source.get("eligible") is not True
         or source.get("implementation_dirty") is not False
     ):
@@ -111,8 +115,10 @@ def load_level_probe_corpus(
     records: list[VisionProbeEpisodeRecord] = []
     references: dict[ProbeSplit, list[tuple[int, int]]] = defaultdict(list)
     selected = [item for item in cache_run["episodes"] if item["level"] == level]
-    if len(selected) != 25:
-        raise ValueError("probe corpus requires 25 cached episodes for the selected level")
+    expected_episode_count = 200 if source_format == "panda_ball_formal_corpus_v1" else 25
+    split_mode = "formal" if expected_episode_count == 200 else "first_tranche"
+    if len(selected) != expected_episode_count:
+        raise ValueError("probe corpus cached episode count disagrees with source mode")
     for item in selected:
         source_relative = item["source_episode_manifest"]
         cache_relative = item["cache_manifest"]
@@ -140,6 +146,7 @@ def load_level_probe_corpus(
         indices = build_probe_sample_indices(
             episode=episode,
             history_sample_count=history_sample_count,
+            split_mode=split_mode,
         )
         record_index = len(records)
         records.append(
