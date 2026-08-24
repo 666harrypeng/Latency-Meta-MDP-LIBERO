@@ -1,0 +1,21 @@
+schema_version: 1
+encoder_id: dinov2_vits14_lvd142m_196_v1
+family: dinov2
+model_id: facebook/dinov2-small
+revision: ed25f3a31f01632728cabb09d1542f84ab7b0056
+weights_sha256: ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1
+input_size_px: [196, 196]
+patch_size_px: 14
+patch_grid: [14, 14]
+patch_token_count: 196
+feature_dim: 384
+special_token_count: 1
+frozen: true
+output_dtype: float16
+access_mode: public
+license_id: apache-2.0
+preprocessing:
+  resize_mode: bicubic
+  rescale_factor: 0.00392156862745098
+  image_mean: [0.485, 0.456, 0.406]
+  image_std: [0.229, 0.224, 0.225]

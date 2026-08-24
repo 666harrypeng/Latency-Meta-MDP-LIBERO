@@ -1,0 +1,21 @@
+schema_version: 1
+encoder_id: dinov3_vits16_lvd1689m_224_v1
+family: dinov3
+model_id: facebook/dinov3-vits16-pretrain-lvd1689m
+revision: 114c1379950215c8b35dfcd4e90a5c251dde0d32
+weights_sha256: 4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d
+input_size_px: [224, 224]
+patch_size_px: 16
+patch_grid: [14, 14]
+patch_token_count: 196
+feature_dim: 384
+special_token_count: 5
+frozen: true
+output_dtype: float16
+access_mode: gated_manual
+license_id: dinov3-license
+preprocessing:
+  resize_mode: bilinear
+  rescale_factor: 0.00392156862745098
+  image_mean: [0.485, 0.456, 0.406]
+  image_std: [0.229, 0.224, 0.225]
