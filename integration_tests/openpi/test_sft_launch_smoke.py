@@ -82,9 +82,10 @@ def test_level_train_config_preserves_formal_schedule_and_smoke_override(
 
     assert formal.name == "pi05_panda_ball_l2_full_h50"
     assert formal.exp_name == "l2-formal"
-    assert formal.num_train_steps == 12000
-    assert formal.save_interval == 4000
-    assert formal.keep_period == 4000
+    assert formal.batch_size == 192
+    assert formal.num_train_steps == 3_999
+    assert formal.save_interval == 100
+    assert formal.keep_period == 1_333
     assert formal.resume is True
     assert formal.wandb_enabled is True
     assert formal.assets_base_dir == str((tmp_path / "assets").resolve())

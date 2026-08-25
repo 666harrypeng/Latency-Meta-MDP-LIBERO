@@ -1,8 +1,8 @@
 diff --git a/scripts/train.py b/scripts/train.py
-index c8aef87..4f45bad 100644
+index 5d28941..d546936 100644
 --- a/scripts/train.py
 +++ b/scripts/train.py
-@@ -188,6 +188,23 @@ def train_step(
+@@ -191,6 +191,28 @@ def train_step(
      return new_state, info
  
  
@@ -11,6 +11,7 @@ index c8aef87..4f45bad 100644
 +    completed_step: int,
 +    num_train_steps: int,
 +    save_interval: int,
++    keep_period: int | None,
 +) -> int | None:
 +    if completed_step <= 0:
 +        raise ValueError("completed_step must be positive")
@@ -18,7 +19,11 @@ index c8aef87..4f45bad 100644
 +        raise ValueError("completed_step must not exceed num_train_steps")
 +    if save_interval <= 0:
 +        raise ValueError("save_interval must be positive")
-+    if completed_step % save_interval == 0 or completed_step == num_train_steps:
++    if keep_period is not None and keep_period <= 0:
++        raise ValueError("keep_period must be positive when set")
++    rolling_save = completed_step % save_interval == 0
++    milestone_save = keep_period is not None and completed_step % keep_period == 0
++    if rolling_save or milestone_save or completed_step == num_train_steps:
 +        return completed_step
 +    return None
 +
@@ -26,7 +31,7 @@ index c8aef87..4f45bad 100644
  def main(config: _config.TrainConfig):
      init_logging()
      logging.info(f"Running on: {platform.node()}")
-@@ -274,8 +292,14 @@ def main(config: _config.TrainConfig):
+@@ -269,8 +291,15 @@ def main(config: _config.TrainConfig):
              infos = []
          batch = next(data_iter)
  
@@ -37,6 +42,7 @@ index c8aef87..4f45bad 100644
 +            completed_step=completed_step,
 +            num_train_steps=config.num_train_steps,
 +            save_interval=config.save_interval,
++            keep_period=config.keep_period,
 +        )
 +        if checkpoint_step is not None:
 +            _checkpoints.save_state(checkpoint_manager, train_state, data_loader, checkpoint_step)

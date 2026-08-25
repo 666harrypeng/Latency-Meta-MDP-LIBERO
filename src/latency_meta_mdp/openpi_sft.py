@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from latency_meta_mdp.sft_launch import SFTLaunchRequest
+from latency_meta_mdp.sft_launch import SFTLaunchRequest, resolve_sft_schedule
 from latency_meta_mdp.sft_norm_stats import NormStatsComputation
 from latency_meta_mdp.sft_profile import SFTProfile
 
@@ -97,21 +97,16 @@ def build_level_train_config(
     """Build one explicit smoke or formal TrainConfig from the canonical profile."""
 
     base = _build_config(profile, request.level)
-    if request.mode == "smoke":
-        save_interval = 20 if request.resume else 100
-        keep_period = save_interval
-    else:
-        save_interval = profile.save_interval
-        keep_period = profile.keep_period
+    schedule = resolve_sft_schedule(profile=profile, request=request)
     return dataclasses.replace(
         base,
         exp_name=request.experiment_name,
         assets_base_dir=str(assets_root.resolve()),
         checkpoint_base_dir=str(checkpoint_root.resolve()),
         batch_size=request.batch_size_override or profile.batch_size,
-        num_train_steps=request.num_train_steps,
-        save_interval=save_interval,
-        keep_period=keep_period,
+        num_train_steps=schedule.num_train_steps,
+        save_interval=schedule.rolling_save_interval,
+        keep_period=schedule.milestone_interval,
         overwrite=False,
         resume=request.resume,
         wandb_enabled=wandb_enabled,

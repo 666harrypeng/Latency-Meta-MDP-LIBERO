@@ -10,9 +10,7 @@ from latency_meta_mdp.sft_profile import SFTProfile, load_sft_profile
 
 
 def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() -> None:
-    profile = load_sft_profile(
-        Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
-    )
+    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
 
     assert profile.profile_id == "pi05_panda_ball_full_sft_h50_v2"
     assert profile.full_parameter is True
@@ -24,9 +22,14 @@ def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() ->
     assert profile.state_dim == 8
     assert profile.source_action_dim == 7
     assert profile.extra_delta_transform is False
-    assert profile.batch_size == 64
-    assert profile.num_train_steps == 12_000
-    assert profile.save_interval == 4_000
+    assert profile.batch_size == 192
+    assert profile.num_train_steps == 3_999
+    assert profile.warmup_steps == 200
+    assert profile.save_interval == 100
+    assert profile.keep_period == 1_333
+    assert profile.log_interval == 33
+    assert profile.peak_learning_rate == 5e-5
+    assert profile.decay_learning_rate == 5e-6
     assert profile.openpi_patch_sha256 == sha256_file(
         Path("patches/openpi/0001-filter-incomplete-action-chunks.patch")
     )
@@ -43,18 +46,14 @@ def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() ->
 
 
 def test_sft_profile_rejects_a_tail_filter_that_does_not_match_horizon() -> None:
-    profile = load_sft_profile(
-        Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
-    )
+    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
 
     with pytest.raises(ValueError, match="action_horizon - 1"):
         replace(profile, drop_n_last_frames=48)
 
 
 def test_sft_profile_rejects_cross_level_dataset_reuse() -> None:
-    profile = load_sft_profile(
-        Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
-    )
+    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
     shared = profile.levels[1]
 
     with pytest.raises(ValueError, match="repo ids must be unique"):
@@ -68,3 +67,13 @@ def test_sft_profile_rejects_cross_level_dataset_reuse() -> None:
                 },
             }
         )
+
+
+def test_sft_profile_requires_milestones_to_partition_the_formal_run() -> None:
+    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
+
+    with pytest.raises(ValueError, match="milestone"):
+        replace(profile, keep_period=1_332)
+
+    with pytest.raises(ValueError, match="rolling"):
+        replace(profile, save_interval=1_333)

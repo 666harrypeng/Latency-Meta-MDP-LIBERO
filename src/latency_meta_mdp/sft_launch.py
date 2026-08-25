@@ -41,17 +41,29 @@ class SFTLaunchRequest:
             if self.batch_size_override <= 0:
                 raise ValueError("batch-size override must be positive")
 
-    @property
-    def num_train_steps(self) -> int:
-        if self.mode == "smoke":
-            return 120 if self.resume else 100
-        return 12000
 
-    @property
-    def expected_checkpoint_steps(self) -> tuple[int, ...]:
-        if self.mode == "smoke":
-            return (100, 120) if self.resume else (100,)
-        return (4000, 8000, 12000)
+@dataclass(frozen=True)
+class SFTSchedule:
+    num_train_steps: int
+    rolling_save_interval: int
+    milestone_interval: int
+    expected_checkpoint_steps: tuple[int, ...]
+
+
+def resolve_sft_schedule(*, profile: SFTProfile, request: SFTLaunchRequest) -> SFTSchedule:
+    """Resolve smoke or formal steps without duplicating the canonical profile."""
+
+    if request.mode == "smoke":
+        if request.resume:
+            return SFTSchedule(120, 20, 20, (100, 120))
+        return SFTSchedule(100, 100, 100, (100,))
+    milestones = tuple(range(profile.keep_period, profile.num_train_steps + 1, profile.keep_period))
+    return SFTSchedule(
+        num_train_steps=profile.num_train_steps,
+        rolling_save_interval=profile.save_interval,
+        milestone_interval=profile.keep_period,
+        expected_checkpoint_steps=milestones,
+    )
 
 
 AssetDownloader = Callable[..., Path]

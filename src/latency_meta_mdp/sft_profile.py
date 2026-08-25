@@ -96,8 +96,10 @@ class SFTProfile:
             raise ValueError("SFT integer settings must be positive")
         if self.warmup_steps >= self.num_train_steps:
             raise ValueError("warmup_steps must be smaller than num_train_steps")
-        if self.num_train_steps % self.save_interval or self.keep_period % self.save_interval:
-            raise ValueError("checkpoint intervals must align with the training schedule")
+        if self.num_train_steps != 3 * self.keep_period:
+            raise ValueError("SFT schedule must define exactly three checkpoint milestones")
+        if self.save_interval >= self.keep_period:
+            raise ValueError("rolling save interval must be shorter than the milestone interval")
         if not 0 < self.decay_learning_rate <= self.peak_learning_rate:
             raise ValueError("SFT learning rates are invalid")
         if not 0.0 < self.ema_decay < 1.0:
@@ -126,13 +128,8 @@ def load_sft_profile(path: Path) -> SFTProfile:
     temporal_path = raw.get("temporal_contract")
     if not isinstance(temporal_path, str) or not temporal_path:
         raise ValueError("SFT temporal_contract must be a non-empty relative path")
-    raw["temporal_contract"] = load_temporal_contract(
-        (path.parent / temporal_path).resolve()
-    )
+    raw["temporal_contract"] = load_temporal_contract((path.parent / temporal_path).resolve())
     if any(not isinstance(row, dict) for row in level_rows.values()):
         raise ValueError("SFT level definitions must be mappings")
-    levels = {
-        level: SFTLevelProfile(**row)
-        for level, row in level_rows.items()
-    }
+    levels = {level: SFTLevelProfile(**row) for level, row in level_rows.items()}
     return SFTProfile(**raw, levels=levels)

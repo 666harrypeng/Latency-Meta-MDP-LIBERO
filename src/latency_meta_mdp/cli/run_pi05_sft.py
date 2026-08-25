@@ -17,6 +17,7 @@ from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_worktree
 from latency_meta_mdp.sft_asset_lock import load_sft_asset_lock
 from latency_meta_mdp.sft_launch import (
     SFTLaunchRequest,
+    resolve_sft_schedule,
     stage_level_dataset,
     stage_level_norm_stats,
 )
@@ -135,7 +136,7 @@ def _publish_run_manifest(
             "repo_id": repo_id,
             "data_revision": data_revision,
             "asset_revision": asset_revision,
-            "num_train_steps": request.num_train_steps,
+            "num_train_steps": config.num_train_steps,
             "batch_size": config.batch_size,
             "fsdp_devices": config.fsdp_devices,
             "checkpoint_steps": list(checkpoint_steps),
@@ -242,7 +243,8 @@ def main(
                     if path.is_dir() and path.name.isdigit()
                 )
             )
-            if checkpoint_steps != request.expected_checkpoint_steps:
+            schedule = resolve_sft_schedule(profile=profile, request=request)
+            if checkpoint_steps != schedule.expected_checkpoint_steps:
                 raise ValueError("SFT checkpoint inventory does not match the launch contract")
         finally:
             sys.path.remove(str(patched_root / "src"))

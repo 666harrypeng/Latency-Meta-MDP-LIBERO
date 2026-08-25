@@ -8,6 +8,7 @@ import pytest
 from latency_meta_mdp.sft_asset_lock import load_sft_asset_lock
 from latency_meta_mdp.sft_launch import (
     SFTLaunchRequest,
+    resolve_sft_schedule,
     stage_level_dataset,
     stage_level_norm_stats,
 )
@@ -145,13 +146,20 @@ def test_launch_request_locks_single_h200_modes_and_experiment_identity() -> Non
         device_count=1,
     )
 
-    assert smoke.num_train_steps == 100
-    assert smoke.expected_checkpoint_steps == (100,)
+    profile = load_sft_profile(_PROFILE_PATH)
+    smoke_schedule = resolve_sft_schedule(profile=profile, request=smoke)
+    smoke_resume_schedule = resolve_sft_schedule(profile=profile, request=smoke_resume)
+    formal_schedule = resolve_sft_schedule(profile=profile, request=formal)
+
+    assert smoke_schedule.num_train_steps == 100
+    assert smoke_schedule.expected_checkpoint_steps == (100,)
     assert smoke.batch_size_override == 256
-    assert smoke_resume.num_train_steps == 120
-    assert smoke_resume.expected_checkpoint_steps == (100, 120)
-    assert formal.num_train_steps == 12000
-    assert formal.expected_checkpoint_steps == (4000, 8000, 12000)
+    assert smoke_resume_schedule.num_train_steps == 120
+    assert smoke_resume_schedule.expected_checkpoint_steps == (100, 120)
+    assert formal_schedule.num_train_steps == 3_999
+    assert formal_schedule.rolling_save_interval == 100
+    assert formal_schedule.milestone_interval == 1_333
+    assert formal_schedule.expected_checkpoint_steps == (1_333, 2_666, 3_999)
 
     with pytest.raises(ValueError, match="experiment"):
         SFTLaunchRequest(1, "../bad", "smoke", False, 1)
