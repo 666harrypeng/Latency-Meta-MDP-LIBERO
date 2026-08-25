@@ -1,0 +1,45 @@
+diff --git a/scripts/train.py b/scripts/train.py
+index c8aef87..4f45bad 100644
+--- a/scripts/train.py
++++ b/scripts/train.py
+@@ -188,6 +188,23 @@ def train_step(
+     return new_state, info
+ 
+ 
++def _checkpoint_save_step(
++    *,
++    completed_step: int,
++    num_train_steps: int,
++    save_interval: int,
++) -> int | None:
++    if completed_step <= 0:
++        raise ValueError("completed_step must be positive")
++    if num_train_steps <= 0 or completed_step > num_train_steps:
++        raise ValueError("completed_step must not exceed num_train_steps")
++    if save_interval <= 0:
++        raise ValueError("save_interval must be positive")
++    if completed_step % save_interval == 0 or completed_step == num_train_steps:
++        return completed_step
++    return None
++
++
+ def main(config: _config.TrainConfig):
+     init_logging()
+     logging.info(f"Running on: {platform.node()}")
+@@ -274,8 +292,14 @@ def main(config: _config.TrainConfig):
+             infos = []
+         batch = next(data_iter)
+ 
+-        if (step % config.save_interval == 0 and step > start_step) or step == config.num_train_steps - 1:
+-            _checkpoints.save_state(checkpoint_manager, train_state, data_loader, step)
++        completed_step = int(train_state.step)
++        checkpoint_step = _checkpoint_save_step(
++            completed_step=completed_step,
++            num_train_steps=config.num_train_steps,
++            save_interval=config.save_interval,
++        )
++        if checkpoint_step is not None:
++            _checkpoints.save_state(checkpoint_manager, train_state, data_loader, checkpoint_step)
+ 
+     logging.info("Waiting for checkpoint manager to finish")
+     checkpoint_manager.wait_until_finished()
