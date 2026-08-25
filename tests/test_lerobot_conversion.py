@@ -107,6 +107,23 @@ def test_writer_preserves_50hz_policy_fields_and_declares_complete_h50_sampling(
     assert first_frame["task"] == episodes[0].instruction
 
 
+def test_writer_accepts_a_single_pass_episode_iterable(tmp_path: Path) -> None:
+    factory = _FakeDatasetFactory()
+    episodes = (_policy_episode(episode_id=f"l1-seed-{seed:06d}-attempt-000") for seed in (10, 11))
+
+    manifest_path = write_lerobot_policy_dataset(
+        episodes=episodes,
+        output_dir=tmp_path / "streamed",
+        repo_id="local/metamdp_panda_ball_l1_streamed",
+        dataset_factory=factory,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["episode_count"] == 2
+    assert factory.instance is not None
+    assert len(factory.instance.saved_episodes) == 2
+
+
 def test_writer_rejects_cross_level_dataset_before_creating_output(tmp_path: Path) -> None:
     output = tmp_path / "mixed"
     with pytest.raises(ValueError, match="one task level"):

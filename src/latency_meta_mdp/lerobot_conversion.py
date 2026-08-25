@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -67,29 +67,6 @@ def _validate_episode(episode: PolicyEpisode) -> tuple[int, int, int]:
     return frame_count, episode.agentview_rgb.shape[1], episode.agentview_rgb.shape[2]
 
 
-def _validate_dataset(episodes: Sequence[PolicyEpisode]) -> tuple[int, int, int]:
-    if not episodes:
-        raise ValueError("at least one policy episode is required")
-    levels = {episode.level for episode in episodes}
-    task_ids = {episode.task_id for episode in episodes}
-    instructions = {episode.instruction for episode in episodes}
-    episode_ids = [episode.episode_id for episode in episodes]
-    if len(levels) != 1 or len(task_ids) != 1 or len(instructions) != 1:
-        raise ValueError("one LeRobot dataset must contain exactly one task level")
-    if len(episode_ids) != len(set(episode_ids)):
-        raise ValueError("policy episode ids must be unique")
-
-    validated = [_validate_episode(episode) for episode in episodes]
-    image_shapes = {(height, width) for _, height, width in validated}
-    wrist_shapes = {
-        (episode.wrist_rgb.shape[1], episode.wrist_rgb.shape[2])
-        for episode in episodes
-    }
-    if len(image_shapes) != 1 or image_shapes != wrist_shapes:
-        raise ValueError("all policy cameras must share one fixed image shape")
-    return validated[0]
-
-
 def _resolve_dataset_factory(dataset_factory: Callable[..., Any] | None) -> Callable[..., Any]:
     if dataset_factory is not None:
         return dataset_factory
@@ -138,7 +115,7 @@ def _artifact_inventory(root: Path) -> dict[str, str]:
 
 def write_lerobot_policy_dataset(
     *,
-    episodes: Sequence[PolicyEpisode],
+    episodes: Iterable[PolicyEpisode],
     output_dir: Path,
     repo_id: str,
     dataset_factory: Callable[..., Any] | None = None,
@@ -147,11 +124,18 @@ def write_lerobot_policy_dataset(
 
     if not isinstance(repo_id, str) or not repo_id.strip():
         raise ValueError("repo_id must be a non-empty string")
-    frame_count, height, width = _validate_dataset(episodes)
-    del frame_count
     target = output_dir.resolve()
     if target.exists():
         raise FileExistsError(f"LeRobot output already exists: {target}")
+    iterator = iter(episodes)
+    try:
+        episode = next(iterator)
+    except StopIteration as exc:
+        raise ValueError("at least one policy episode is required") from exc
+    _, height, width = _validate_episode(episode)
+    expected_level = episode.level
+    expected_task_id = episode.task_id
+    expected_instruction = episode.instruction
     target.parent.mkdir(parents=True, exist_ok=True)
     staging = target.parent / f".{target.name}.building-{os.getpid()}"
     if staging.exists():
@@ -169,7 +153,23 @@ def write_lerobot_policy_dataset(
             image_writer_processes=0,
             image_writer_threads=0,
         )
-        for episode in episodes:
+        episode_rows = []
+        episode_ids: set[str] = set()
+        while True:
+            frame_count, episode_height, episode_width = _validate_episode(episode)
+            if (
+                episode.level != expected_level
+                or episode.task_id != expected_task_id
+                or episode.instruction != expected_instruction
+            ):
+                raise ValueError("one LeRobot dataset must contain exactly one task level")
+            if (episode_height, episode_width) != (height, width) or episode.wrist_rgb.shape[
+                1:3
+            ] != (height, width):
+                raise ValueError("all policy cameras must share one fixed image shape")
+            if episode.episode_id in episode_ids:
+                raise ValueError("policy episode ids must be unique")
+            episode_ids.add(episode.episode_id)
             for index in range(len(episode.source_formal_tick)):
                 dataset.add_frame(
                     {
@@ -181,20 +181,20 @@ def write_lerobot_policy_dataset(
                     }
                 )
             dataset.save_episode()
-
-        episode_rows = [
-            {
-                "episode_id": episode.episode_id,
-                "level": episode.level,
-                "frame_count": len(episode.source_formal_tick),
-                "valid_action_chunk_source_count": len(
-                    episode.valid_action_chunk_sources
-                ),
-                "first_source_time_us": int(episode.source_time_us[0]),
-                "last_source_time_us": int(episode.source_time_us[-1]),
-            }
-            for episode in episodes
-        ]
+            episode_rows.append(
+                {
+                    "episode_id": episode.episode_id,
+                    "level": episode.level,
+                    "frame_count": frame_count,
+                    "valid_action_chunk_source_count": len(episode.valid_action_chunk_sources),
+                    "first_source_time_us": int(episode.source_time_us[0]),
+                    "last_source_time_us": int(episode.source_time_us[-1]),
+                }
+            )
+            try:
+                episode = next(iterator)
+            except StopIteration:
+                break
         _write_json(
             staging / "metamdp_dataset.json",
             {
@@ -202,9 +202,9 @@ def write_lerobot_policy_dataset(
                 "format_id": "metamdp_lerobot_v21",
                 "repo_id": repo_id.strip(),
                 "source_format_id": "synchronized_episode_npz_v3",
-                "level": episodes[0].level,
-                "task_id": episodes[0].task_id,
-                "instruction": episodes[0].instruction,
+                "level": expected_level,
+                "task_id": expected_task_id,
+                "instruction": expected_instruction,
                 "fps": FPS,
                 "formal_tick_us": FORMAL_TICK_US,
                 "temporal_contract_id": TEMPORAL_CONTRACT_ID,
@@ -219,7 +219,7 @@ def write_lerobot_policy_dataset(
                 "video_keys": [],
                 "openpi_revision": OPENPI_REVISION,
                 "lerobot_revision": LEROBOT_REVISION,
-                "episode_count": len(episodes),
+                "episode_count": len(episode_rows),
                 "frame_count": sum(row["frame_count"] for row in episode_rows),
                 "valid_action_chunk_source_count": sum(
                     row["valid_action_chunk_source_count"] for row in episode_rows

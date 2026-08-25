@@ -9,7 +9,10 @@ import pytest
 from latency_meta_mdp.artifacts import sha256_file
 from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
 from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.policy_dataset_run import convert_pilot_run_to_lerobot
+from latency_meta_mdp.policy_dataset_run import (
+    convert_formal_corpus_to_lerobot,
+    convert_pilot_run_to_lerobot,
+)
 from latency_meta_mdp.recording import RecordProfile
 from latency_meta_mdp.sft_certification import certify_lerobot_pilot_run
 from latency_meta_mdp.sft_profile import load_sft_profile
@@ -104,6 +107,44 @@ def _source_pilot(tmp_path: Path) -> Path:
             "review_video_fps": 50,
             "episode_count": 3,
             "episodes": rows,
+            "artifacts": artifacts,
+        },
+    )
+    return source_manifest
+
+
+def _source_formal(tmp_path: Path) -> Path:
+    pilot_manifest = _source_pilot(tmp_path)
+    root = pilot_manifest.parent
+    pilot = json.loads(pilot_manifest.read_text(encoding="utf-8"))
+    admitted = []
+    artifacts = {}
+    for row in pilot["episodes"]:
+        relative_manifest = row["episode_manifest"]
+        episode_manifest = root / relative_manifest
+        admitted.append(relative_manifest)
+        artifacts[relative_manifest] = sha256_file(episode_manifest)
+        nested = json.loads(episode_manifest.read_text(encoding="utf-8"))
+        for name in nested["artifacts"]:
+            relative = (Path(relative_manifest).parent / name).as_posix()
+            artifacts[relative] = sha256_file(root / relative)
+    source_manifest = root / "formal-manifest.json"
+    _write_json(
+        source_manifest,
+        {
+            "schema_version": 1,
+            "format_id": "panda_ball_formal_corpus_v1",
+            "eligible": True,
+            "blockers": [],
+            "implementation_revision": "1" * 40,
+            "implementation_source_sha256": "2" * 64,
+            "implementation_dirty": False,
+            "levels": [1, 2, 3],
+            "seed_start": 10,
+            "seed_count_per_level": 1,
+            "episode_count": 3,
+            "source_runs": [],
+            "admitted_episode_manifests": admitted,
             "artifacts": artifacts,
         },
     )
@@ -209,3 +250,66 @@ def test_convert_pilot_run_writes_three_atomic_level_specific_datasets(
     assert result == 0
     printed = json.loads(capsys.readouterr().out)
     assert Path(printed["manifest"]) == cli_certification_dir / "manifest.json"
+
+
+def test_convert_formal_corpus_streams_three_verified_level_datasets(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_manifest = _source_formal(tmp_path)
+    profile_path = Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
+    output = tmp_path / "formal-derived"
+    factory = _FakeDatasetFactory()
+
+    manifest_path = convert_formal_corpus_to_lerobot(
+        source_manifest=source_manifest,
+        output_dir=output,
+        profile_path=profile_path,
+        dataset_factory=factory,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["format_id"] == "metamdp_lerobot_formal_corpus_v1"
+    assert manifest["source_format_id"] == "panda_ball_formal_corpus_v1"
+    assert manifest["source_manifest_sha256"] == sha256_file(source_manifest)
+    assert manifest["episode_count"] == 3
+    assert [row["episode_count"] for row in manifest["datasets"]] == [1, 1, 1]
+    assert len(factory.roots) == 3
+
+    cli = importlib.import_module("latency_meta_mdp.cli.convert_sft_formal")
+    cli_output = tmp_path / "formal-derived-cli"
+    result = cli.main(
+        [
+            "--source-manifest",
+            str(source_manifest),
+            "--output-dir",
+            str(cli_output),
+            "--profile",
+            str(profile_path),
+        ],
+        dataset_factory=_FakeDatasetFactory(),
+    )
+    assert result == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert Path(printed["manifest"]) == cli_output / "manifest.json"
+
+
+def test_convert_formal_corpus_rejects_a_bad_episode_inventory_hash(
+    tmp_path: Path,
+) -> None:
+    source_manifest = _source_formal(tmp_path)
+    source = json.loads(source_manifest.read_text(encoding="utf-8"))
+    first = source["admitted_episode_manifests"][0]
+    source["artifacts"][first] = "0" * 64
+    _write_json(source_manifest, source)
+    output = tmp_path / "formal-derived"
+
+    with pytest.raises(ValueError, match="episode manifest hash mismatch"):
+        convert_formal_corpus_to_lerobot(
+            source_manifest=source_manifest,
+            output_dir=output,
+            profile_path=Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"),
+            dataset_factory=_FakeDatasetFactory(),
+        )
+
+    assert not output.exists()
