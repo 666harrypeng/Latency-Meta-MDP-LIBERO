@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -244,3 +245,44 @@ def test_compute_level_norm_stats_requires_full_lowercase_data_revision(
             output_dir=tmp_path / "norm" / "L1",
             compute_backend=lambda **_: NormStatsComputation(source_count=4),
         )
+
+
+def test_compute_norm_stats_cli_emits_clean_json_and_progress(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    derived, certification = _inputs(tmp_path)
+    cli = importlib.import_module("latency_meta_mdp.cli.compute_sft_norm_stats")
+
+    def backend(**kwargs) -> NormStatsComputation:
+        _write_json(kwargs["output_path"], _norm_payload())
+        return NormStatsComputation(source_count=4)
+
+    output = tmp_path / "norm" / "L1"
+    result = cli.main(
+        [
+            "--project-root",
+            str(Path.cwd()),
+            "--derived-manifest",
+            str(derived),
+            "--certification-manifest",
+            str(certification),
+            "--profile",
+            str(_PROFILE),
+            "--patch",
+            str(_PATCH),
+            "--level",
+            "1",
+            "--data-revision",
+            "a" * 40,
+            "--output-dir",
+            str(output),
+        ],
+        compute_backend=backend,
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert json.loads(captured.out) == {"manifest": str(output / "manifest.json")}
+    assert "[sft-norm][L1] start" in captured.err
+    assert "[sft-norm][L1] done source_count=4" in captured.err

@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from latency_meta_mdp.sft_norm_stats import NormStatsComputation
 from latency_meta_mdp.sft_profile import SFTProfile
 
 
@@ -94,6 +95,69 @@ def _load_norm_stats_script(openpi_root: Path) -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def compute_openpi_norm_stats(
+    *,
+    level: int,
+    repo_id: str,
+    dataset_root: Path,
+    expected_source_count: int,
+    output_path: Path,
+    profile: SFTProfile,
+    openpi_root: Path,
+) -> NormStatsComputation:
+    """Compute exact state/action stats through the patched OpenPI data path."""
+
+    if level not in (1, 2, 3) or profile.levels[level].repo_id != repo_id:
+        raise ValueError("norm-stat level and repo do not match the SFT profile")
+    if output_path.name != "norm_stats.json" or output_path.exists():
+        raise ValueError("norm-stat output path must be a new norm_stats.json")
+    if expected_source_count <= 0:
+        raise ValueError("expected_source_count must be positive")
+
+    previous_home = os.environ.get("HF_LEROBOT_HOME")
+    os.environ["HF_LEROBOT_HOME"] = str(dataset_root.resolve())
+    try:
+        import openpi.shared.normalize as normalize
+        from openpi.training.config import _CONFIGS_DICT
+
+        register_sft_configs(profile)
+        config = _CONFIGS_DICT[profile.levels[level].config_name]
+        data_config = config.data.create(config.assets_dirs, config.model)
+        norm_script = _load_norm_stats_script(openpi_root.resolve())
+        loader, _ = norm_script.create_torch_dataloader(
+            data_config,
+            config.model.action_horizon,
+            config.batch_size,
+            config.model,
+            0,
+        )
+        stats = {
+            "state": normalize.RunningStats(),
+            "actions": normalize.RunningStats(),
+        }
+        source_count = 0
+        for batch in loader:
+            state = np.asarray(batch["state"])
+            actions = np.asarray(batch["actions"])
+            if state.ndim != 2 or actions.ndim != 3 or state.shape[0] != actions.shape[0]:
+                raise ValueError("OpenPI norm-stat batch has invalid state/action shapes")
+            source_count += state.shape[0]
+            stats["state"].update(state)
+            stats["actions"].update(actions)
+        if source_count != expected_source_count:
+            raise ValueError("OpenPI norm-stat loader did not cover every certified source")
+        normalize.save(
+            output_path.parent,
+            {name: running.get_statistics() for name, running in stats.items()},
+        )
+    finally:
+        if previous_home is None:
+            os.environ.pop("HF_LEROBOT_HOME", None)
+        else:
+            os.environ["HF_LEROBOT_HOME"] = previous_home
+    return NormStatsComputation(source_count=source_count)
 
 
 def probe_sft_pilot_level(
