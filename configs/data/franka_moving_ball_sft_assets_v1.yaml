@@ -1,0 +1,25 @@
+schema_version: 1
+lock_id: franka_moving_ball_sft_assets_v1
+profile_id: pi05_panda_ball_full_sft_h50_v2
+levels:
+  1:
+    repo_id: yypeng666/metamdp-robosuite-franka-moving_ball-l1-clean-50hz-h50-v2
+    data_revision: 5b9a6e6be116cc9d620bfd9b052614c08b4bdaf8
+    asset_revision: 549d825497696b1f0f7a38429c39516fc0e71795
+    dataset_manifest_sha256: 167163d14415dee8efe5bb66450cea710b84cb556b90fda3647536c43e79337f
+    norm_stats_sha256: ce2a8fe5591ece1d8a75a7e93f207ff0008a7cc085d5517fc5220116632f4fe7
+    norm_manifest_sha256: 2b0a7b7d9fadba9390e0f50baa63acfb692dfe46b6ebc4656c5bdc4869c821a4
+  2:
+    repo_id: yypeng666/metamdp-robosuite-franka-moving_ball-l2-clean-50hz-h50-v2
+    data_revision: 0d6f6e37ba96b0031bba63e1cf470c9245aada13
+    asset_revision: d51124a072fbcf95752127c162043c82f1a6b1f9
+    dataset_manifest_sha256: ebca1e7e98921ac278582e13633f4dbea5e2e37e222c71d70357f2ff236e6c17
+    norm_stats_sha256: 1febc0c8a2b16112e010ba28f7e3f17afad760f8c45dbf1df0c3e56e8ebe97cf
+    norm_manifest_sha256: da7c455a87c49c8b647e694522c4e7df4ead48945b8131905a65c66a29399ee5
+  3:
+    repo_id: yypeng666/metamdp-robosuite-franka-moving_ball-l3-clean-50hz-h50-v2
+    data_revision: 691722081fa9377f225cba48d6dc4ff27f4e48fa
+    asset_revision: f58ea25d4f1010aacc3f8decc08b8ef7e051a000
+    dataset_manifest_sha256: 813bbc6e2270449df9bd56c71a6c1213d9e5880081dab568d99958740ae19fdf
+    norm_stats_sha256: abbd5102c739533f24fd620d24862ce8797da6db4058d8bf59535a4b74c2bbf9
+    norm_manifest_sha256: 7aa93b7aeb40cfd21ef37110d2cd4e6a682e6a5d0d26d8365f3854f2a5443509
