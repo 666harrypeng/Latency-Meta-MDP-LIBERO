@@ -71,16 +71,16 @@ def _validate_probe(
         raise ValueError("OpenPI pilot probe does not satisfy the SFT contract")
 
 
-def certify_lerobot_pilot_run(
+def _certify_lerobot_run(
     *,
     project_root: Path,
     derived_manifest: Path,
     output_dir: Path,
     profile_path: Path,
     level_probe: LevelProbe,
+    expected_derived_format_id: str,
+    certification_format_id: str,
 ) -> Path:
-    """Certify all three pilot datasets and write one immutable evidence manifest."""
-
     project = project_root.resolve()
     derived_path = derived_manifest.resolve()
     profile_file = profile_path.resolve()
@@ -88,23 +88,23 @@ def certify_lerobot_pilot_run(
     profile = load_sft_profile(profile_file)
     if (
         derived.get("schema_version") != 1
-        or derived.get("format_id") != "metamdp_lerobot_pilot_run_v1"
+        or derived.get("format_id") != expected_derived_format_id
         or derived.get("sft_profile_id") != profile.profile_id
         or derived.get("sft_profile_sha256") != sha256_file(profile_file)
         or derived.get("openpi_revision") != profile.openpi_revision
         or derived.get("openpi_patch_sha256") != profile.openpi_patch_sha256
     ):
-        raise ValueError("derived pilot run does not match the active SFT profile")
+        raise ValueError("derived LeRobot run does not match the active SFT profile")
     rows = derived.get("datasets")
     if not isinstance(rows, list) or len(rows) != 3:
-        raise ValueError("derived pilot run must contain three datasets")
+        raise ValueError("derived LeRobot run must contain three datasets")
 
     derived_root = derived_path.parent.resolve()
     certified_rows: list[dict[str, Any]] = []
     for row in sorted(rows, key=lambda value: value["level"]):
         level = row.get("level")
         if level not in (1, 2, 3) or row.get("repo_id") != profile.levels[level].repo_id:
-            raise ValueError("derived pilot level identity is invalid")
+            raise ValueError("derived LeRobot level identity is invalid")
         relative_manifest = row.get("dataset_manifest")
         if not isinstance(relative_manifest, str):
             raise ValueError("derived dataset manifest path is invalid")
@@ -168,7 +168,7 @@ def certify_lerobot_pilot_run(
             staging / "manifest.json",
             {
                 "schema_version": 1,
-                "format_id": "metamdp_openpi_pilot_certification_v1",
+                "format_id": certification_format_id,
                 "implementation_revision": provenance.revision,
                 "implementation_source_sha256": provenance.source_sha256,
                 "implementation_dirty": provenance.dirty,
@@ -186,3 +186,45 @@ def certify_lerobot_pilot_run(
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return target / "manifest.json"
+
+
+def certify_lerobot_pilot_run(
+    *,
+    project_root: Path,
+    derived_manifest: Path,
+    output_dir: Path,
+    profile_path: Path,
+    level_probe: LevelProbe,
+) -> Path:
+    """Certify all three pilot datasets and write one immutable evidence manifest."""
+
+    return _certify_lerobot_run(
+        project_root=project_root,
+        derived_manifest=derived_manifest,
+        output_dir=output_dir,
+        profile_path=profile_path,
+        level_probe=level_probe,
+        expected_derived_format_id="metamdp_lerobot_pilot_run_v1",
+        certification_format_id="metamdp_openpi_pilot_certification_v1",
+    )
+
+
+def certify_lerobot_formal_run(
+    *,
+    project_root: Path,
+    derived_manifest: Path,
+    output_dir: Path,
+    profile_path: Path,
+    level_probe: LevelProbe,
+) -> Path:
+    """Certify all three formal datasets and write immutable loader evidence."""
+
+    return _certify_lerobot_run(
+        project_root=project_root,
+        derived_manifest=derived_manifest,
+        output_dir=output_dir,
+        profile_path=profile_path,
+        level_probe=level_probe,
+        expected_derived_format_id="metamdp_lerobot_formal_corpus_v1",
+        certification_format_id="metamdp_openpi_formal_certification_v1",
+    )
