@@ -35,6 +35,9 @@ def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() ->
     assert len({level.repo_id for level in profile.levels.values()}) == 3
     for level, level_profile in profile.levels.items():
         assert level_profile.config_name == f"pi05_panda_ball_l{level}_full_h50"
+        assert level_profile.repo_id == (
+            f"yypeng666/metamdp-robosuite-franka-moving_ball-l{level}-clean-50hz-h50-v2"
+        )
         assert f"-l{level}-" in level_profile.repo_id
         assert level_profile.repo_id.endswith("-50hz-h50-v2")
 

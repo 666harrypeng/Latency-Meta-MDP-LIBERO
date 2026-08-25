@@ -24,10 +24,10 @@ ema_decay: 0.999
 levels:
   1:
     config_name: pi05_panda_ball_l1_full_h50
-    repo_id: yypeng666/metamdp-robosuite-panda-moving_ball-l1-clean-50hz-h50-v2
+    repo_id: yypeng666/metamdp-robosuite-franka-moving_ball-l1-clean-50hz-h50-v2
   2:
     config_name: pi05_panda_ball_l2_full_h50
-    repo_id: yypeng666/metamdp-robosuite-panda-moving_ball-l2-clean-50hz-h50-v2
+    repo_id: yypeng666/metamdp-robosuite-franka-moving_ball-l2-clean-50hz-h50-v2
   3:
     config_name: pi05_panda_ball_l3_full_h50
-    repo_id: yypeng666/metamdp-robosuite-panda-moving_ball-l3-clean-50hz-h50-v2
+    repo_id: yypeng666/metamdp-robosuite-franka-moving_ball-l3-clean-50hz-h50-v2
