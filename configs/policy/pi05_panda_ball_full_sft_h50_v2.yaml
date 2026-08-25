@@ -16,7 +16,7 @@ num_train_steps: 3999
 warmup_steps: 200
 peak_learning_rate: 0.00005
 decay_learning_rate: 0.000005
-save_interval: 100
+save_interval: 250
 keep_period: 1333
 log_interval: 33
 fsdp_devices: 1

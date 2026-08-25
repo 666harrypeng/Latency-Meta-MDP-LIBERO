@@ -25,7 +25,7 @@ def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() ->
     assert profile.batch_size == 192
     assert profile.num_train_steps == 3_999
     assert profile.warmup_steps == 200
-    assert profile.save_interval == 100
+    assert profile.save_interval == 250
     assert profile.keep_period == 1_333
     assert profile.log_interval == 33
     assert profile.peak_learning_rate == 5e-5

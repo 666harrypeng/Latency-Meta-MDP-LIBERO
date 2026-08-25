@@ -44,7 +44,7 @@ def test_register_sft_configs_builds_three_full_parameter_h50_profiles(
         assert config.freeze_filter.__class__.__name__ == "Nothing"
         assert config.batch_size == 192
         assert config.num_train_steps == 3_999
-        assert config.save_interval == 100
+        assert config.save_interval == 250
         assert config.keep_period == 1_333
         assert config.policy_metadata["level"] == level
         assert config.policy_metadata["launch_trigger_horizon"] == 25

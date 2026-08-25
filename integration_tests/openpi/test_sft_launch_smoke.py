@@ -84,7 +84,7 @@ def test_level_train_config_preserves_formal_schedule_and_smoke_override(
     assert formal.exp_name == "l2-formal"
     assert formal.batch_size == 192
     assert formal.num_train_steps == 3_999
-    assert formal.save_interval == 100
+    assert formal.save_interval == 250
     assert formal.keep_period == 1_333
     assert formal.resume is True
     assert formal.wandb_enabled is True
