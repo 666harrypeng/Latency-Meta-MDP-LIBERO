@@ -278,6 +278,10 @@ def test_convert_formal_corpus_streams_three_verified_level_datasets(
     assert manifest["episode_count"] == 3
     assert [row["episode_count"] for row in manifest["datasets"]] == [1, 1, 1]
     assert len(factory.roots) == 3
+    output_text = capsys.readouterr().err
+    assert "[sft-data][L1] start episodes=1" in output_text
+    assert "[sft-data][L1] progress=1/1" in output_text
+    assert "[sft-data][L1] done episodes=1" in output_text
 
     cli = importlib.import_module("latency_meta_mdp.cli.convert_sft_formal")
     cli_output = tmp_path / "formal-derived-cli"
@@ -293,7 +297,9 @@ def test_convert_formal_corpus_streams_three_verified_level_datasets(
         dataset_factory=_FakeDatasetFactory(),
     )
     assert result == 0
-    printed = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    printed = json.loads(captured.out)
+    assert "[sft-data][L3] done episodes=1" in captured.err
     assert Path(printed["manifest"]) == cli_output / "manifest.json"
 
     def probe(**kwargs) -> dict:

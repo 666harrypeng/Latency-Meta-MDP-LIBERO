@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from pathlib import Path, PurePosixPath
@@ -252,6 +253,32 @@ def convert_pilot_run_to_lerobot(
     )
 
 
+def _stream_formal_policy_episodes(
+    paths: list[Path],
+    *,
+    level: int,
+) -> Iterable[PolicyEpisode]:
+    total = len(paths)
+    print(
+        f"[sft-data][L{level}] start episodes={total}",
+        file=sys.stderr,
+        flush=True,
+    )
+    for index, path in enumerate(paths, start=1):
+        yield load_policy_episode(path.parent)
+        if index % 10 == 0 or index == total:
+            print(
+                f"[sft-data][L{level}] progress={index}/{total}",
+                file=sys.stderr,
+                flush=True,
+            )
+    print(
+        f"[sft-data][L{level}] done episodes={total}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def convert_formal_corpus_to_lerobot(
     *,
     source_manifest: Path,
@@ -264,7 +291,7 @@ def convert_formal_corpus_to_lerobot(
     source_path = source_manifest.resolve()
     source, grouped_paths = _load_formal_episode_paths(source_path)
     grouped = {
-        level: (load_policy_episode(path.parent) for path in grouped_paths[level])
+        level: _stream_formal_policy_episodes(grouped_paths[level], level=level)
         for level in (1, 2, 3)
     }
     return _convert_grouped_to_lerobot(
