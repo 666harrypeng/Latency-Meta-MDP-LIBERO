@@ -218,6 +218,16 @@ def train_level_flow_belief(
     best_state: dict[str, torch.Tensor] | None = None
     stale_epochs = 0
     history = []
+    stop_reason = "max_epochs"
+    print(
+        f"[flow][L{corpus.level}] start "
+        f"train_episodes={corpus.episode_counts[ProbeSplit.TRAIN]} "
+        f"validation_episodes={corpus.episode_counts[ProbeSplit.VALIDATION]} "
+        f"train_contexts={corpus.sample_counts[ProbeSplit.TRAIN]} "
+        f"validation_contexts={corpus.sample_counts[ProbeSplit.VALIDATION]} "
+        f"max_epochs={config.max_epochs}",
+        flush=True,
+    )
     for epoch in range(1, config.max_epochs + 1):
         datasets[ProbeSplit.TRAIN].set_epoch(epoch - 1)
         model.train()
@@ -252,7 +262,8 @@ def train_level_flow_belief(
                 "validation_fixed_weighted_flow_mse": validation_loss,
             }
         )
-        if validation_loss < best_loss - config.early_stopping_min_delta:
+        improved = validation_loss < best_loss - config.early_stopping_min_delta
+        if improved:
             best_loss = validation_loss
             best_epoch = epoch
             best_state = {
@@ -262,7 +273,19 @@ def train_level_flow_belief(
             stale_epochs = 0
         else:
             stale_epochs += 1
+        print(
+            f"[flow][L{corpus.level}] "
+            f"epoch={epoch:03d}/{config.max_epochs:03d} "
+            f"train_mse={training_loss:.6f} "
+            f"validation_mse={validation_loss:.6f} "
+            f"best={best_loss:.6f} "
+            f"stale={stale_epochs}/{config.early_stopping_patience} "
+            f"improved={'yes' if improved else 'no'}",
+            flush=True,
+        )
+        if not improved:
             if stale_epochs >= config.early_stopping_patience:
+                stop_reason = "early_stopping"
                 break
     if best_state is None:
         raise RuntimeError("Flow Belief training produced no finite validation checkpoint")
@@ -346,4 +369,12 @@ def train_level_flow_belief(
     except BaseException:
         shutil.rmtree(building, ignore_errors=True)
         raise
+    print(
+        f"[flow][L{corpus.level}] done "
+        f"epochs={len(history)} "
+        f"best_epoch={best_epoch} "
+        f"best_validation_mse={best_loss:.6f} "
+        f"reason={stop_reason}",
+        flush=True,
+    )
     return target / "manifest.json"

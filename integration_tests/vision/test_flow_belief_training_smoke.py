@@ -45,7 +45,10 @@ def _corpus_and_smoke_config():
     return corpus, config
 
 
-def test_one_epoch_flow_belief_writes_independent_encoder_and_model(tmp_path: Path) -> None:
+def test_one_epoch_flow_belief_reports_progress_and_writes_checkpoints(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("Flow Belief training smoke requires CUDA")
@@ -61,6 +64,7 @@ def test_one_epoch_flow_belief_writes_independent_encoder_and_model(tmp_path: Pa
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     metrics = json.loads((manifest_path.parent / "metrics.json").read_text(encoding="utf-8"))
+    output = capsys.readouterr().out
 
     assert manifest["level"] == 1
     assert manifest["checkpoint_scope"] == "single_level_only"
@@ -75,3 +79,13 @@ def test_one_epoch_flow_belief_writes_independent_encoder_and_model(tmp_path: Pa
     }
     assert metrics["validation_fixed_flow_mse"] >= 0.0
     assert metrics["holdout_fixed_flow_mse"] >= 0.0
+    assert "[flow][L1] start" in output
+    assert "train_episodes=20" in output
+    assert "validation_episodes=2" in output
+    assert "[flow][L1] epoch=001/001" in output
+    assert "train_mse=" in output
+    assert "validation_mse=" in output
+    assert "stale=0/1" in output
+    assert "improved=yes" in output
+    assert "[flow][L1] done" in output
+    assert "reason=max_epochs" in output
