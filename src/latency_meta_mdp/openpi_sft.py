@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any
 
 import numpy as np
 
+from latency_meta_mdp.sft_launch import SFTLaunchRequest
 from latency_meta_mdp.sft_norm_stats import NormStatsComputation
 from latency_meta_mdp.sft_profile import SFTProfile
 
@@ -84,6 +86,38 @@ def register_sft_configs(profile: SFTProfile) -> tuple[str, ...]:
     return tuple(names)
 
 
+def build_level_train_config(
+    *,
+    profile: SFTProfile,
+    request: SFTLaunchRequest,
+    assets_root: Path,
+    checkpoint_root: Path,
+    wandb_enabled: bool,
+) -> Any:
+    """Build one explicit smoke or formal TrainConfig from the canonical profile."""
+
+    base = _build_config(profile, request.level)
+    if request.mode == "smoke":
+        save_interval = 20 if request.resume else 100
+        keep_period = save_interval
+    else:
+        save_interval = profile.save_interval
+        keep_period = profile.keep_period
+    return dataclasses.replace(
+        base,
+        exp_name=request.experiment_name,
+        assets_base_dir=str(assets_root.resolve()),
+        checkpoint_base_dir=str(checkpoint_root.resolve()),
+        batch_size=request.batch_size_override or profile.batch_size,
+        num_train_steps=request.num_train_steps,
+        save_interval=save_interval,
+        keep_period=keep_period,
+        overwrite=False,
+        resume=request.resume,
+        wandb_enabled=wandb_enabled,
+    )
+
+
 def _load_norm_stats_script(openpi_root: Path) -> Any:
     script_path = openpi_root / "scripts/compute_norm_stats.py"
     spec = importlib.util.spec_from_file_location(
@@ -95,6 +129,25 @@ def _load_norm_stats_script(openpi_root: Path) -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_train_script(openpi_root: Path) -> Any:
+    script_path = openpi_root / "scripts/train.py"
+    spec = importlib.util.spec_from_file_location(
+        "_metamdp_openpi_train",
+        script_path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load OpenPI train script: {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_openpi_training(*, config: Any, openpi_root: Path) -> None:
+    """Run pinned OpenPI training and return only after async checkpoints flush."""
+
+    _load_train_script(openpi_root.resolve()).main(config)
 
 
 def compute_openpi_norm_stats(
@@ -201,9 +254,7 @@ def probe_sft_pilot_level(
         config.model,
         0,
     )
-    norm_batch_sizes = [
-        int(np.asarray(batch["state"]).shape[0]) for batch in norm_loader
-    ]
+    norm_batch_sizes = [int(np.asarray(batch["state"]).shape[0]) for batch in norm_loader]
 
     train_loader = create_torch_data_loader(
         data_config,

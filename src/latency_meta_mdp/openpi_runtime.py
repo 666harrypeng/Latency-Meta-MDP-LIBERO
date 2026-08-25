@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -20,6 +21,21 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
+
+
+def _purge_worktree_modules(worktree: Path, modules_before: set[str]) -> None:
+    for name, module in tuple(sys.modules.items()):
+        if name in modules_before:
+            continue
+        module_file = getattr(module, "__file__", None)
+        if module_file is None:
+            continue
+        try:
+            belongs_to_worktree = Path(module_file).resolve().is_relative_to(worktree)
+        except (OSError, RuntimeError):
+            belongs_to_worktree = False
+        if belongs_to_worktree:
+            sys.modules.pop(name, None)
 
 
 @contextlib.contextmanager
@@ -41,9 +57,7 @@ def temporary_patched_openpi_worktree(
         raise FileNotFoundError(f"OpenPI patch does not exist: {patch}")
     for additional_patch in additional_patches:
         if not additional_patch.is_file():
-            raise FileNotFoundError(
-                f"additional OpenPI patch does not exist: {additional_patch}"
-            )
+            raise FileNotFoundError(f"additional OpenPI patch does not exist: {additional_patch}")
     revision = _git(root, "rev-parse", "HEAD").stdout.strip()
     if revision != expected_revision:
         raise ValueError(
@@ -54,6 +68,7 @@ def temporary_patched_openpi_worktree(
 
     temporary_root = Path(tempfile.mkdtemp(prefix="metamdp-openpi-"))
     worktree = temporary_root / "openpi"
+    modules_before = set(sys.modules)
     added = False
     try:
         _git(root, "worktree", "add", str(worktree), "--detach", expected_revision)
@@ -68,6 +83,7 @@ def temporary_patched_openpi_worktree(
             _git(worktree, "apply", str(additional_patch))
         yield worktree
     finally:
+        _purge_worktree_modules(worktree, modules_before)
         if added:
             _git(root, "worktree", "remove", "--force", str(worktree))
         shutil.rmtree(temporary_root, ignore_errors=True)
