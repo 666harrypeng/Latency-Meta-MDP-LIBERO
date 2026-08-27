@@ -45,6 +45,41 @@ class QualityContextIdentity:
 
 
 @dataclass(frozen=True)
+class QualityContextScore:
+    identity: QualityContextIdentity
+    source_phase: str
+    ranking_score: float
+    short_delay_error: float
+    long_delay_error: float
+    handoff_distance_ticks: int
+    motion_transition_score: float
+    object_position_rmse_m: float
+    robot_qpos_rmse_rad: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity, QualityContextIdentity):
+            raise TypeError("quality context score identity must be typed")
+        if self.source_phase not in _SOURCE_PHASES:
+            raise ValueError("quality context score source phase is invalid")
+        numeric_values = (
+            self.ranking_score,
+            self.short_delay_error,
+            self.long_delay_error,
+            self.motion_transition_score,
+            self.object_position_rmse_m,
+            self.robot_qpos_rmse_rad,
+        )
+        if any(not math.isfinite(value) or value < 0.0 for value in numeric_values):
+            raise ValueError("quality context score metrics must be finite and non-negative")
+        if (
+            isinstance(self.handoff_distance_ticks, bool)
+            or not isinstance(self.handoff_distance_ticks, int)
+            or self.handoff_distance_ticks < 0
+        ):
+            raise ValueError("quality context score handoff distance is invalid")
+
+
+@dataclass(frozen=True)
 class QualitySelection:
     identity: QualityContextIdentity
     roles: tuple[str, ...]
