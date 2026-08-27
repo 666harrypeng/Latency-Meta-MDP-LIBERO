@@ -4,7 +4,12 @@ camera_name: agentview
 width: 256
 height: 256
 display_delay_ticks: [1, 5, 10, 15, 20]
-overlay_alpha: 0.55
+overlay_alpha: 1.0
+overlap_alpha: 0.24
+overlap_hatch_alpha: 0.45
+overlap_hatch_spacing_px: 10
+ground_truth_outline_width_px: 7
+prediction_outline_width_px: 3
 ground_truth_rgb: [0, 114, 178]
 prediction_rgb: [213, 94, 0]
 overlap_rgb: [240, 228, 66]

@@ -23,9 +23,14 @@ def test_ghost_config_locks_agentview_render_contract() -> None:
     assert config.camera_name == "agentview"
     assert (config.width, config.height) == (256, 256)
     assert config.display_delay_ticks == (1, 5, 10, 15, 20)
-    assert config.overlay_alpha == 0.55
+    assert config.overlay_alpha == 1.0
     assert config.ground_truth_rgb == (0, 114, 178)
     assert config.prediction_rgb == (213, 94, 0)
+    assert config.overlap_alpha == 0.24
+    assert config.overlap_hatch_alpha == 0.45
+    assert config.overlap_hatch_spacing_px == 10
+    assert config.ground_truth_outline_width_px == 7
+    assert config.prediction_outline_width_px == 3
     assert config.medoid_metric == "normalized_l2"
 
     with pytest.raises(ValueError, match="agentview"):

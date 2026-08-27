@@ -18,6 +18,11 @@ class FlowBeliefGhostConfig:
     height: int
     display_delay_ticks: tuple[int, ...]
     overlay_alpha: float
+    overlap_alpha: float
+    overlap_hatch_alpha: float
+    overlap_hatch_spacing_px: int
+    ground_truth_outline_width_px: int
+    prediction_outline_width_px: int
     ground_truth_rgb: tuple[int, int, int]
     prediction_rgb: tuple[int, int, int]
     overlap_rgb: tuple[int, int, int]
@@ -35,8 +40,29 @@ class FlowBeliefGhostConfig:
             raise ValueError("Flow Belief ghost rendering requires 256 x 256 images")
         if self.display_delay_ticks != (1, 5, 10, 15, 20):
             raise ValueError("Flow Belief ghost display delays are invalid")
-        if not math.isfinite(self.overlay_alpha) or not 0.0 < self.overlay_alpha < 1.0:
-            raise ValueError("Flow Belief ghost overlay alpha must lie in (0, 1)")
+        if not math.isfinite(self.overlay_alpha) or not 0.0 < self.overlay_alpha <= 1.0:
+            raise ValueError("Flow Belief ghost overlay alpha must lie in (0, 1]")
+        if not math.isfinite(self.overlap_alpha) or not 0.0 < self.overlap_alpha < 0.5:
+            raise ValueError("Flow Belief ghost overlap alpha must lie in (0, 0.5)")
+        if not math.isfinite(self.overlap_hatch_alpha) or not 0.0 < self.overlap_hatch_alpha < 1.0:
+            raise ValueError("Flow Belief ghost hatch alpha must lie in (0, 1)")
+        if (
+            isinstance(self.overlap_hatch_spacing_px, bool)
+            or not isinstance(self.overlap_hatch_spacing_px, int)
+            or self.overlap_hatch_spacing_px < 4
+        ):
+            raise ValueError("Flow Belief ghost hatch spacing must be at least four pixels")
+        outline_widths = (
+            self.ground_truth_outline_width_px,
+            self.prediction_outline_width_px,
+        )
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            for value in outline_widths
+        ):
+            raise ValueError("Flow Belief ghost outline widths must be positive integers")
+        if self.ground_truth_outline_width_px <= self.prediction_outline_width_px:
+            raise ValueError("ground-truth outline must be wider than prediction outline")
         for name in ("ground_truth_rgb", "prediction_rgb", "overlap_rgb"):
             color = getattr(self, name)
             if len(color) != 3 or any(

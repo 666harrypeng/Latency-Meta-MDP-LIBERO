@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from latency_meta_mdp.belief.flow.ghost_config import FlowBeliefGhostConfig
 
@@ -16,6 +16,62 @@ def _validate_rgb(value: np.ndarray, *, shape: tuple[int, int, int]) -> np.ndarr
     if array.shape != shape or array.dtype != np.uint8:
         raise ValueError("ghost visualization RGB array is invalid")
     return array
+
+
+def _font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    try:
+        return ImageFont.truetype(name, size=size)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _paste_vertical_text(
+    image: Image.Image,
+    *,
+    text: str,
+    center: tuple[int, int],
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    fill: tuple[int, int, int, int],
+) -> None:
+    bounds = font.getbbox(text)
+    width = bounds[2] - bounds[0] + 4
+    height = bounds[3] - bounds[1] + 4
+    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).text((2 - bounds[0], 2 - bounds[1]), text, font=font, fill=fill)
+    rotated = layer.rotate(90, expand=True)
+    image.paste(
+        rotated,
+        (center[0] - rotated.width // 2, center[1] - rotated.height // 2),
+        rotated,
+    )
+
+
+def _blend_color(
+    image: np.ndarray,
+    mask: np.ndarray,
+    color: tuple[int, int, int],
+    alpha: float,
+) -> None:
+    image[mask] = (1.0 - alpha) * image[mask] + alpha * np.asarray(color, dtype=np.float32)
+
+
+def _erode_mask(mask: np.ndarray, iterations: int) -> np.ndarray:
+    result = np.asarray(mask, dtype=np.bool_).copy()
+    for _ in range(iterations):
+        padded = np.pad(result, 1, mode="constant", constant_values=False)
+        result = (
+            padded[1:-1, 1:-1]
+            & padded[:-2, 1:-1]
+            & padded[2:, 1:-1]
+            & padded[1:-1, :-2]
+            & padded[1:-1, 2:]
+        )
+    return result
+
+
+def _inner_contour(mask: np.ndarray, width: int) -> np.ndarray:
+    return np.asarray(mask, dtype=np.bool_) & ~_erode_mask(mask, width)
 
 
 def compose_agentview_ghost(
@@ -44,105 +100,168 @@ def compose_agentview_ghost(
         raise ValueError("ghost composition masks must match the RGB image")
     ground_truth = masks[0] | masks[1]
     prediction = masks[2] | masks[3]
-    only_ground_truth = ground_truth & ~prediction
-    only_prediction = prediction & ~ground_truth
     overlap = ground_truth & prediction
     output = background.astype(np.float32)
-    alpha = config.overlay_alpha
-    output[only_ground_truth] = (1.0 - alpha) * output[only_ground_truth] + alpha * np.asarray(
-        config.ground_truth_rgb, dtype=np.float32
+    _blend_color(
+        output,
+        overlap,
+        config.overlap_rgb,
+        config.overlap_alpha,
     )
-    output[only_prediction] = (1.0 - alpha) * output[only_prediction] + alpha * np.asarray(
-        config.prediction_rgb, dtype=np.float32
+    rows, columns = np.indices(overlap.shape)
+    overlap_hatch = overlap & ((rows + columns) % config.overlap_hatch_spacing_px < 2)
+    _blend_color(
+        output,
+        overlap_hatch,
+        config.overlap_rgb,
+        config.overlap_hatch_alpha,
     )
-    output[overlap] = np.asarray(config.overlap_rgb, dtype=np.float32)
+    _blend_color(
+        output,
+        _inner_contour(ground_truth, config.ground_truth_outline_width_px),
+        config.ground_truth_rgb,
+        config.overlay_alpha,
+    )
+    _blend_color(
+        output,
+        _inner_contour(prediction, config.prediction_outline_width_px),
+        config.prediction_rgb,
+        config.overlay_alpha,
+    )
     return np.clip(np.rint(output), 0, 255).astype(np.uint8)
 
 
-def _xy_projection(values: np.ndarray, *, size: int, margin: int) -> tuple[np.ndarray, tuple]:
-    points = np.asarray(values, dtype=np.float64)
-    flat = points.reshape(-1, 2)
-    if flat.size == 0 or not np.all(np.isfinite(flat)):
-        raise ValueError("trajectory plot points must be finite and non-empty")
-    low = flat.min(axis=0)
-    high = flat.max(axis=0)
-    span = np.maximum(high - low, 1e-6)
-    low -= 0.1 * span
-    high += 0.1 * span
-    span = high - low
-    projected = np.empty_like(points)
-    projected[..., 0] = margin + (points[..., 0] - low[0]) / span[0] * (size - 2 * margin)
-    projected[..., 1] = size - margin - (points[..., 1] - low[1]) / span[1] * (size - 2 * margin)
-    return projected, (low, high)
-
-
-def render_trajectory_plot(
+def render_state_cloud_plot(
     *,
     delay_ticks: np.ndarray,
-    object_samples: np.ndarray,
-    object_targets: np.ndarray,
-    eef_samples: np.ndarray,
-    eef_targets: np.ndarray,
+    state_samples: np.ndarray,
+    state_targets: np.ndarray,
+    title: str,
+    state_label: str,
     config: FlowBeliefGhostConfig,
 ) -> np.ndarray:
-    delays = np.asarray(delay_ticks)
-    arrays = tuple(
-        np.asarray(value, dtype=np.float64)
-        for value in (object_samples, object_targets, eef_samples, eef_targets)
-    )
+    delays = np.asarray(delay_ticks, dtype=np.int64)
+    samples = np.asarray(state_samples, dtype=np.float64)
+    targets = np.asarray(state_targets, dtype=np.float64)
     if (
         delays.shape != (5,)
-        or arrays[0].shape != (5, 32, 3)
-        or arrays[1].shape != (5, 3)
-        or arrays[2].shape != (5, 32, 3)
-        or arrays[3].shape != (5, 3)
-        or any(not np.all(np.isfinite(value)) for value in arrays)
+        or samples.shape != (5, 32, 3)
+        or targets.shape != (5, 3)
+        or not np.all(np.isfinite(samples))
+        or not np.all(np.isfinite(targets))
+        or not title
+        or not state_label
     ):
-        raise ValueError("trajectory plot inputs have invalid shapes or values")
-    size = 512
-    margin = 42
-    all_xy = np.concatenate(
-        (
-            arrays[0][..., :2].reshape(-1, 2),
-            arrays[1][..., :2],
-            arrays[2][..., :2].reshape(-1, 2),
-            arrays[3][..., :2],
-        )
-    )
-    _, (low, high) = _xy_projection(all_xy, size=size, margin=margin)
+        raise ValueError("state-cloud plot inputs have invalid shapes or values")
+    size = 500
+    plot_left, plot_top, plot_size = 82, 92, 340
+    origin = targets[0, :2]
+    sample_xy = (samples[..., :2] - origin) * 1_000.0
+    target_xy = (targets[..., :2] - origin) * 1_000.0
+    flat = np.concatenate((sample_xy.reshape(-1, 2), target_xy), axis=0)
+    center = 0.5 * (flat.min(axis=0) + flat.max(axis=0))
+    half_span = max(float(np.max(np.abs(flat - center))), 1.0) * 1.16
+    low = center - half_span
+    high = center + half_span
 
     def project(points: np.ndarray) -> np.ndarray:
-        values = np.asarray(points)[..., :2]
+        values = np.asarray(points, dtype=np.float64)
         span = high - low
         result = np.empty_like(values)
-        result[..., 0] = margin + (values[..., 0] - low[0]) / span[0] * (size - 2 * margin)
-        result[..., 1] = size - margin - (values[..., 1] - low[1]) / span[1] * (size - 2 * margin)
+        result[..., 0] = plot_left + (values[..., 0] - low[0]) / span[0] * plot_size
+        result[..., 1] = plot_top + plot_size - (values[..., 1] - low[1]) / span[1] * plot_size
         return result
 
-    image = Image.new("RGB", (size, size), (248, 248, 248))
+    image = Image.new("RGB", (size, size), (250, 250, 250))
     draw = ImageDraw.Draw(image, "RGBA")
-    draw.rectangle((margin, margin, size - margin, size - margin), outline=(80, 80, 80, 255))
-    draw.text((12, 10), "Object / EEF future clouds (top-down)", fill=(20, 20, 20, 255))
-    gt_color = (*config.ground_truth_rgb, 255)
-    pred_color = (*config.prediction_rgb, 80)
-    object_cloud = project(arrays[0])
-    eef_cloud = project(arrays[2])
-    object_gt = project(arrays[1])
-    eef_gt = project(arrays[3])
+    draw.text((18, 14), title, fill=(24, 24, 24, 255), font=_font(21, bold=True))
+    draw.text(
+        (18, 44),
+        f"Top-down displacement from d=1 target | {state_label}",
+        fill=(70, 70, 70, 255),
+        font=_font(13),
+    )
+    draw.rectangle(
+        (plot_left, plot_top, plot_left + plot_size, plot_top + plot_size),
+        outline=(90, 90, 90, 255),
+        width=1,
+    )
+    for fraction in (0.0, 0.5, 1.0):
+        x = plot_left + fraction * plot_size
+        y = plot_top + fraction * plot_size
+        draw.line((x, plot_top, x, plot_top + plot_size), fill=(215, 215, 215, 255))
+        draw.line((plot_left, y, plot_left + plot_size, y), fill=(215, 215, 215, 255))
+        x_value = low[0] + fraction * (high[0] - low[0])
+        y_value = high[1] - fraction * (high[1] - low[1])
+        draw.text(
+            (x - 17, plot_top + plot_size + 7),
+            f"{x_value:.0f}",
+            fill=(55, 55, 55, 255),
+            font=_font(12),
+        )
+        draw.text(
+            (plot_left - 50, y - 7),
+            f"{y_value:.0f}",
+            fill=(55, 55, 55, 255),
+            font=_font(12),
+        )
+    _paste_vertical_text(
+        image,
+        text="relative Y (mm)",
+        center=(20, 262),
+        font=_font(13),
+        fill=(40, 40, 40, 255),
+    )
+    cloud = project(sample_xy)
+    target_points = project(target_xy)
+    draw.line(
+        [tuple(point) for point in target_points],
+        fill=(*config.ground_truth_rgb, 180),
+        width=2,
+    )
     for delay_index, delay in enumerate(delays):
-        for point in object_cloud[delay_index]:
+        for point in cloud[delay_index]:
             x, y = point
-            draw.ellipse((x - 2, y - 2, x + 2, y + 2), fill=pred_color)
-        for point in eef_cloud[delay_index]:
-            x, y = point
-            draw.rectangle((x - 1, y - 1, x + 1, y + 1), fill=(213, 94, 0, 50))
-        x, y = object_gt[delay_index]
-        draw.ellipse((x - 5, y - 5, x + 5, y + 5), outline=gt_color, width=2)
-        ex, ey = eef_gt[delay_index]
-        draw.line((ex - 5, ey, ex + 5, ey), fill=gt_color, width=2)
-        draw.line((ex, ey - 5, ex, ey + 5), fill=gt_color, width=2)
-        draw.text((x + 6, y - 6), f"d{int(delay)}", fill=(40, 40, 40, 255))
+            draw.ellipse(
+                (x - 2.5, y - 2.5, x + 2.5, y + 2.5),
+                fill=(*config.prediction_rgb, 58),
+            )
+        x, y = target_points[delay_index]
+        draw.ellipse(
+            (x - 6, y - 6, x + 6, y + 6),
+            fill=(250, 250, 250, 255),
+            outline=(*config.ground_truth_rgb, 255),
+            width=3,
+        )
+        draw.text(
+            (x + 8, y - 18),
+            f"{int(delay) * 20} ms",
+            fill=(*config.ground_truth_rgb, 255),
+            font=_font(12, bold=True),
+        )
+    draw.ellipse((82, 459, 91, 468), fill=(*config.prediction_rgb, 90))
+    draw.text((97, 455), "Flow samples", fill=(55, 55, 55, 255), font=_font(12))
+    draw.ellipse(
+        (190, 458, 201, 469),
+        fill=(250, 250, 250, 255),
+        outline=(*config.ground_truth_rgb, 255),
+        width=2,
+    )
+    draw.text((207, 455), "GT future state", fill=(55, 55, 55, 255), font=_font(12))
+    draw.text((352, 455), "relative X (mm)", fill=(40, 40, 40, 255), font=_font(12))
     return np.asarray(image, dtype=np.uint8)
+
+
+def joint_quantile_bands(
+    joint_samples: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    samples = np.asarray(joint_samples, dtype=np.float64)
+    if samples.ndim != 3 or samples.shape[0] != 5 or samples.shape[2] != 7:
+        raise ValueError("joint samples must have shape [5, samples, 7]")
+    if samples.shape[1] < 2 or not np.all(np.isfinite(samples)):
+        raise ValueError("joint samples must contain finite distribution samples")
+    values = np.quantile(samples, (0.025, 0.16, 0.5, 0.84, 0.975), axis=1)
+    return tuple(values[index] for index in range(5))  # type: ignore[return-value]
 
 
 def render_joint_band_plot(
@@ -163,35 +282,60 @@ def render_joint_band_plot(
         or not np.all(np.isfinite(targets))
     ):
         raise ValueError("joint-band plot inputs have invalid shapes or values")
-    image = Image.new("RGB", (512, 512), (248, 248, 248))
+    image = Image.new("RGB", (820, 500), (250, 250, 250))
     draw = ImageDraw.Draw(image, "RGBA")
-    draw.text((12, 8), "Joint future bands", fill=(20, 20, 20, 255))
-    median = np.median(samples, axis=1)
-    lower, upper = np.quantile(samples, (0.16, 0.84), axis=1)
+    draw.text(
+        (18, 14),
+        "Robot joint future distributions",
+        fill=(24, 24, 24, 255),
+        font=_font(21, bold=True),
+    )
+    draw.text(
+        (18, 43),
+        "GT, Flow median, 68% band, and 95% band",
+        fill=(70, 70, 70, 255),
+        font=_font(13),
+    )
+    draw.line((535, 52, 557, 52), fill=(*config.ground_truth_rgb, 255), width=3)
+    draw.text((563, 44), "GT", fill=(55, 55, 55, 255), font=_font(12))
+    draw.line((603, 52, 625, 52), fill=(*config.prediction_rgb, 255), width=3)
+    draw.text((631, 44), "Flow median", fill=(55, 55, 55, 255), font=_font(12))
+    lower95, lower68, median, upper68, upper95 = joint_quantile_bands(samples)
     for joint in range(7):
         column = joint % 2
         row = joint // 2
-        left = 18 + column * 250
-        top = 32 + row * 118
-        right = left + 230
-        bottom = top + 96
-        all_values = np.concatenate((lower[:, joint], upper[:, joint], targets[:, joint]))
+        left = 55 + column * 400
+        top = 76 + row * 103
+        right = left + 350
+        bottom = top + 72
+        all_values = np.concatenate((lower95[:, joint], upper95[:, joint], targets[:, joint]))
         low = float(all_values.min())
         high = float(all_values.max())
         if high - low < 1e-6:
             high = low + 1e-6
+        pad = 0.08 * (high - low)
+        low -= pad
+        high += pad
 
         def point(delay: float, value: float) -> tuple[float, float]:
             x = left + (delay - delays[0]) / (delays[-1] - delays[0]) * (right - left)
             y = bottom - (value - low) / (high - low) * (bottom - top)
             return x, y
 
-        draw.rectangle((left, top, right, bottom), outline=(130, 130, 130, 255))
-        polygon = [point(d, v) for d, v in zip(delays, lower[:, joint], strict=True)]
-        polygon += [
-            point(d, v) for d, v in reversed(list(zip(delays, upper[:, joint], strict=True)))
+        draw.rectangle((left, top, right, bottom), outline=(120, 120, 120, 255))
+        for fraction in (0.0, 0.5, 1.0):
+            y = top + fraction * (bottom - top)
+            draw.line((left, y, right, y), fill=(220, 220, 220, 255))
+        polygon95 = [point(d, v) for d, v in zip(delays, lower95[:, joint], strict=True)]
+        polygon95 += [
+            point(d, v) for d, v in reversed(list(zip(delays, upper95[:, joint], strict=True)))
         ]
-        draw.polygon(polygon, fill=(*config.prediction_rgb, 45))
+        polygon68 = [point(d, v) for d, v in zip(delays, lower68[:, joint], strict=True)]
+        polygon68 += [
+            point(d, v) for d, v in reversed(list(zip(delays, upper68[:, joint], strict=True)))
+        ]
+        draw.polygon(polygon95, fill=(*config.prediction_rgb, 25))
+        draw.polygon(polygon68, fill=(*config.prediction_rgb, 58))
         draw.line(
             [point(d, v) for d, v in zip(delays, median[:, joint], strict=True)],
             fill=(*config.prediction_rgb, 255),
@@ -202,45 +346,147 @@ def render_joint_band_plot(
             fill=(*config.ground_truth_rgb, 255),
             width=2,
         )
-        draw.text((left + 3, top + 2), f"q{joint + 1}", fill=(30, 30, 30, 255))
+        draw.text(
+            (left + 4, top + 3),
+            f"q{joint + 1}",
+            fill=(30, 30, 30, 255),
+            font=_font(12, bold=True),
+        )
+        draw.text(
+            (left - 43, top - 4),
+            f"{high:.2f}",
+            fill=(70, 70, 70, 255),
+            font=_font(10),
+        )
+        draw.text(
+            (left - 43, bottom - 8),
+            f"{low:.2f}",
+            fill=(70, 70, 70, 255),
+            font=_font(10),
+        )
+        if joint in (5, 6):
+            for delay in delays:
+                x, _ = point(float(delay), low)
+                draw.text(
+                    (x - 12, bottom + 4),
+                    f"{int(delay) * 20}",
+                    fill=(60, 60, 60, 255),
+                    font=_font(10),
+                )
+    _paste_vertical_text(
+        image,
+        text="joint angle (rad)",
+        center=(13, 270),
+        font=_font(12),
+        fill=(45, 45, 45, 255),
+    )
+    draw.text((690, 475), "latency (ms)", fill=(45, 45, 45, 255), font=_font(12))
     return np.asarray(image, dtype=np.uint8)
 
 
 def assemble_context_panel(
     *,
     current_rgb: np.ndarray,
-    ground_truth_rgb: np.ndarray,
     ghost_overlays: np.ndarray,
-    trajectory_plot: np.ndarray,
+    object_plot: np.ndarray,
+    eef_plot: np.ndarray,
     joint_plot: np.ndarray,
     delay_ticks: np.ndarray,
+    delay_summaries: tuple[str, ...],
     title: str,
+    subtitle: str,
 ) -> np.ndarray:
     current = _validate_rgb(current_rgb, shape=(256, 256, 3))
-    ground_truth = np.asarray(ground_truth_rgb)
     overlays = np.asarray(ghost_overlays)
-    if ground_truth.shape != (5, 256, 256, 3) or ground_truth.dtype != np.uint8:
-        raise ValueError("context panel ground-truth images are invalid")
     if overlays.shape != (5, 256, 256, 3) or overlays.dtype != np.uint8:
         raise ValueError("context panel overlays are invalid")
-    trajectory = _validate_rgb(trajectory_plot, shape=(512, 512, 3))
-    joints = _validate_rgb(joint_plot, shape=(512, 512, 3))
+    objects = _validate_rgb(object_plot, shape=(500, 500, 3))
+    eef = _validate_rgb(eef_plot, shape=(500, 500, 3))
+    joints = _validate_rgb(joint_plot, shape=(500, 820, 3))
     delays = np.asarray(delay_ticks)
-    if delays.shape != (5,):
-        raise ValueError("context panel delays are invalid")
-    canvas = Image.new("RGB", (1280, 1280), (238, 238, 238))
+    if (
+        delays.shape != (5,)
+        or len(delay_summaries) != 5
+        or any(not value for value in delay_summaries)
+        or not title
+        or not subtitle
+    ):
+        raise ValueError("context panel labels or delays are invalid")
+    canvas = Image.new("RGB", (1920, 1200), (242, 244, 247))
     draw = ImageDraw.Draw(canvas)
-    canvas.paste(Image.fromarray(current), (0, 0))
-    draw.text((8, 8), "Current input", fill=(255, 255, 255))
-    draw.text((8, 264), title, fill=(20, 20, 20))
-    for row, delay in enumerate(delays):
-        y = row * 256
-        canvas.paste(Image.fromarray(ground_truth[row]), (256, y))
-        canvas.paste(Image.fromarray(overlays[row]), (512, y))
-        draw.text((264, y + 8), f"GT d={int(delay)}", fill=(255, 255, 255))
-        draw.text((520, y + 8), f"Overlay d={int(delay)}", fill=(255, 255, 255))
-    canvas.paste(Image.fromarray(trajectory), (768, 0))
-    canvas.paste(Image.fromarray(joints), (768, 512))
+    draw.text((32, 18), title, fill=(22, 28, 36), font=_font(30, bold=True))
+    draw.text((34, 58), subtitle, fill=(75, 82, 92), font=_font(17))
+    legend_x = 1110
+    draw.line((legend_x, 35, legend_x + 36, 35), fill=(0, 114, 178), width=5)
+    draw.text((legend_x + 45, 25), "GT contour", fill=(45, 45, 45), font=_font(14))
+    draw.line((legend_x + 180, 35, legend_x + 216, 35), fill=(213, 94, 0), width=3)
+    draw.text(
+        (legend_x + 225, 25),
+        "Flow medoid contour",
+        fill=(45, 45, 45),
+        font=_font(14),
+    )
+    overlap_box = (legend_x + 420, 25, legend_x + 456, 45)
+    draw.rectangle(overlap_box, fill=(246, 242, 184), outline=(190, 174, 25), width=1)
+    for offset in range(-12, 48, 8):
+        draw.line(
+            (
+                max(overlap_box[0], overlap_box[0] + offset),
+                max(overlap_box[1], overlap_box[3] - offset),
+                min(overlap_box[2], overlap_box[0] + offset + 20),
+                min(overlap_box[3], overlap_box[3] - offset + 20),
+            ),
+            fill=(190, 174, 25),
+            width=1,
+        )
+    draw.text(
+        (legend_x + 465, 25),
+        "overlap tint + hatch",
+        fill=(45, 45, 45),
+        font=_font(14),
+    )
+    draw.text(
+        (32, 98),
+        "Representative medoid state (one valid Flow sample per delay)",
+        fill=(45, 52, 62),
+        font=_font(18, bold=True),
+    )
+    tile_width = 300
+    tile_gap = 15
+    image_size = 276
+    for column in range(6):
+        x = 30 + column * (tile_width + tile_gap)
+        draw.rounded_rectangle(
+            (x, 130, x + tile_width, 500),
+            radius=8,
+            fill=(255, 255, 255),
+            outline=(207, 211, 217),
+            width=1,
+        )
+        if column == 0:
+            label = "Launch context | t = h"
+            image = current
+            summary_lines = ("Shared input for all", "five delay queries")
+        else:
+            delay = int(delays[column - 1])
+            label = f"Return +{delay * 20} ms | d = {delay}"
+            image = overlays[column - 1]
+            pieces = [piece.strip() for piece in delay_summaries[column - 1].split("|")]
+            summary_lines = (" | ".join(pieces[:2]), " | ".join(pieces[2:]))
+        draw.text((x + 12, 142), label, fill=(30, 35, 42), font=_font(15, bold=True))
+        resized = Image.fromarray(image).resize((image_size, image_size), Image.Resampling.LANCZOS)
+        canvas.paste(resized, (x + 12, 171))
+        draw.text((x + 12, 454), summary_lines[0], fill=(62, 67, 75), font=_font(12))
+        draw.text((x + 12, 474), summary_lines[1], fill=(62, 67, 75), font=_font(12))
+    draw.text(
+        (32, 540),
+        "Full predictive distribution (32 Flow samples per delay)",
+        fill=(45, 52, 62),
+        font=_font(18, bold=True),
+    )
+    canvas.paste(Image.fromarray(objects), (30, 580))
+    canvas.paste(Image.fromarray(eef), (545, 580))
+    canvas.paste(Image.fromarray(joints), (1070, 580))
     return np.asarray(canvas, dtype=np.uint8)
 
 

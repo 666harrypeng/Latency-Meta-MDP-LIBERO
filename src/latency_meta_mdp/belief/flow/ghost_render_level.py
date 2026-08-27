@@ -27,7 +27,7 @@ from latency_meta_mdp.belief.flow.ghost_visuals import (
     assemble_context_panel,
     compose_agentview_ghost,
     render_joint_band_plot,
-    render_trajectory_plot,
+    render_state_cloud_plot,
     write_rgb_video,
 )
 from latency_meta_mdp.belief_data import load_belief_episode
@@ -294,7 +294,6 @@ def render_flow_belief_ghost_level(
                     ],
                     dtype=np.int64,
                 )
-                ground_truth_images = []
                 overlays = []
                 eef_samples = np.empty((5, 32, 3), dtype=np.float64)
                 eef_targets = np.empty((5, 3), dtype=np.float64)
@@ -355,6 +354,19 @@ def render_flow_belief_ghost_level(
                         state=predicted_state,
                         sim_time_seconds=sim_time,
                     )
+                    medoid_physical = physical[delay_index, medoid_index]
+                    physical_target = samples["physical_targets"][context_index, delay_index]
+                    object_error_mm = float(
+                        np.linalg.norm(medoid_physical[16:19] - physical_target[16:19]) * 1_000.0
+                    )
+                    eef_error_mm = float(
+                        np.linalg.norm(prediction_render.eef_position - gt_render.eef_position)
+                        * 1_000.0
+                    )
+                    joint_rmse_mrad = float(
+                        np.sqrt(np.mean(np.square(medoid_physical[:7] - physical_target[:7])))
+                        * 1_000.0
+                    )
                     overlay = compose_agentview_ghost(
                         background_rgb=gt_render.rgb,
                         ground_truth_robot_mask=gt_render.robot_mask,
@@ -371,7 +383,6 @@ def render_flow_belief_ghost_level(
                         overlay_dir / f"delay_{int(delay):02d}.png",
                         overlay,
                     )
-                    ground_truth_images.append(gt_render.rgb)
                     overlays.append(overlay)
                     eef_targets[delay_index] = gt_render.eef_position
                     for sample_index in range(32):
@@ -391,6 +402,9 @@ def render_flow_belief_ghost_level(
                             "valid_sample_count": int(np.count_nonzero(validity[delay_index])),
                             "invalid_sample_count": int(np.count_nonzero(~validity[delay_index])),
                             "medoid_sample_index": medoid_index,
+                            "medoid_object_position_error_mm": object_error_mm,
+                            "medoid_eef_position_error_mm": eef_error_mm,
+                            "medoid_joint_rmse_mrad": joint_rmse_mrad,
                             "ground_truth_rgb_mae": rgb_mae,
                             "deterministic_robot_mask_iou": robot_iou,
                             "deterministic_ball_centroid_error_px": ball_centroid_error,
@@ -398,12 +412,20 @@ def render_flow_belief_ghost_level(
                     )
             finally:
                 env.close()
-            trajectory_plot = render_trajectory_plot(
+            object_plot = render_state_cloud_plot(
                 delay_ticks=delays,
-                object_samples=physical[:, :, 16:19],
-                object_targets=samples["physical_targets"][context_index, :, 16:19],
-                eef_samples=eef_samples,
-                eef_targets=eef_targets,
+                state_samples=physical[:, :, 16:19],
+                state_targets=samples["physical_targets"][context_index, :, 16:19],
+                title="Object future distribution",
+                state_label="Ball center",
+                config=config,
+            )
+            eef_plot = render_state_cloud_plot(
+                delay_ticks=delays,
+                state_samples=eef_samples,
+                state_targets=eef_targets,
+                title="EEF future distribution",
+                state_label="End effector",
                 config=config,
             )
             joint_plot = render_joint_band_plot(
@@ -412,18 +434,29 @@ def render_flow_belief_ghost_level(
                 joint_targets=samples["physical_targets"][context_index, :, :7],
                 config=config,
             )
-            title = (
-                f"L{level} seed {scene_seed} tick {source_tick} | "
-                f"roles: {', '.join(selection['roles'])}"
+            delay_summaries = tuple(
+                (
+                    f"ball {row['medoid_object_position_error_mm']:.1f} mm | "
+                    f"EEF {row['medoid_eef_position_error_mm']:.1f} mm | "
+                    f"q {row['medoid_joint_rmse_mrad']:.1f} mrad | "
+                    f"{row['valid_sample_count']}/32 valid"
+                )
+                for row in delay_records
             )
             panel = assemble_context_panel(
                 current_rgb=agentview[source_tick],
-                ground_truth_rgb=np.stack(ground_truth_images),
                 ghost_overlays=np.stack(overlays),
-                trajectory_plot=trajectory_plot,
+                object_plot=object_plot,
+                eef_plot=eef_plot,
                 joint_plot=joint_plot,
                 delay_ticks=delays,
-                title=title,
+                delay_summaries=delay_summaries,
+                title="Flow Belief future-state quality",
+                subtitle=(
+                    f"L{level} | seed {scene_seed} | source tick {source_tick} | "
+                    f"phase {selection['source_phase']} | "
+                    f"role {', '.join(selection['roles'])}"
+                ),
             )
             _save_rgb(context_dir / "panel.png", panel)
             np.savez(
