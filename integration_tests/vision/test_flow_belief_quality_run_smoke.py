@@ -93,6 +93,7 @@ def test_quality_run_publishes_three_level_manifest(
     assert manifest["eligible"] is True
     assert manifest["blockers"] == []
     assert manifest["implementation_revision"] == "a" * 40
+    assert manifest["wall_seconds"] >= 0.0
     assert manifest["level_manifests"] == {
         "L1": "L1/manifest.json",
         "L2": "L2/manifest.json",

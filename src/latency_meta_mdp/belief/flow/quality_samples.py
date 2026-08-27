@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass
@@ -272,6 +273,7 @@ def export_level_quality_samples(
     output_dir: Path,
     device: str,
 ) -> Path:
+    started = time.perf_counter()
     target = output_dir.resolve()
     if target.exists():
         raise FileExistsError(f"Flow quality level output already exists: {target}")
@@ -300,6 +302,7 @@ def export_level_quality_samples(
         expected_level=corpus.level,
         device=device,
     )
+    sampling_started = time.perf_counter()
     sampled_by_offset, noise_sha256_by_offset = _sample_selected_offsets(
         corpus=corpus,
         loaded=loaded,
@@ -308,6 +311,7 @@ def export_level_quality_samples(
         selected_offsets=offsets,
         device=device,
     )
+    sampling_wall_seconds = time.perf_counter() - sampling_started
     reproduced = np.stack([sampled_by_offset[offset] for offset in offsets])
     expected_mean = evaluation_summary.sample_mean_normalized[list(offsets)]
     expected_std = evaluation_summary.sample_std_normalized[list(offsets)]
@@ -406,6 +410,9 @@ def export_level_quality_samples(
             "display_delay_ticks": list(config.display_delay_ticks),
             "solver": config.solver,
             "solver_step_count": config.solver_step_count,
+            "sampling_wall_seconds": sampling_wall_seconds,
+            "seconds_per_selected_context": sampling_wall_seconds / len(selections),
+            "wall_seconds": time.perf_counter() - started,
             "generated_noise_sha256": {
                 str(offset): noise_sha256_by_offset[offset] for offset in offsets
             },

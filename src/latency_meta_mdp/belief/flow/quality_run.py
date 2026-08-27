@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -197,6 +198,7 @@ def export_flow_belief_quality_sample_run(
     device: str,
     level_processor: LevelProcessor = _default_level_processor,
 ) -> Path:
+    started = time.perf_counter()
     selected_levels = tuple(sorted(set(levels)))
     if (
         selected_levels != levels
@@ -302,6 +304,7 @@ def export_flow_belief_quality_sample_run(
             "display_delay_ticks": list(quality_config.display_delay_ticks),
             "solver": quality_config.solver,
             "solver_step_count": quality_config.solver_step_count,
+            "wall_seconds": time.perf_counter() - started,
             "input_sha256": {name: sha256_file(path) for name, path in paths.items()},
             "artifacts": artifacts,
         }

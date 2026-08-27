@@ -114,6 +114,9 @@ def test_selected_sampling_reproduces_formal_summary(tmp_path: Path) -> None:
     assert manifest["level"] == 1
     assert manifest["context_count"] == 1
     assert manifest["sample_count"] == 32
+    assert manifest["sampling_wall_seconds"] > 0.0
+    assert manifest["seconds_per_selected_context"] > 0.0
+    assert manifest["wall_seconds"] >= manifest["sampling_wall_seconds"]
     assert set(manifest["generated_noise_sha256"]) == {str(selection.identity.validation_offset)}
     assert len(next(iter(manifest["generated_noise_sha256"].values()))) == 64
     assert parity["mean_allclose"] is True
