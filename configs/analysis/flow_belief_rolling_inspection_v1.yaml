@@ -1,0 +1,13 @@
+schema_version: 1
+report_id: flow_belief_rolling_inspection_v1
+evaluation_split: validation
+source_phases: [pregrasp, approach]
+history_sample_count: 6
+inspection_stride_ticks: 10
+display_delay_ticks: [1, 5, 10, 15, 20]
+sample_count: 32
+solver: heun
+solver_step_count: 16
+include_approach_anchor: true
+include_last_full_window_anchor: true
+video_fps: 1
