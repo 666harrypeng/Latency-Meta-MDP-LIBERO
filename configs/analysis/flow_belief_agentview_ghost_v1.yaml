@@ -1,0 +1,14 @@
+schema_version: 1
+renderer_id: flow_belief_agentview_ghost_v1
+camera_name: agentview
+width: 256
+height: 256
+display_delay_ticks: [1, 5, 10, 15, 20]
+overlay_alpha: 0.55
+ground_truth_rgb: [0, 114, 178]
+prediction_rgb: [213, 94, 0]
+overlap_rgb: [240, 228, 66]
+medoid_metric: normalized_l2
+ground_truth_rgb_mae_max: 1.0
+ball_centroid_error_px_max: 1.0
+robot_mask_iou_min: 0.98
