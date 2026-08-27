@@ -23,6 +23,7 @@ def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() ->
     assert profile.source_action_dim == 7
     assert profile.extra_delta_transform is False
     assert profile.batch_size == 192
+    assert profile.num_workers == 8
     assert profile.num_train_steps == 3_999
     assert profile.warmup_steps == 200
     assert profile.save_interval == 250

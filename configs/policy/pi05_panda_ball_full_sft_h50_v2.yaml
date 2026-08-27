@@ -11,7 +11,7 @@ source_action_dim: 7
 extra_delta_transform: false
 drop_n_last_frames: 49
 batch_size: 192
-num_workers: 32
+num_workers: 8
 num_train_steps: 3999
 warmup_steps: 200
 peak_learning_rate: 0.00005
