@@ -3,41 +3,38 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 import os
 import shutil
 import time
 import uuid
 from collections import Counter
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
-from safetensors.torch import load_file as load_safetensors
 
 from latency_meta_mdp.artifacts import sha256_file
 from latency_meta_mdp.belief.common.feature_corpus import FeatureBeliefCorpus
 from latency_meta_mdp.belief.flow.config import FlowBeliefConfig
-from latency_meta_mdp.belief.flow.model import FlowBeliefModel
+from latency_meta_mdp.belief.flow.context_sampling import (
+    load_flow_belief_normalization,
+    load_verified_flow_quality_level,
+    sample_flow_validation_contexts,
+)
 from latency_meta_mdp.belief.flow.quality_config import FlowBeliefQualitySampleConfig
 from latency_meta_mdp.belief.flow.quality_selection import FormalFlowSummary
 from latency_meta_mdp.belief.flow.quality_types import (
     QualitySampleBundle,
     QualitySelection,
 )
-from latency_meta_mdp.belief.flow.sampler import sample_flow_belief
-from latency_meta_mdp.belief.flow.training_data import FlowBeliefNormalization
 from latency_meta_mdp.vision_probe_data import ProbeSplit
 
-
-@dataclass(frozen=True)
-class LoadedFlowQualityLevel:
-    model: FlowBeliefModel
-    normalization: FlowBeliefNormalization
-    level_manifest: dict[str, Any]
+__all__ = [
+    "export_level_quality_samples",
+    "load_flow_belief_normalization",
+    "load_verified_flow_quality_level",
+]
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -53,184 +50,6 @@ def _write_json(path: Path, value: Any) -> None:
         handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
-
-
-def load_flow_belief_normalization(path: Path) -> FlowBeliefNormalization:
-    with np.load(path, allow_pickle=False) as source:
-        required = {
-            "proprio_mean",
-            "proprio_std",
-            "action_mean",
-            "action_std",
-            "target_mean",
-            "target_std",
-        }
-        if set(source.files) != required:
-            raise ValueError("Flow quality normalization fields are invalid")
-        normalization = FlowBeliefNormalization(
-            proprio_mean=np.array(source["proprio_mean"], dtype=np.float32, copy=True),
-            proprio_std=np.array(source["proprio_std"], dtype=np.float32, copy=True),
-            action_mean=np.array(source["action_mean"], dtype=np.float32, copy=True),
-            action_std=np.array(source["action_std"], dtype=np.float32, copy=True),
-            target_mean=np.array(source["target_mean"], dtype=np.float32, copy=True),
-            target_std=np.array(source["target_std"], dtype=np.float32, copy=True),
-        )
-    expected_shapes = {
-        "proprio_mean": (16,),
-        "proprio_std": (16,),
-        "action_mean": (7,),
-        "action_std": (7,),
-        "target_mean": (22,),
-        "target_std": (22,),
-    }
-    for name, shape in expected_shapes.items():
-        value = np.asarray(getattr(normalization, name))
-        if value.shape != shape or not np.all(np.isfinite(value)):
-            raise ValueError(f"Flow quality normalization {name} is invalid")
-    if (
-        np.any(normalization.proprio_std <= 0.0)
-        or np.any(normalization.action_std <= 0.0)
-        or np.any(normalization.target_std <= 0.0)
-    ):
-        raise ValueError("Flow quality normalization scales must be positive")
-    return normalization
-
-
-def load_verified_flow_quality_level(
-    *,
-    checkpoint_dir: Path,
-    flow_config: FlowBeliefConfig,
-    expected_level: int,
-    device: str,
-) -> LoadedFlowQualityLevel:
-    checkpoint = checkpoint_dir.resolve()
-    manifest = _load_json(checkpoint / "manifest.json")
-    if manifest.get("format_id") != "level_flow_belief_v1":
-        raise ValueError("Flow quality checkpoint manifest format is invalid")
-    if manifest.get("level") != expected_level or manifest.get("config") != dataclasses.asdict(
-        flow_config
-    ):
-        raise ValueError("Flow quality checkpoint level or config is invalid")
-    required = {
-        "model.safetensors",
-        "encoder.safetensors",
-        "normalization.npz",
-    }
-    artifacts = manifest.get("artifacts")
-    if not isinstance(artifacts, dict) or not required <= set(artifacts):
-        raise ValueError("Flow quality checkpoint artifact inventory is invalid")
-    for name in sorted(required):
-        path = checkpoint / name
-        if not path.is_file() or sha256_file(path) != artifacts[name]:
-            raise ValueError(f"Flow quality checkpoint hash mismatch: {name}")
-    model = FlowBeliefModel(flow_config).to(device)
-    model.load_state_dict(load_safetensors(checkpoint / "model.safetensors"), strict=True)
-    model.requires_grad_(False)
-    model.eval()
-    if model.training or any(parameter.requires_grad for parameter in model.parameters()):
-        raise RuntimeError("Flow quality model did not enter frozen evaluation mode")
-    return LoadedFlowQualityLevel(
-        model=model,
-        normalization=load_flow_belief_normalization(checkpoint / "normalization.npz"),
-        level_manifest=manifest,
-    )
-
-
-def _normalized_inputs(
-    contexts: list,
-    normalization: FlowBeliefNormalization,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    vision = np.stack([context.vision_history for context in contexts])
-    proprio = np.stack(
-        [
-            (context.robot_proprio_history - normalization.proprio_mean) / normalization.proprio_std
-            for context in contexts
-        ]
-    ).astype(np.float32)
-    actions = np.stack(
-        [
-            (context.remaining_actions - normalization.action_mean) / normalization.action_std
-            for context in contexts
-        ]
-    ).astype(np.float32)
-    latency = np.stack([context.latency_probabilities for context in contexts]).astype(np.float32)
-    return vision, proprio, actions, latency
-
-
-def _sample_selected_offsets(
-    *,
-    corpus: FeatureBeliefCorpus,
-    loaded: LoadedFlowQualityLevel,
-    flow_config: FlowBeliefConfig,
-    config: FlowBeliefQualitySampleConfig,
-    selected_offsets: tuple[int, ...],
-    device: str,
-) -> tuple[dict[int, np.ndarray], dict[int, str]]:
-    references = corpus.sample_references[ProbeSplit.VALIDATION]
-    selected = set(selected_offsets)
-    sampled_by_offset: dict[int, np.ndarray] = {}
-    noise_sha256_by_offset: dict[int, str] = {}
-    batch_starts = sorted(
-        {offset // flow_config.batch_size * flow_config.batch_size for offset in selected}
-    )
-    delay_ticks = np.arange(1, 21, dtype=np.int64)
-    for batch_start in batch_starts:
-        batch_stop = min(batch_start + flow_config.batch_size, len(references))
-        contexts = [
-            corpus.materialize(ProbeSplit.VALIDATION, offset)
-            for offset in range(batch_start, batch_stop)
-        ]
-        vision, proprio, actions, latency = _normalized_inputs(
-            contexts,
-            loaded.normalization,
-        )
-        noises = []
-        for offset in range(batch_start, batch_stop):
-            rng = np.random.default_rng(
-                flow_config.evaluation_seed + corpus.level * 1_000_000 + offset
-            )
-            noises.append(
-                rng.standard_normal(
-                    (20, config.sample_count, 22),
-                    dtype=np.float32,
-                )
-            )
-        for offset, noise in zip(range(batch_start, batch_stop), noises, strict=True):
-            if offset in selected:
-                noise_sha256_by_offset[offset] = hashlib.sha256(
-                    np.asarray(noise, dtype=np.float32).tobytes(order="C")
-                ).hexdigest()
-        with torch.inference_mode():
-            belief = loaded.model.encoder(
-                vision_history=torch.from_numpy(vision).to(device),
-                proprio_history=torch.from_numpy(proprio).to(device),
-                remaining_actions=torch.from_numpy(actions).to(device),
-                latency_probabilities=torch.from_numpy(latency).to(device),
-            )
-            samples = (
-                sample_flow_belief(
-                    vector_field=loaded.model.vector_field,
-                    belief_tokens=belief,
-                    delay_ticks=torch.from_numpy(
-                        np.broadcast_to(delay_ticks, (len(contexts), 20)).copy()
-                    ).to(device),
-                    noise=torch.from_numpy(np.stack(noises)).to(device),
-                    solver=config.solver,
-                    step_count=config.solver_step_count,
-                )
-                .cpu()
-                .numpy()
-            )
-        for offset in range(batch_start, batch_stop):
-            if offset in selected:
-                sampled_by_offset[offset] = np.array(
-                    samples[offset - batch_start],
-                    dtype=np.float32,
-                    copy=True,
-                )
-    if set(sampled_by_offset) != selected or set(noise_sha256_by_offset) != selected:
-        raise RuntimeError("Flow quality sampling did not produce every selected context")
-    return sampled_by_offset, noise_sha256_by_offset
 
 
 def _selection_rows(selections: tuple[QualitySelection, ...]) -> list[dict[str, Any]]:
@@ -303,16 +122,20 @@ def export_level_quality_samples(
         device=device,
     )
     sampling_started = time.perf_counter()
-    sampled_by_offset, noise_sha256_by_offset = _sample_selected_offsets(
+    sampled = sample_flow_validation_contexts(
         corpus=corpus,
         loaded=loaded,
         flow_config=flow_config,
-        config=config,
-        selected_offsets=offsets,
+        validation_offsets=offsets,
+        delay_ticks=tuple(range(1, 21)),
+        sample_count=config.sample_count,
+        solver=config.solver,
+        solver_step_count=config.solver_step_count,
         device=device,
     )
     sampling_wall_seconds = time.perf_counter() - sampling_started
-    reproduced = np.stack([sampled_by_offset[offset] for offset in offsets])
+    reproduced = sampled.normalized_samples
+    noise_sha256_by_offset = sampled.noise_sha256_by_offset
     expected_mean = evaluation_summary.sample_mean_normalized[list(offsets)]
     expected_std = evaluation_summary.sample_std_normalized[list(offsets)]
     reproduced_mean = reproduced.mean(axis=2)
