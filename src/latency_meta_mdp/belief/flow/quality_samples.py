@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -393,6 +394,9 @@ def export_level_quality_samples(
             "level": corpus.level,
             "context_count": len(selections),
             "sample_count": config.sample_count,
+            "role_counts": dict(
+                sorted(Counter(role for row in selections for role in row.roles).items())
+            ),
             "display_delay_ticks": list(config.display_delay_ticks),
             "solver": config.solver,
             "solver_step_count": config.solver_step_count,
