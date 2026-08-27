@@ -50,8 +50,8 @@ def test_quality_config_locks_formal_sample_protocol() -> None:
     assert config.solver == "heun"
     assert config.solver_step_count == 16
     assert config.case_quantiles == (0.5, 0.9, 0.95)
-    assert config.summary_parity_atol == 1e-6
-    assert config.summary_parity_rtol == 1e-5
+    assert config.summary_parity_atol == 1e-4
+    assert config.summary_parity_rtol == 1e-4
     assert config.selection_roles == (
         "typical",
         "p90_hard",

@@ -361,6 +361,12 @@ def export_level_quality_samples(
         "std_allclose": std_allclose,
         "mean_max_abs_error": float(np.max(np.abs(reproduced_mean - expected_mean))),
         "std_max_abs_error": float(np.max(np.abs(reproduced_std - expected_std))),
+        "mean_physical_max_abs_error": float(
+            np.max(np.abs(reproduced_mean - expected_mean) * target_std)
+        ),
+        "std_physical_max_abs_error": float(
+            np.max(np.abs(reproduced_std - expected_std) * target_std)
+        ),
         "atol": config.summary_parity_atol,
         "rtol": config.summary_parity_rtol,
     }

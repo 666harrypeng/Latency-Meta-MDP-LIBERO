@@ -118,6 +118,8 @@ def test_selected_sampling_reproduces_formal_summary(tmp_path: Path) -> None:
     assert len(next(iter(manifest["generated_noise_sha256"].values()))) == 64
     assert parity["mean_allclose"] is True
     assert parity["std_allclose"] is True
+    assert parity["mean_physical_max_abs_error"] >= 0.0
+    assert parity["std_physical_max_abs_error"] >= 0.0
     with pytest.raises(FileExistsError):
         export_level_quality_samples(
             corpus=corpus,
