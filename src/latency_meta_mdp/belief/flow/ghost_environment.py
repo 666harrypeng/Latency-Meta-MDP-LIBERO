@@ -138,12 +138,12 @@ class GhostEnvironmentAdapter:
             segmentation[:, :, 1], tuple(sorted(geom_ids))
         )
 
-    def render_state(
+    def _apply_state(
         self,
         *,
         state: ReconstructedReturnState,
         sim_time_seconds: float,
-    ) -> AgentViewRender:
+    ) -> None:
         if not isinstance(state, ReconstructedReturnState):
             raise TypeError("ghost rendering requires a reconstructed return state")
         if not np.isfinite(sim_time_seconds) or sim_time_seconds < 0.0:
@@ -157,6 +157,24 @@ class GhostEnvironmentAdapter:
         data.set_joint_qvel(self.env.ball.joints[0], state.object_qvel)
         data.time = sim_time_seconds
         self.env.sim.forward()
+
+    def forward_state(
+        self,
+        *,
+        state: ReconstructedReturnState,
+        sim_time_seconds: float,
+    ) -> np.ndarray:
+        self._apply_state(state=state, sim_time_seconds=sim_time_seconds)
+        return _readonly(self.env.sim.data.site_xpos[self._eef_site_id], dtype=np.float64)
+
+    def render_state(
+        self,
+        *,
+        state: ReconstructedReturnState,
+        sim_time_seconds: float,
+    ) -> AgentViewRender:
+        self._apply_state(state=state, sim_time_seconds=sim_time_seconds)
+        data = self.env.sim.data
         rgb = np.flipud(
             self.env.sim.render(
                 width=self.width,

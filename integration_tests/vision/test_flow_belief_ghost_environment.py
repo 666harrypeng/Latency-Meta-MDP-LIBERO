@@ -73,6 +73,10 @@ def test_ground_truth_state_reconstruction_matches_recorded_agentview() -> None:
             state=state,
             sim_time_seconds=target_tick * temporal.formal_tick_us / 1_000_000,
         )
+        eef_position = adapter.forward_state(
+            state=state,
+            sim_time_seconds=target_tick * temporal.formal_tick_us / 1_000_000,
+        )
     finally:
         env.close()
 
@@ -87,6 +91,7 @@ def test_ground_truth_state_reconstruction_matches_recorded_agentview() -> None:
     np.testing.assert_array_equal(rendered.ball_mask, repeated.ball_mask)
     np.testing.assert_allclose(rendered.robot_qpos, state.robot_qpos)
     np.testing.assert_allclose(rendered.object_position, state.object_qpos[:3])
+    np.testing.assert_allclose(eef_position, rendered.eef_position)
     assert adapter.joint_ranges.shape == (7, 2)
     assert adapter.gripper_width_range[0] >= 0.0
     assert adapter.gripper_width_range[1] > adapter.gripper_width_range[0]
