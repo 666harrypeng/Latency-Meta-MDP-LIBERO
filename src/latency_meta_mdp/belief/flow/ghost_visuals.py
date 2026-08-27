@@ -9,6 +9,10 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from latency_meta_mdp.belief.flow.ghost_config import FlowBeliefGhostConfig
+from latency_meta_mdp.belief.flow.rolling_visuals import (
+    RollingJointLimits,
+    RollingPlotLimits,
+)
 
 
 def _validate_rgb(value: np.ndarray, *, shape: tuple[int, int, int]) -> np.ndarray:
@@ -139,6 +143,7 @@ def render_state_cloud_plot(
     title: str,
     state_label: str,
     config: FlowBeliefGhostConfig,
+    xy_limits_mm: RollingPlotLimits | None = None,
 ) -> np.ndarray:
     delays = np.asarray(delay_ticks, dtype=np.int64)
     samples = np.asarray(state_samples, dtype=np.float64)
@@ -159,10 +164,18 @@ def render_state_cloud_plot(
     sample_xy = (samples[..., :2] - origin) * 1_000.0
     target_xy = (targets[..., :2] - origin) * 1_000.0
     flat = np.concatenate((sample_xy.reshape(-1, 2), target_xy), axis=0)
-    center = 0.5 * (flat.min(axis=0) + flat.max(axis=0))
-    half_span = max(float(np.max(np.abs(flat - center))), 1.0) * 1.16
-    low = center - half_span
-    high = center + half_span
+    if xy_limits_mm is None:
+        center = 0.5 * (flat.min(axis=0) + flat.max(axis=0))
+        half_span = max(float(np.max(np.abs(flat - center))), 1.0) * 1.16
+        low = center - half_span
+        high = center + half_span
+    else:
+        if not isinstance(xy_limits_mm, RollingPlotLimits):
+            raise TypeError("state-cloud shared limits must be RollingPlotLimits")
+        low = np.asarray([xy_limits_mm.x_min_mm, xy_limits_mm.y_min_mm])
+        high = np.asarray([xy_limits_mm.x_max_mm, xy_limits_mm.y_max_mm])
+        if np.any(flat < low - 1e-9) or np.any(flat > high + 1e-9):
+            raise ValueError("state-cloud points exceed the shared rolling limits")
 
     def project(points: np.ndarray) -> np.ndarray:
         values = np.asarray(points, dtype=np.float64)
@@ -270,6 +283,7 @@ def render_joint_band_plot(
     joint_samples: np.ndarray,
     joint_targets: np.ndarray,
     config: FlowBeliefGhostConfig,
+    joint_limits: RollingJointLimits | None = None,
 ) -> np.ndarray:
     delays = np.asarray(delay_ticks, dtype=np.float64)
     samples = np.asarray(joint_samples, dtype=np.float64)
@@ -308,14 +322,26 @@ def render_joint_band_plot(
         top = 76 + row * 103
         right = left + 350
         bottom = top + 72
-        all_values = np.concatenate((lower95[:, joint], upper95[:, joint], targets[:, joint]))
-        low = float(all_values.min())
-        high = float(all_values.max())
-        if high - low < 1e-6:
-            high = low + 1e-6
-        pad = 0.08 * (high - low)
-        low -= pad
-        high += pad
+        if joint_limits is None:
+            all_values = np.concatenate((lower95[:, joint], upper95[:, joint], targets[:, joint]))
+            low = float(all_values.min())
+            high = float(all_values.max())
+            if high - low < 1e-6:
+                high = low + 1e-6
+            pad = 0.08 * (high - low)
+            low -= pad
+            high += pad
+        else:
+            if not isinstance(joint_limits, RollingJointLimits):
+                raise TypeError("joint shared limits must be RollingJointLimits")
+            low, high = (float(value) for value in joint_limits.radians[joint])
+            if (
+                np.any(samples[:, :, joint] < low - 1e-9)
+                or np.any(samples[:, :, joint] > high + 1e-9)
+                or np.any(targets[:, joint] < low - 1e-9)
+                or np.any(targets[:, joint] > high + 1e-9)
+            ):
+                raise ValueError("joint values exceed the shared rolling limits")
 
         def point(delay: float, value: float) -> tuple[float, float]:
             x = left + (delay - delays[0]) / (delays[-1] - delays[0]) * (right - left)
