@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 
 
@@ -16,11 +17,22 @@ def test_gaussian_canonical_package_and_legacy_imports_share_objects() -> None:
 
 
 def test_importing_gaussian_package_does_not_import_flow_package() -> None:
-    from latency_meta_mdp.belief.gaussian.config import GaussianBeliefConfig
+    script = """
+import sys
+from latency_meta_mdp.belief.gaussian.config import GaussianBeliefConfig
 
-    assert GaussianBeliefConfig.__module__ == "latency_meta_mdp.belief.gaussian.config"
-    assert not any(
-        name == "latency_meta_mdp.belief.flow"
-        or name.startswith("latency_meta_mdp.belief.flow.")
-        for name in sys.modules
+assert GaussianBeliefConfig.__module__ == "latency_meta_mdp.belief.gaussian.config"
+assert not any(
+    name == "latency_meta_mdp.belief.flow"
+    or name.startswith("latency_meta_mdp.belief.flow.")
+    for name in sys.modules
+)
+"""
+    completed = subprocess.run(
+        (sys.executable, "-c", script),
+        check=False,
+        capture_output=True,
+        text=True,
     )
+
+    assert completed.returncode == 0, completed.stderr
