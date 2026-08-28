@@ -1,0 +1,10 @@
+schema_version: 1
+audit_id: dinov3_flow_belief_data_scaling_v1
+subset_sizes: [60, 120, 180]
+subset_seed: 20260828
+model_seeds: [20260829, 20260830]
+workspace_bin_count_per_axis: 4
+minimum_occupied_bin_count: 5
+scaling_improvement_trigger: 0.10
+model_seed_disagreement_trigger: 0.10
+additional_tranche_size: 100
