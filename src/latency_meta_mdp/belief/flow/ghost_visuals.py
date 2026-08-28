@@ -144,6 +144,8 @@ def render_state_cloud_plot(
     state_label: str,
     config: FlowBeliefGhostConfig,
     xy_limits_mm: RollingPlotLimits | None = None,
+    progressive_delay_index: int | None = None,
+    progressive_alpha: float = 1.0,
 ) -> np.ndarray:
     delays = np.asarray(delay_ticks, dtype=np.int64)
     samples = np.asarray(state_samples, dtype=np.float64)
@@ -158,6 +160,14 @@ def render_state_cloud_plot(
         or not state_label
     ):
         raise ValueError("state-cloud plot inputs have invalid shapes or values")
+    if progressive_delay_index is not None and (
+        isinstance(progressive_delay_index, bool)
+        or not isinstance(progressive_delay_index, int)
+        or not 0 <= progressive_delay_index < len(delays)
+    ):
+        raise ValueError("state-cloud progressive delay index is invalid")
+    if not np.isfinite(progressive_alpha) or not 0.0 < progressive_alpha <= 1.0:
+        raise ValueError("state-cloud progressive alpha must lie in (0, 1]")
     size = 500
     plot_left, plot_top, plot_size = 82, 92, 340
     origin = targets[0, :2]
@@ -227,29 +237,40 @@ def render_state_cloud_plot(
     )
     cloud = project(sample_xy)
     target_points = project(target_xy)
+    visible_count = len(delays) if progressive_delay_index is None else progressive_delay_index + 1
     draw.line(
-        [tuple(point) for point in target_points],
+        [tuple(point) for point in target_points[:visible_count]],
         fill=(*config.ground_truth_rgb, 180),
         width=2,
     )
-    for delay_index, delay in enumerate(delays):
+    for delay_index, delay in enumerate(delays[:visible_count]):
+        active = progressive_delay_index is not None and delay_index == progressive_delay_index
+        sample_alpha = 58
+        target_alpha = 255
+        if progressive_delay_index is not None:
+            sample_alpha = int(
+                round((110 if active else 34) * (progressive_alpha if active else 1.0))
+            )
+            target_alpha = int(
+                round((255 if active else 150) * (progressive_alpha if active else 1.0))
+            )
         for point in cloud[delay_index]:
             x, y = point
             draw.ellipse(
                 (x - 2.5, y - 2.5, x + 2.5, y + 2.5),
-                fill=(*config.prediction_rgb, 58),
+                fill=(*config.prediction_rgb, sample_alpha),
             )
         x, y = target_points[delay_index]
         draw.ellipse(
             (x - 6, y - 6, x + 6, y + 6),
             fill=(250, 250, 250, 255),
-            outline=(*config.ground_truth_rgb, 255),
-            width=3,
+            outline=(*config.ground_truth_rgb, target_alpha),
+            width=4 if active else 3,
         )
         draw.text(
             (x + 8, y - 18),
             f"{int(delay) * 20} ms",
-            fill=(*config.ground_truth_rgb, 255),
+            fill=(*config.ground_truth_rgb, target_alpha),
             font=_font(12, bold=True),
         )
     draw.ellipse((82, 459, 91, 468), fill=(*config.prediction_rgb, 90))
@@ -284,6 +305,7 @@ def render_joint_band_plot(
     joint_targets: np.ndarray,
     config: FlowBeliefGhostConfig,
     joint_limits: RollingJointLimits | None = None,
+    progressive_delay_index: int | None = None,
 ) -> np.ndarray:
     delays = np.asarray(delay_ticks, dtype=np.float64)
     samples = np.asarray(joint_samples, dtype=np.float64)
@@ -296,6 +318,12 @@ def render_joint_band_plot(
         or not np.all(np.isfinite(targets))
     ):
         raise ValueError("joint-band plot inputs have invalid shapes or values")
+    if progressive_delay_index is not None and (
+        isinstance(progressive_delay_index, bool)
+        or not isinstance(progressive_delay_index, int)
+        or not 0 <= progressive_delay_index < len(delays)
+    ):
+        raise ValueError("joint-band progressive delay index is invalid")
     image = Image.new("RGB", (820, 500), (250, 250, 250))
     draw = ImageDraw.Draw(image, "RGBA")
     draw.text(
@@ -315,6 +343,7 @@ def render_joint_band_plot(
     draw.line((603, 52, 625, 52), fill=(*config.prediction_rgb, 255), width=3)
     draw.text((631, 44), "Flow median", fill=(55, 55, 55, 255), font=_font(12))
     lower95, lower68, median, upper68, upper95 = joint_quantile_bands(samples)
+    visible_count = len(delays) if progressive_delay_index is None else progressive_delay_index + 1
     for joint in range(7):
         column = joint % 2
         row = joint // 2
@@ -352,26 +381,79 @@ def render_joint_band_plot(
         for fraction in (0.0, 0.5, 1.0):
             y = top + fraction * (bottom - top)
             draw.line((left, y, right, y), fill=(220, 220, 220, 255))
-        polygon95 = [point(d, v) for d, v in zip(delays, lower95[:, joint], strict=True)]
-        polygon95 += [
-            point(d, v) for d, v in reversed(list(zip(delays, upper95[:, joint], strict=True)))
-        ]
-        polygon68 = [point(d, v) for d, v in zip(delays, lower68[:, joint], strict=True)]
-        polygon68 += [
-            point(d, v) for d, v in reversed(list(zip(delays, upper68[:, joint], strict=True)))
-        ]
-        draw.polygon(polygon95, fill=(*config.prediction_rgb, 25))
-        draw.polygon(polygon68, fill=(*config.prediction_rgb, 58))
-        draw.line(
-            [point(d, v) for d, v in zip(delays, median[:, joint], strict=True)],
-            fill=(*config.prediction_rgb, 255),
-            width=2,
-        )
-        draw.line(
-            [point(d, v) for d, v in zip(delays, targets[:, joint], strict=True)],
-            fill=(*config.ground_truth_rgb, 255),
-            width=2,
-        )
+        visible_delays = delays[:visible_count]
+        if visible_count >= 2:
+            polygon95 = [
+                point(d, v)
+                for d, v in zip(visible_delays, lower95[:visible_count, joint], strict=True)
+            ]
+            polygon95 += [
+                point(d, v)
+                for d, v in reversed(
+                    list(
+                        zip(
+                            visible_delays,
+                            upper95[:visible_count, joint],
+                            strict=True,
+                        )
+                    )
+                )
+            ]
+            polygon68 = [
+                point(d, v)
+                for d, v in zip(visible_delays, lower68[:visible_count, joint], strict=True)
+            ]
+            polygon68 += [
+                point(d, v)
+                for d, v in reversed(
+                    list(
+                        zip(
+                            visible_delays,
+                            upper68[:visible_count, joint],
+                            strict=True,
+                        )
+                    )
+                )
+            ]
+            draw.polygon(polygon95, fill=(*config.prediction_rgb, 25))
+            draw.polygon(polygon68, fill=(*config.prediction_rgb, 58))
+            draw.line(
+                [
+                    point(d, v)
+                    for d, v in zip(visible_delays, median[:visible_count, joint], strict=True)
+                ],
+                fill=(*config.prediction_rgb, 255),
+                width=2,
+            )
+            draw.line(
+                [
+                    point(d, v)
+                    for d, v in zip(visible_delays, targets[:visible_count, joint], strict=True)
+                ],
+                fill=(*config.ground_truth_rgb, 255),
+                width=2,
+            )
+        else:
+            x_median, y_median = point(delays[0], median[0, joint])
+            x_target, y_target = point(delays[0], targets[0, joint])
+            draw.line(
+                (
+                    x_median,
+                    point(delays[0], lower95[0, joint])[1],
+                    x_median,
+                    point(delays[0], upper95[0, joint])[1],
+                ),
+                fill=(*config.prediction_rgb, 100),
+                width=4,
+            )
+            draw.ellipse(
+                (x_median - 3, y_median - 3, x_median + 3, y_median + 3),
+                fill=(*config.prediction_rgb, 255),
+            )
+            draw.ellipse(
+                (x_target - 3, y_target - 3, x_target + 3, y_target + 3),
+                fill=(*config.ground_truth_rgb, 255),
+            )
         draw.text(
             (left + 4, top + 3),
             f"q{joint + 1}",
@@ -421,6 +503,8 @@ def assemble_context_panel(
     delay_summaries: tuple[str, ...],
     title: str,
     subtitle: str,
+    progressive_delay_index: int | None = None,
+    progressive_alpha: float = 1.0,
 ) -> np.ndarray:
     current = _validate_rgb(current_rgb, shape=(256, 256, 3))
     overlays = np.asarray(ghost_overlays)
@@ -438,6 +522,14 @@ def assemble_context_panel(
         or not subtitle
     ):
         raise ValueError("context panel labels or delays are invalid")
+    if progressive_delay_index is not None and (
+        isinstance(progressive_delay_index, bool)
+        or not isinstance(progressive_delay_index, int)
+        or not 0 <= progressive_delay_index < len(delays)
+    ):
+        raise ValueError("context panel progressive delay index is invalid")
+    if not np.isfinite(progressive_alpha) or not 0.0 < progressive_alpha <= 1.0:
+        raise ValueError("context panel progressive alpha must lie in (0, 1]")
     canvas = Image.new("RGB", (1920, 1200), (242, 244, 247))
     draw = ImageDraw.Draw(canvas)
     draw.text((32, 18), title, fill=(22, 28, 36), font=_font(30, bold=True))
@@ -494,11 +586,30 @@ def assemble_context_panel(
             image = current
             summary_lines = ("Shared input for all", "five delay queries")
         else:
-            delay = int(delays[column - 1])
+            delay_index = column - 1
+            delay = int(delays[delay_index])
             label = f"Return +{delay * 20} ms | d = {delay}"
-            image = overlays[column - 1]
-            pieces = [piece.strip() for piece in delay_summaries[column - 1].split("|")]
+            image = overlays[delay_index]
+            pieces = [piece.strip() for piece in delay_summaries[delay_index].split("|")]
             summary_lines = (" | ".join(pieces[:2]), " | ".join(pieces[2:]))
+            if progressive_delay_index is not None:
+                if delay_index > progressive_delay_index:
+                    image = np.full_like(image, 235)
+                    summary_lines = ("Future query", "not revealed yet")
+                elif delay_index < progressive_delay_index:
+                    image = np.clip(
+                        0.58 * image.astype(np.float32) + 0.42 * 235.0,
+                        0,
+                        255,
+                    ).astype(np.uint8)
+                else:
+                    image = np.clip(
+                        progressive_alpha * image.astype(np.float32)
+                        + (1.0 - progressive_alpha) * 235.0,
+                        0,
+                        255,
+                    ).astype(np.uint8)
+                    label += " | revealing"
         draw.text((x + 12, 142), label, fill=(30, 35, 42), font=_font(15, bold=True))
         resized = Image.fromarray(image).resize((image_size, image_size), Image.Resampling.LANCZOS)
         canvas.paste(resized, (x + 12, 171))
@@ -506,7 +617,11 @@ def assemble_context_panel(
         draw.text((x + 12, 474), summary_lines[1], fill=(62, 67, 75), font=_font(12))
     draw.text(
         (32, 540),
-        "Full predictive distribution (32 Flow samples per delay)",
+        (
+            "Full predictive distribution (32 Flow samples per delay)"
+            if progressive_delay_index is None
+            else "Progressive predictive distribution (near future to far future)"
+        ),
         fill=(45, 52, 62),
         font=_font(18, bold=True),
     )

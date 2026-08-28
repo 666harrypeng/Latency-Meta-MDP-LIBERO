@@ -10,29 +10,17 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
 
 from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.belief.flow.ghost_config import (
-    FlowBeliefGhostConfig,
-    load_flow_belief_ghost_config,
+from latency_meta_mdp.belief.flow.ghost_config import load_flow_belief_ghost_config
+from latency_meta_mdp.belief.flow.ghost_context_renderer import (
+    GhostContextRenderInput,
+    render_flow_belief_ghost_context,
 )
 from latency_meta_mdp.belief.flow.ghost_environment import GhostEnvironmentAdapter
-from latency_meta_mdp.belief.flow.ghost_state import (
-    reconstruct_return_state,
-    select_sample_medoid,
-    valid_sample_mask,
-)
-from latency_meta_mdp.belief.flow.ghost_visuals import (
-    assemble_context_panel,
-    compose_agentview_ghost,
-    render_joint_band_plot,
-    render_state_cloud_plot,
-    write_rgb_video,
-)
+from latency_meta_mdp.belief.flow.ghost_visuals import write_rgb_video
 from latency_meta_mdp.belief_data import load_belief_episode
 from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.return_belief_geometry import build_absorbing_return_state_stream
 from latency_meta_mdp.task import load_task_spec, make_dynamic_grasp_lift_environment
 from latency_meta_mdp.temporal_contract import load_temporal_contract
 from latency_meta_mdp.terminal_absorbing_tail import build_terminal_absorbing_tail
@@ -64,13 +52,6 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
         os.fsync(handle.fileno())
 
 
-def _save_rgb(path: Path, value: np.ndarray) -> None:
-    array = np.asarray(value)
-    if array.ndim != 3 or array.shape[-1] != 3 or array.dtype != np.uint8:
-        raise ValueError("ghost PNG must be a uint8 RGB image")
-    Image.fromarray(array).save(path)
-
-
 def _verify_artifacts(manifest_path: Path, manifest: dict[str, Any]) -> None:
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
@@ -86,20 +67,6 @@ def _verify_artifacts(manifest_path: Path, manifest: dict[str, Any]) -> None:
             raise ValueError(f"ghost quality artifact hash mismatch: {relative}")
 
 
-def _mask_iou(left: np.ndarray, right: np.ndarray) -> float:
-    union = np.count_nonzero(np.asarray(left) | np.asarray(right))
-    if union == 0:
-        raise ValueError("ghost mask IoU requires a non-empty union")
-    return float(np.count_nonzero(np.asarray(left) & np.asarray(right)) / union)
-
-
-def _mask_centroid(mask: np.ndarray) -> np.ndarray:
-    rows, columns = np.nonzero(np.asarray(mask))
-    if len(rows) == 0:
-        raise ValueError("ghost ball mask must be non-empty")
-    return np.asarray([columns.mean(), rows.mean()], dtype=np.float64)
-
-
 def _context_name(index: int, identity: dict[str, Any]) -> str:
     return (
         f"context_{index:02d}_seed_{int(identity['scene_seed']):06d}_"
@@ -112,7 +79,7 @@ def _load_level_inputs(
     level: int,
     quality_sample_manifest: Path,
     quality_level_manifest: Path,
-    config: FlowBeliefGhostConfig,
+    display_delay_ticks: tuple[int, ...],
 ) -> tuple[list[dict[str, Any]], dict[str, np.ndarray], dict[str, Any]]:
     run = _load_json(quality_sample_manifest)
     manifest = _load_json(quality_level_manifest)
@@ -134,7 +101,7 @@ def _load_level_inputs(
         or manifest.get("format_id") != "level_flow_belief_quality_samples_v1"
         or manifest.get("eligible") is not True
         or manifest.get("level") != level
-        or tuple(manifest.get("display_delay_ticks", [])) != config.display_delay_ticks
+        or tuple(manifest.get("display_delay_ticks", [])) != display_delay_ticks
         or manifest.get("sample_count") != 32
     ):
         raise ValueError("ghost rendering quality level manifest is invalid")
@@ -158,7 +125,7 @@ def _load_level_inputs(
     for name, shape in expected_shapes.items():
         if arrays[name].shape != shape:
             raise ValueError(f"ghost rendering quality {name} shape is invalid")
-    if not np.array_equal(arrays["display_delay_ticks"], config.display_delay_ticks):
+    if not np.array_equal(arrays["display_delay_ticks"], display_delay_ticks):
         raise ValueError("ghost rendering delays do not match the ghost config")
     for index, selection in enumerate(selections):
         identity = selection.get("identity") if isinstance(selection, dict) else None
@@ -195,7 +162,7 @@ def render_flow_belief_ghost_level(
         level=level,
         quality_sample_manifest=quality_sample_manifest,
         quality_level_manifest=quality_level_manifest,
-        config=config,
+        display_delay_ticks=config.display_delay_ticks,
     )
     source = _load_json(source_bulk_manifest)
     if (
@@ -216,48 +183,20 @@ def render_flow_belief_ghost_level(
     target.mkdir(parents=True)
     contexts_root = target / "contexts"
     contexts_root.mkdir()
-    context_records: list[dict[str, Any]] = []
-    video_panels: list[tuple[int, int, np.ndarray]] = []
+    context_records = []
+    video_panels = []
     invalid_total = 0
     source_root = source_bulk_manifest.parent
-    delays = np.asarray(config.display_delay_ticks, dtype=np.int64)
     try:
         for context_index, selection in enumerate(selections):
             identity = selection["identity"]
             scene_seed = int(identity["scene_seed"])
-            source_tick = int(identity["source_tick"])
-            episode_dir = source_root / f"episodes/L{level}/seed_{scene_seed:06d}"
-            episode = load_belief_episode(episode_dir)
-            if (
-                episode.level != level
-                or episode.scene_seed != scene_seed
-                or episode.episode_id != identity["episode_id"]
-            ):
-                raise ValueError("ghost selection does not match its source episode")
+            episode = load_belief_episode(source_root / f"episodes/L{level}/seed_{scene_seed:06d}")
             tail = build_terminal_absorbing_tail(
                 episode=episode,
                 temporal_contract=temporal,
                 action_contract=action_contract,
             )
-            return_states = build_absorbing_return_state_stream(tail)
-            gripper_qpos = tail.extend_boundary_array(episode.deployment.gripper_qpos)
-            gripper_qvel = tail.extend_boundary_array(episode.deployment.gripper_qvel)
-            object_pose = tail.extend_boundary_array(episode.supervision.object_pose)
-            object_velocity = tail.extend_boundary_array(episode.supervision.object_velocity)
-            agentview = tail.extend_boundary_array(episode.deployment.agentview_rgb)
-            target_ticks = source_tick + delays
-            if source_tick >= episode.boundary_count or np.any(
-                target_ticks >= tail.extended_boundary_count
-            ):
-                raise ValueError("ghost source or target tick lies outside the episode view")
-            expected_targets = return_states[target_ticks]
-            if not np.allclose(
-                samples["physical_targets"][context_index],
-                expected_targets,
-                atol=1e-6,
-                rtol=1e-6,
-            ):
-                raise ValueError("ghost quality target does not match the source future state")
             env = make_dynamic_grasp_lift_environment(
                 spec=task_spec,
                 seed=scene_seed,
@@ -265,230 +204,46 @@ def render_flow_belief_ghost_level(
                 controller_config=action_contract.to_robosuite_config(),
             )
             try:
-                adapter = GhostEnvironmentAdapter(
-                    env=env,
-                    camera_name=config.camera_name,
-                    width=config.width,
-                    height=config.height,
+                result = render_flow_belief_ghost_context(
+                    context=GhostContextRenderInput(
+                        level=level,
+                        episode_id=identity["episode_id"],
+                        scene_seed=scene_seed,
+                        validation_offset=identity["validation_offset"],
+                        source_tick=identity["source_tick"],
+                        source_phase=selection["source_phase"],
+                        roles=tuple(selection["roles"]),
+                        display_tag=f"role {', '.join(selection['roles'])}",
+                        delay_ticks=samples["display_delay_ticks"],
+                        normalized_samples=samples["normalized_samples"][context_index],
+                        physical_samples=samples["physical_samples"][context_index],
+                        physical_targets=samples["physical_targets"][context_index],
+                        absorbing=samples["absorbing"][context_index],
+                    ),
+                    output_dir=contexts_root / _context_name(context_index, identity),
+                    episode=episode,
+                    tail=tail,
+                    adapter=GhostEnvironmentAdapter(
+                        env=env,
+                        camera_name=config.camera_name,
+                        width=config.width,
+                        height=config.height,
+                    ),
+                    config=config,
                 )
-                physical = samples["physical_samples"][context_index]
-                normalized = samples["normalized_samples"][context_index]
-                validity = np.stack(
-                    [
-                        valid_sample_mask(
-                            physical_samples=row,
-                            joint_ranges=adapter.joint_ranges,
-                            gripper_width_range=adapter.gripper_width_range,
-                            object_position_bounds=adapter.object_position_bounds,
-                        )
-                        for row in physical
-                    ]
-                )
-                invalid_total += int(np.count_nonzero(~validity))
-                if np.any(np.count_nonzero(validity, axis=1) == 0):
-                    raise ValueError("ghost rendering found a delay without a valid sample")
-                medoid_indices = np.asarray(
-                    [
-                        select_sample_medoid(normalized[row], validity[row])
-                        for row in range(len(delays))
-                    ],
-                    dtype=np.int64,
-                )
-                overlays = []
-                eef_samples = np.empty((5, 32, 3), dtype=np.float64)
-                eef_targets = np.empty((5, 3), dtype=np.float64)
-                delay_records = []
-                context_dir = contexts_root / _context_name(context_index, identity)
-                overlay_dir = context_dir / "overlays"
-                ground_truth_dir = context_dir / "ground_truth"
-                overlay_dir.mkdir(parents=True)
-                ground_truth_dir.mkdir()
-                for delay_index, (delay, target_tick) in enumerate(
-                    zip(delays, target_ticks, strict=True)
-                ):
-                    nuisance = {
-                        "target_gripper_qpos": gripper_qpos[target_tick],
-                        "target_gripper_qvel": gripper_qvel[target_tick],
-                        "target_object_pose": object_pose[target_tick],
-                        "target_object_velocity": object_velocity[target_tick],
-                    }
-                    gt_state = reconstruct_return_state(
-                        predicted_state=samples["physical_targets"][context_index, delay_index],
-                        **nuisance,
-                    )
-                    sim_time = float(tail.boundary_time_us[target_tick]) / 1_000_000.0
-                    gt_render = adapter.render_state(
-                        state=gt_state,
-                        sim_time_seconds=sim_time,
-                    )
-                    repeated = adapter.render_state(
-                        state=gt_state,
-                        sim_time_seconds=sim_time,
-                    )
-                    rgb_mae = float(
-                        np.mean(
-                            np.abs(
-                                gt_render.rgb.astype(np.float32)
-                                - agentview[target_tick].astype(np.float32)
-                            )
-                        )
-                    )
-                    robot_iou = _mask_iou(gt_render.robot_mask, repeated.robot_mask)
-                    ball_centroid_error = float(
-                        np.linalg.norm(
-                            _mask_centroid(gt_render.ball_mask) - _mask_centroid(repeated.ball_mask)
-                        )
-                    )
-                    if (
-                        rgb_mae > config.ground_truth_rgb_mae_max
-                        or robot_iou < config.robot_mask_iou_min
-                        or ball_centroid_error > config.ball_centroid_error_px_max
-                    ):
-                        raise ValueError("ghost reconstructed ground truth failed render parity")
-                    medoid_index = int(medoid_indices[delay_index])
-                    predicted_state = reconstruct_return_state(
-                        predicted_state=physical[delay_index, medoid_index],
-                        **nuisance,
-                    )
-                    prediction_render = adapter.render_state(
-                        state=predicted_state,
-                        sim_time_seconds=sim_time,
-                    )
-                    medoid_physical = physical[delay_index, medoid_index]
-                    physical_target = samples["physical_targets"][context_index, delay_index]
-                    object_error_mm = float(
-                        np.linalg.norm(medoid_physical[16:19] - physical_target[16:19]) * 1_000.0
-                    )
-                    eef_error_mm = float(
-                        np.linalg.norm(prediction_render.eef_position - gt_render.eef_position)
-                        * 1_000.0
-                    )
-                    joint_rmse_mrad = float(
-                        np.sqrt(np.mean(np.square(medoid_physical[:7] - physical_target[:7])))
-                        * 1_000.0
-                    )
-                    overlay = compose_agentview_ghost(
-                        background_rgb=gt_render.rgb,
-                        ground_truth_robot_mask=gt_render.robot_mask,
-                        ground_truth_ball_mask=gt_render.ball_mask,
-                        prediction_robot_mask=prediction_render.robot_mask,
-                        prediction_ball_mask=prediction_render.ball_mask,
-                        config=config,
-                    )
-                    _save_rgb(
-                        ground_truth_dir / f"delay_{int(delay):02d}.png",
-                        gt_render.rgb,
-                    )
-                    _save_rgb(
-                        overlay_dir / f"delay_{int(delay):02d}.png",
-                        overlay,
-                    )
-                    overlays.append(overlay)
-                    eef_targets[delay_index] = gt_render.eef_position
-                    for sample_index in range(32):
-                        sample_state = reconstruct_return_state(
-                            predicted_state=physical[delay_index, sample_index],
-                            **nuisance,
-                        )
-                        eef_samples[delay_index, sample_index] = adapter.forward_state(
-                            state=sample_state,
-                            sim_time_seconds=sim_time,
-                        )
-                    delay_records.append(
-                        {
-                            "delay_tick": int(delay),
-                            "target_tick": int(target_tick),
-                            "absorbing": bool(samples["absorbing"][context_index, delay_index]),
-                            "valid_sample_count": int(np.count_nonzero(validity[delay_index])),
-                            "invalid_sample_count": int(np.count_nonzero(~validity[delay_index])),
-                            "medoid_sample_index": medoid_index,
-                            "medoid_object_position_error_mm": object_error_mm,
-                            "medoid_eef_position_error_mm": eef_error_mm,
-                            "medoid_joint_rmse_mrad": joint_rmse_mrad,
-                            "ground_truth_rgb_mae": rgb_mae,
-                            "deterministic_robot_mask_iou": robot_iou,
-                            "deterministic_ball_centroid_error_px": ball_centroid_error,
-                        }
-                    )
             finally:
                 env.close()
-            object_plot = render_state_cloud_plot(
-                delay_ticks=delays,
-                state_samples=physical[:, :, 16:19],
-                state_targets=samples["physical_targets"][context_index, :, 16:19],
-                title="Object future distribution",
-                state_label="Ball center",
-                config=config,
-            )
-            eef_plot = render_state_cloud_plot(
-                delay_ticks=delays,
-                state_samples=eef_samples,
-                state_targets=eef_targets,
-                title="EEF future distribution",
-                state_label="End effector",
-                config=config,
-            )
-            joint_plot = render_joint_band_plot(
-                delay_ticks=delays,
-                joint_samples=physical[:, :, :7],
-                joint_targets=samples["physical_targets"][context_index, :, :7],
-                config=config,
-            )
-            delay_summaries = tuple(
-                (
-                    f"ball {row['medoid_object_position_error_mm']:.1f} mm | "
-                    f"EEF {row['medoid_eef_position_error_mm']:.1f} mm | "
-                    f"q {row['medoid_joint_rmse_mrad']:.1f} mrad | "
-                    f"{row['valid_sample_count']}/32 valid"
-                )
-                for row in delay_records
-            )
-            panel = assemble_context_panel(
-                current_rgb=agentview[source_tick],
-                ghost_overlays=np.stack(overlays),
-                object_plot=object_plot,
-                eef_plot=eef_plot,
-                joint_plot=joint_plot,
-                delay_ticks=delays,
-                delay_summaries=delay_summaries,
-                title="Flow Belief future-state quality",
-                subtitle=(
-                    f"L{level} | seed {scene_seed} | source tick {source_tick} | "
-                    f"phase {selection['source_phase']} | "
-                    f"role {', '.join(selection['roles'])}"
-                ),
-            )
-            _save_rgb(context_dir / "panel.png", panel)
-            np.savez(
-                context_dir / "geometry.npz",
-                delay_ticks=delays,
-                target_ticks=target_ticks,
-                valid_sample_mask=validity,
-                medoid_sample_indices=medoid_indices,
-                object_samples=physical[:, :, 16:19],
-                object_targets=samples["physical_targets"][context_index, :, 16:19],
-                eef_samples=eef_samples,
-                eef_targets=eef_targets,
-                joint_samples=physical[:, :, :7],
-                joint_targets=samples["physical_targets"][context_index, :, :7],
-            )
-            context_manifest = {
-                "schema_version": 1,
-                "format_id": "flow_belief_ghost_context_v1",
-                "identity": identity,
-                "roles": selection["roles"],
-                "source_phase": selection["source_phase"],
-                "delays": delay_records,
-            }
-            _write_json(context_dir / "metrics.json", context_manifest)
+            invalid_total += result.invalid_sample_count
             context_records.append(
                 {
                     "identity": identity,
                     "roles": selection["roles"],
-                    "directory": context_dir.relative_to(target).as_posix(),
+                    "directory": (contexts_root / _context_name(context_index, identity))
+                    .relative_to(target)
+                    .as_posix(),
                 }
             )
-            video_panels.append((scene_seed, source_tick, panel))
+            video_panels.append((scene_seed, result.source_tick, result.panel))
         ordered_frames = np.stack(
             [row[2] for row in sorted(video_panels, key=lambda value: value[:2])]
         )
@@ -502,7 +257,7 @@ def render_flow_belief_ghost_level(
             for path in sorted(target.rglob("*"))
             if path.is_file()
         }
-        sample_count = len(selections) * len(delays) * 32
+        sample_count = len(selections) * len(config.display_delay_ticks) * 32
         manifest = {
             "schema_version": 1,
             "format_id": "level_flow_belief_ghost_v1",
@@ -512,7 +267,7 @@ def render_flow_belief_ghost_level(
             "sample_count": sample_count,
             "invalid_sample_count": invalid_total,
             "invalid_sample_fraction": invalid_total / sample_count,
-            "display_delay_ticks": delays.tolist(),
+            "display_delay_ticks": list(config.display_delay_ticks),
             "review_video_kind": "selected_case_sequence",
             "contexts": context_records,
             "wall_seconds": time.perf_counter() - started,
