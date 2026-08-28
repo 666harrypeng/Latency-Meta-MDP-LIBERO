@@ -1,0 +1,12 @@
+schema_version: 1
+law_id: truncated_beta_8_65_400ms_v1
+distribution_family: truncated_beta_seconds
+shape_alpha: 8.0
+shape_beta: 65.0
+latency_deadline_seconds: 0.4
+control_tick_seconds: 0.02
+sampling_mode: categorical_bin_mass
+jitter_enabled: false
+zero_delay_included: false
+law_visibility: known_nominal
+parameter_status: locked_nominal

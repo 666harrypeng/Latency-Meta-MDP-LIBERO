@@ -15,5 +15,5 @@ def test_latency_law_family_cli_uses_locked_defaults() -> None:
         ]
     )
 
-    assert args.nominal_law == Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml")
-    assert args.family_config == Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml")
+    assert args.nominal_law == Path("configs/latency/truncated_beta_8_65_400ms_v1.yaml")
+    assert args.family_config == Path("configs/latency/truncated_beta_family_8_65_400ms_v1.yaml")

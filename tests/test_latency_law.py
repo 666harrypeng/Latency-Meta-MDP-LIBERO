@@ -15,6 +15,12 @@ def _law():
     )
 
 
+def _earlier_law():
+    return load_latency_law(
+        Path("configs/latency/truncated_beta_8_65_400ms_v1.yaml")
+    )
+
+
 def test_truncated_beta_law_builds_twenty_normalized_grid_probabilities() -> None:
     law = _law()
 
@@ -47,6 +53,18 @@ def test_truncated_beta_law_matches_locked_latency_regions() -> None:
     )
     assert sum(law.probabilities[5:10]) > 0.55
     assert law.probabilities[6] == max(law.probabilities)
+
+
+def test_beta_8_65_law_matches_locked_earlier_latency_regime() -> None:
+    law = _earlier_law()
+
+    assert law.law_id == "truncated_beta_8_65_400ms_v1"
+    assert law.shape_alpha == 8.0
+    assert law.shape_beta == 65.0
+    np.testing.assert_allclose(law.effective_mean_seconds, 0.1196, atol=1e-4)
+    assert sum(law.probabilities[3:8]) > 0.84
+    assert 0.03 < sum(law.probabilities[9:]) < 0.05
+    assert law.probabilities[4] == max(law.probabilities)
 
 
 def test_categorical_sampler_is_seeded_and_never_emits_zero_or_overflow() -> None:

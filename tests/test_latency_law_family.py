@@ -14,6 +14,12 @@ def _family():
     )
 
 
+def _earlier_family():
+    return load_episode_latency_law_family(
+        Path("configs/latency/truncated_beta_family_8_65_400ms_v1.yaml")
+    )
+
+
 def test_episode_law_is_deterministic_normalized_and_stable() -> None:
     family = _family()
 
@@ -98,3 +104,26 @@ def test_family_rejects_episode_identity_mismatch() -> None:
             episode_id="l2-seed-001000-attempt-000",
             scene_seed=1000,
         )
+
+
+def test_beta_8_65_family_is_earlier_but_keeps_a_small_tail() -> None:
+    family = _earlier_family()
+    laws = [
+        family.sample_for_episode(
+            level=1,
+            episode_id=f"l1-seed-{seed:06d}-attempt-000",
+            scene_seed=seed,
+        )
+        for seed in range(1000, 1200)
+    ]
+    means = np.asarray([law.effective_mean_seconds for law in laws])
+    aggregate = np.mean([law.probabilities for law in laws], axis=0)
+
+    assert family.family_id == "truncated_beta_family_8_65_400ms_v1"
+    assert family.base_law_id == "truncated_beta_8_65_400ms_v1"
+    assert family.uniform_floor_max == 0.02
+    assert 0.10 < np.quantile(means, 0.1) < 0.115
+    assert 0.115 < np.quantile(means, 0.5) < 0.125
+    assert 0.125 < np.quantile(means, 0.9) < 0.14
+    assert aggregate[3:8].sum() > 0.80
+    assert 0.035 < aggregate[9:].sum() < 0.07

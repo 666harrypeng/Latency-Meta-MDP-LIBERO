@@ -173,6 +173,17 @@ def test_multilaw_training_config_locks_tail_query_floor() -> None:
     assert config.early_stopping_patience == 30
 
 
+def test_multilaw_v3_training_config_locks_earlier_latency_family() -> None:
+    config = load_multilaw_flow_training_config(
+        Path("configs/belief/dinov3_flow_belief_multilaw_v3.yaml")
+    )
+
+    assert config.training_id == "dinov3_flow_belief_multilaw_v3"
+    assert config.latency_law_family_id == "truncated_beta_family_8_65_400ms_v1"
+    assert config.tail_query_uniform_mix == 0.10
+    assert config.early_stopping_patience == 30
+
+
 def test_flow_dataset_applies_tail_mix_only_to_training_query_draws() -> None:
     probabilities = np.full(20, 1e-6, dtype=np.float64)
     probabilities[6:9] = 1.0

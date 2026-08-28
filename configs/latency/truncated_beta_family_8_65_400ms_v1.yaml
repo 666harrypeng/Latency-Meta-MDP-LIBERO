@@ -1,0 +1,13 @@
+schema_version: 1
+family_id: truncated_beta_family_8_65_400ms_v1
+base_law_id: truncated_beta_8_65_400ms_v1
+base_alpha: 8.0
+base_beta: 65.0
+latency_deadline_seconds: 0.4
+control_tick_seconds: 0.02
+mean_logit_std: 0.10
+log_concentration_std: 0.10
+uniform_floor_max: 0.02
+family_seed: 20260827
+assignment_granularity: episode
+shared_master_seed_across_levels: true

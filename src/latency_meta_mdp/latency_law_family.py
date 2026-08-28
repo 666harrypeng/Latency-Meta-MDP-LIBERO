@@ -11,6 +11,21 @@ import numpy as np
 import yaml
 from scipy.special import betainc
 
+_SUPPORTED_FAMILIES = {
+    "truncated_beta_family_5_26_400ms_v1": (
+        "truncated_beta_5_26_400ms_v1",
+        5.0,
+        26.0,
+        0.04,
+    ),
+    "truncated_beta_family_8_65_400ms_v1": (
+        "truncated_beta_8_65_400ms_v1",
+        8.0,
+        65.0,
+        0.02,
+    ),
+}
+
 
 @dataclass(frozen=True)
 class EpisodeLatencyLaw:
@@ -69,10 +84,17 @@ class EpisodeLatencyLawFamily:
     shared_master_seed_across_levels: bool
 
     def __post_init__(self) -> None:
+        expected = _SUPPORTED_FAMILIES.get(self.family_id)
         if (
             self.schema_version != 1
-            or self.family_id != "truncated_beta_family_5_26_400ms_v1"
-            or self.base_law_id != "truncated_beta_5_26_400ms_v1"
+            or expected is None
+            or (
+                self.base_law_id,
+                self.base_alpha,
+                self.base_beta,
+                self.uniform_floor_max,
+            )
+            != expected
             or self.assignment_granularity != "episode"
             or self.shared_master_seed_across_levels is not True
         ):

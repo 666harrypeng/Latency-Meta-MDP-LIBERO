@@ -17,5 +17,6 @@ def test_multilaw_belief_data_cli_uses_locked_defaults() -> None:
         ]
     )
 
-    assert args.family_config == Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml")
-    assert args.multilaw_config == Path("configs/belief/dinov3_flow_belief_multilaw_v2.yaml")
+    assert args.nominal_law == Path("configs/latency/truncated_beta_8_65_400ms_v1.yaml")
+    assert args.family_config == Path("configs/latency/truncated_beta_family_8_65_400ms_v1.yaml")
+    assert args.multilaw_config == Path("configs/belief/dinov3_flow_belief_multilaw_v3.yaml")

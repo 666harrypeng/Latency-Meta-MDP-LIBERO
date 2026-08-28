@@ -17,12 +17,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--nominal-law",
         type=Path,
-        default=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        default=Path("configs/latency/truncated_beta_8_65_400ms_v1.yaml"),
     )
     parser.add_argument(
         "--family-config",
         type=Path,
-        default=Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
+        default=Path("configs/latency/truncated_beta_family_8_65_400ms_v1.yaml"),
     )
     return parser
 

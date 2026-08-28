@@ -9,6 +9,11 @@ import numpy as np
 import yaml
 from scipy.special import betainc
 
+_SUPPORTED_LAWS = {
+    "truncated_beta_5_26_400ms_v1": (5.0, 26.0),
+    "truncated_beta_8_65_400ms_v1": (8.0, 65.0),
+}
+
 
 @dataclass(frozen=True)
 class TruncatedBetaLatencyLaw:
@@ -26,7 +31,8 @@ class TruncatedBetaLatencyLaw:
     parameter_status: str
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1 or self.law_id != "truncated_beta_5_26_400ms_v1":
+        expected_shape = _SUPPORTED_LAWS.get(self.law_id)
+        if self.schema_version != 1 or expected_shape is None:
             raise ValueError("unsupported latency-law schema or identifier")
         if self.distribution_family != "truncated_beta_seconds":
             raise ValueError("latency law must use the truncated Beta family")
@@ -35,8 +41,11 @@ class TruncatedBetaLatencyLaw:
             or not np.isfinite(self.shape_beta)
             or self.shape_alpha <= 1.0
             or self.shape_beta <= 1.0
+            or (self.shape_alpha, self.shape_beta) != expected_shape
         ):
-            raise ValueError("latency Beta shape parameters must be finite and greater than one")
+            raise ValueError(
+                "latency Beta shape parameters are invalid or inconsistent with law identifier"
+            )
         if (
             not np.isfinite(self.latency_deadline_seconds)
             or not np.isfinite(self.control_tick_seconds)
