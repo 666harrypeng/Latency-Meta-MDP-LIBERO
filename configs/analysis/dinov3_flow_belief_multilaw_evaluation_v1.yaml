@@ -1,0 +1,15 @@
+schema_version: 1
+evaluation_id: dinov3_flow_belief_multilaw_evaluation_v1
+shifted_laws:
+  fast:
+    mean_logit_offset: -0.20
+    log_concentration_offset: 0.0
+    uniform_floor: 0.02
+  slow:
+    mean_logit_offset: 0.20
+    log_concentration_offset: 0.0
+    uniform_floor: 0.02
+  wide:
+    mean_logit_offset: 0.0
+    log_concentration_offset: -0.25
+    uniform_floor: 0.04

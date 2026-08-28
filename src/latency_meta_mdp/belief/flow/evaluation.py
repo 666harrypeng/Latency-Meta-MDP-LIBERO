@@ -121,9 +121,7 @@ def evaluate_level_flow_belief(
         raise ValueError("Flow evaluation sample and step counts must be positive")
     references = corpus.sample_references[evaluation_split]
     selected_count = (
-        len(references)
-        if context_limit is None
-        else min(context_limit, len(references))
+        len(references) if context_limit is None else min(context_limit, len(references))
     )
     if selected_count <= 0:
         raise ValueError("Flow evaluation requires at least one holdout context")
@@ -135,6 +133,7 @@ def evaluate_level_flow_belief(
     all_targets = []
     all_modes = []
     all_absorbing = []
+    all_weights = []
     sampling_seconds = 0.0
     delay_ticks = np.arange(1, 21, dtype=np.int64)
     for batch_start in range(0, selected_count, config.batch_size):
@@ -153,8 +152,7 @@ def evaluate_level_flow_belief(
         ).astype(np.float32)
         actions = np.stack(
             [
-                (context.remaining_actions - normalization.action_mean)
-                / normalization.action_std
+                (context.remaining_actions - normalization.action_mean) / normalization.action_std
                 for context in contexts
             ]
         ).astype(np.float32)
@@ -163,8 +161,7 @@ def evaluate_level_flow_belief(
         )
         normalized_target = np.stack(
             [
-                (context.target_states - normalization.target_mean)
-                / normalization.target_std
+                (context.target_states - normalization.target_mean) / normalization.target_std
                 for context in contexts
             ]
         ).astype(np.float32)
@@ -172,9 +169,7 @@ def evaluate_level_flow_belief(
         absorbing = np.stack([context.target_absorbing for context in contexts])
         noises = []
         for offset in range(batch_start, batch_stop):
-            rng = np.random.default_rng(
-                config.evaluation_seed + corpus.level * 1_000_000 + offset
-            )
+            rng = np.random.default_rng(config.evaluation_seed + corpus.level * 1_000_000 + offset)
             noises.append(
                 rng.standard_normal(
                     (20, selected_sample_count, 22),
@@ -208,14 +203,14 @@ def evaluate_level_flow_belief(
         all_targets.append(normalized_target)
         all_modes.append(modes)
         all_absorbing.append(absorbing)
+        all_weights.append(
+            np.stack([context.latency_probabilities for context in contexts]).astype(np.float64)
+        )
     samples_array = np.concatenate(all_samples, axis=0)
     target_array = np.concatenate(all_targets, axis=0)
     mode_array = np.concatenate(all_modes, axis=0)
     absorbing_array = np.concatenate(all_absorbing, axis=0).astype(bool)
-    weights = np.broadcast_to(
-        np.asarray(corpus.latency_law.probabilities, dtype=np.float64),
-        (selected_count, 20),
-    ).copy()
+    weights = np.concatenate(all_weights, axis=0)
     metrics: dict[str, Any] = {
         "overall": _bundle(
             samples=samples_array,
@@ -242,12 +237,9 @@ def evaluate_level_flow_belief(
         )
     subsets = {
         "pre_handoff": (
-            ~absorbing_array
-            & np.isin(mode_array, (InteractionMode.FREE, InteractionMode.CONTACT))
+            ~absorbing_array & np.isin(mode_array, (InteractionMode.FREE, InteractionMode.CONTACT))
         ),
-        "post_handoff": (
-            ~absorbing_array & (mode_array == InteractionMode.GRASPED)
-        ),
+        "post_handoff": (~absorbing_array & (mode_array == InteractionMode.GRASPED)),
         "absorbing": absorbing_array,
     }
     for name, mask in subsets.items():
@@ -272,10 +264,10 @@ def evaluate_level_flow_belief(
             target_normalized=target_array,
             interaction_mode=mode_array,
             absorbing=absorbing_array,
+            latency_probabilities=weights,
         )
         artifacts = {
-            name: sha256_file(building / name)
-            for name in ("metrics.json", "summary_arrays.npz")
+            name: sha256_file(building / name) for name in ("metrics.json", "summary_arrays.npz")
         }
         manifest = {
             "schema_version": 1,

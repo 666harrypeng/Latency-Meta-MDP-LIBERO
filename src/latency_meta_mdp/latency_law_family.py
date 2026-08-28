@@ -107,40 +107,14 @@ class EpisodeLatencyLawFamily:
         ).digest()
         return int.from_bytes(digest[:8], byteorder="little", signed=False)
 
-    def sample_for_episode(
+    def _build_law(
         self,
         *,
-        level: int,
-        episode_id: str,
-        scene_seed: int,
+        alpha: float,
+        beta: float,
+        uniform_floor: float,
+        generation_seed: int,
     ) -> EpisodeLatencyLaw:
-        if (
-            level not in (1, 2, 3)
-            or isinstance(scene_seed, bool)
-            or not isinstance(scene_seed, int)
-            or scene_seed < 0
-            or episode_id != f"l{level}-seed-{scene_seed:06d}-attempt-000"
-        ):
-            raise ValueError("episode latency-law identity is invalid")
-        generation_seed = self._seed_for_scene(scene_seed)
-        rng = np.random.default_rng(generation_seed)
-        base_mean = self.base_alpha / (self.base_alpha + self.base_beta)
-        base_logit = math.log(base_mean / (1.0 - base_mean))
-        base_concentration = self.base_alpha + self.base_beta
-        for _ in range(100):
-            mean = 1.0 / (
-                1.0 + math.exp(-(base_logit + self.mean_logit_std * float(rng.standard_normal())))
-            )
-            concentration = base_concentration * math.exp(
-                self.log_concentration_std * float(rng.standard_normal())
-            )
-            alpha = mean * concentration
-            beta = (1.0 - mean) * concentration
-            if alpha > 1.0 and beta > 1.0:
-                break
-        else:
-            raise RuntimeError("failed to sample a valid episode latency law")
-        uniform_floor = float(rng.uniform(0.0, self.uniform_floor_max))
         edges = np.arange(21, dtype=np.float64) * self.control_tick_seconds
         cdf = betainc(alpha, beta, edges)
         normalizer = float(cdf[-1])
@@ -179,6 +153,77 @@ class EpisodeLatencyLawFamily:
             continuous_mode_seconds=float(continuous_mode),
             effective_mean_seconds=effective_mean,
             probability_sha256=probability_sha,
+        )
+
+    def build_shifted_law(
+        self,
+        *,
+        name: str,
+        mean_logit_offset: float,
+        log_concentration_offset: float,
+        uniform_floor: float,
+    ) -> EpisodeLatencyLaw:
+        if not name or not 0.0 <= uniform_floor <= 0.1:
+            raise ValueError("shifted latency-law request is invalid")
+        base_mean = self.base_alpha / (self.base_alpha + self.base_beta)
+        base_logit = math.log(base_mean / (1.0 - base_mean))
+        mean = 1.0 / (1.0 + math.exp(-(base_logit + mean_logit_offset)))
+        concentration = (self.base_alpha + self.base_beta) * math.exp(log_concentration_offset)
+        alpha = mean * concentration
+        beta = (1.0 - mean) * concentration
+        if alpha <= 1.0 or beta <= 1.0:
+            raise ValueError("shifted latency law has invalid Beta parameters")
+        generation_seed = int.from_bytes(
+            hashlib.sha256(f"{self.family_id}:shifted:{name}".encode()).digest()[:8],
+            byteorder="little",
+            signed=False,
+        )
+        return self._build_law(
+            alpha=alpha,
+            beta=beta,
+            uniform_floor=uniform_floor,
+            generation_seed=generation_seed,
+        )
+
+    def sample_for_episode(
+        self,
+        *,
+        level: int,
+        episode_id: str,
+        scene_seed: int,
+    ) -> EpisodeLatencyLaw:
+        if (
+            level not in (1, 2, 3)
+            or isinstance(scene_seed, bool)
+            or not isinstance(scene_seed, int)
+            or scene_seed < 0
+            or episode_id != f"l{level}-seed-{scene_seed:06d}-attempt-000"
+        ):
+            raise ValueError("episode latency-law identity is invalid")
+        generation_seed = self._seed_for_scene(scene_seed)
+        rng = np.random.default_rng(generation_seed)
+        base_mean = self.base_alpha / (self.base_alpha + self.base_beta)
+        base_logit = math.log(base_mean / (1.0 - base_mean))
+        base_concentration = self.base_alpha + self.base_beta
+        for _ in range(100):
+            mean = 1.0 / (
+                1.0 + math.exp(-(base_logit + self.mean_logit_std * float(rng.standard_normal())))
+            )
+            concentration = base_concentration * math.exp(
+                self.log_concentration_std * float(rng.standard_normal())
+            )
+            alpha = mean * concentration
+            beta = (1.0 - mean) * concentration
+            if alpha > 1.0 and beta > 1.0:
+                break
+        else:
+            raise RuntimeError("failed to sample a valid episode latency law")
+        uniform_floor = float(rng.uniform(0.0, self.uniform_floor_max))
+        return self._build_law(
+            alpha=alpha,
+            beta=beta,
+            uniform_floor=uniform_floor,
+            generation_seed=generation_seed,
         )
 
 
