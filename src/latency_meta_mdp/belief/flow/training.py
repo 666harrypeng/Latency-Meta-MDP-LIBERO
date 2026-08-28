@@ -48,9 +48,7 @@ class FlowBeliefBatch:
 
 
 def _stack(items: list[FlowBeliefItem], name: str) -> torch.Tensor:
-    return torch.from_numpy(
-        np.stack([np.asarray(getattr(item, name)) for item in items], axis=0)
-    )
+    return torch.from_numpy(np.stack([np.asarray(getattr(item, name)) for item in items], axis=0))
 
 
 def collate_flow_belief_items(items: list[FlowBeliefItem]) -> FlowBeliefBatch:
@@ -176,6 +174,7 @@ def train_level_flow_belief(
     config: FlowBeliefConfig,
     output_dir: Path,
     device: str,
+    delay_query_uniform_mix: float = 0.0,
 ) -> Path:
     target = output_dir.resolve()
     if target.exists():
@@ -195,6 +194,7 @@ def train_level_flow_belief(
             normalization=normalization,
             config=config,
             exhaustive_queries=split is not ProbeSplit.TRAIN,
+            delay_query_uniform_mix=(delay_query_uniform_mix if split is ProbeSplit.TRAIN else 0.0),
         )
         for split in ProbeSplit
     }
@@ -267,8 +267,7 @@ def train_level_flow_belief(
             best_loss = validation_loss
             best_epoch = epoch
             best_state = {
-                name: value.detach().cpu().clone()
-                for name, value in model.state_dict().items()
+                name: value.detach().cpu().clone() for name, value in model.state_dict().items()
             }
             stale_epochs = 0
         else:
@@ -335,26 +334,22 @@ def train_level_flow_belief(
             "metrics.json",
             "training_history.json",
         )
-        artifacts = {
-            name: sha256_file(building / name) for name in artifact_names
-        }
+        artifacts = {name: sha256_file(building / name) for name in artifact_names}
         manifest = {
             "schema_version": 1,
             "format_id": "level_flow_belief_v1",
             "level": corpus.level,
             "checkpoint_scope": "single_level_only",
             "initialization": "random_flow_encoder_and_vector_field",
+            "latency_law_family_id": corpus.latency_law_family_id,
+            "delay_query_uniform_mix": delay_query_uniform_mix,
             "config": asdict(config),
             "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
             "encoder_parameter_count": sum(
                 parameter.numel() for parameter in model.encoder.parameters()
             ),
-            "episode_counts": {
-                split.value: corpus.episode_counts[split] for split in ProbeSplit
-            },
-            "sample_counts": {
-                split.value: corpus.sample_counts[split] for split in ProbeSplit
-            },
+            "episode_counts": {split.value: corpus.episode_counts[split] for split in ProbeSplit},
+            "sample_counts": {split.value: corpus.sample_counts[split] for split in ProbeSplit},
             "epochs_completed": len(history),
             "best_epoch": best_epoch,
             "best_validation_flow_mse": best_loss,
