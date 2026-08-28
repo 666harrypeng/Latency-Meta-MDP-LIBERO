@@ -48,19 +48,15 @@ def build_flow_belief_normalization(
     weighted_target_sum = np.zeros(22, dtype=np.float64)
     weighted_target_square_sum = np.zeros(22, dtype=np.float64)
     context_count = 0
-    probabilities = np.asarray(corpus.latency_law.probabilities, dtype=np.float64)
     delays = np.asarray(corpus.latency_law.delay_ticks, dtype=np.int64)
     for record_offset, index_offset in corpus.sample_references[ProbeSplit.TRAIN]:
         record = corpus.records[record_offset]
+        probabilities = np.asarray(record.latency_probabilities, dtype=np.float64)
         index = record.indices[index_offset]
         history = slice(index.history_start_tick, index.source_tick + 1)
         proprio_values.append(record.proprio_stream[history])
-        action_stop = (
-            index.source_tick + corpus.temporal_contract.remaining_buffer_coverage
-        )
-        action_values.append(
-            record.tail.expert_actions[index.source_tick:action_stop]
-        )
+        action_stop = index.source_tick + corpus.temporal_contract.remaining_buffer_coverage
+        action_values.append(record.tail.expert_actions[index.source_tick : action_stop])
         targets = record.target_state_stream[index.source_tick + delays]
         weighted_target_sum += np.sum(probabilities[:, None] * targets, axis=0)
         weighted_target_square_sum += np.sum(
@@ -94,12 +90,16 @@ class FlowBeliefDataset:
         normalization: FlowBeliefNormalization,
         config: FlowBeliefConfig,
         exhaustive_queries: bool,
+        delay_query_uniform_mix: float = 0.0,
     ) -> None:
         self.corpus = corpus
         self.split = split
         self.normalization = normalization
         self.config = config
         self.exhaustive_queries = exhaustive_queries
+        if not np.isfinite(delay_query_uniform_mix) or not 0.0 <= delay_query_uniform_mix < 1.0:
+            raise ValueError("Flow delay-query uniform mix must lie in [0, 1)")
+        self.delay_query_uniform_mix = float(delay_query_uniform_mix)
         self.references = corpus.sample_references[split]
         self.epoch = 0
 
@@ -142,6 +142,7 @@ class FlowBeliefDataset:
                 sample=sample,
                 rng=rng,
                 query_count=self.config.sampled_delay_query_count,
+                uniform_mix=self.delay_query_uniform_mix,
             )
             delay_ticks = base.delay_ticks
             target_states = base.target_states
@@ -172,8 +173,7 @@ class FlowBeliefDataset:
             delay_ticks=np.asarray(delay_ticks, dtype=np.int64),
             query_probabilities=np.asarray(query_probabilities, dtype=np.float32),
             target_states=(
-                (target_states - self.normalization.target_mean)
-                / self.normalization.target_std
+                (target_states - self.normalization.target_mean) / self.normalization.target_std
             ).astype(np.float32),
             noise=noise,
             flow_time=flow_time,

@@ -133,6 +133,7 @@ def subset_feature_belief_corpus(
         level=corpus.level,
         temporal_contract=corpus.temporal_contract,
         latency_law=corpus.latency_law,
+        latency_law_family_id=corpus.latency_law_family_id,
         records=records,
         sample_references={split: tuple(references[split]) for split in ProbeSplit},
     )

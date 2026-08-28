@@ -118,14 +118,21 @@ def sample_feature_delay_queries(
     sample: FeatureBeliefSample,
     rng: np.random.Generator,
     query_count: int,
+    uniform_mix: float = 0.0,
 ) -> FeatureDelayQueries:
     if isinstance(query_count, bool) or not isinstance(query_count, int) or query_count <= 0:
         raise ValueError("query_count must be a positive integer")
+    if not np.isfinite(uniform_mix) or not 0.0 <= uniform_mix < 1.0:
+        raise ValueError("delay-query uniform mix must lie in [0, 1)")
+    sampling_probability = (1.0 - uniform_mix) * sample.latency_probabilities + uniform_mix / len(
+        sample.target_delay_ticks
+    )
+    sampling_probability /= sampling_probability.sum()
     rows = rng.choice(
         len(sample.target_delay_ticks),
         size=query_count,
         replace=True,
-        p=sample.latency_probabilities,
+        p=sampling_probability,
     )
     return _queries_from_rows(sample, np.asarray(rows, dtype=np.int64))
 

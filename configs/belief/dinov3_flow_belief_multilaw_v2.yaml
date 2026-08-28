@@ -1,0 +1,4 @@
+schema_version: 1
+training_id: dinov3_flow_belief_multilaw_v2
+latency_law_family_id: truncated_beta_family_5_26_400ms_v1
+tail_query_uniform_mix: 0.10

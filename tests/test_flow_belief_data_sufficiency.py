@@ -180,6 +180,7 @@ def test_subset_feature_corpus_keeps_selected_train_and_all_validation() -> None
         level=2,
         temporal_contract="temporal",
         latency_law="law",
+        latency_law_family_id=None,
         records=records,
     )
 
