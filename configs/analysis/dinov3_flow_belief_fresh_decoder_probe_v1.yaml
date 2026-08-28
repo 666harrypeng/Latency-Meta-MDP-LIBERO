@@ -1,0 +1,9 @@
+schema_version: 1
+probe_id: dinov3_flow_belief_fresh_decoder_probe_v1
+decoder_seeds:
+  - 20260831
+  - 20260832
+  - 20260833
+max_epochs: 100
+early_stopping_patience: 12
+rmse_ratio_max: 1.2
