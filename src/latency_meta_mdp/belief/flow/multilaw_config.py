@@ -14,6 +14,7 @@ class MultiLawFlowTrainingConfig:
     training_id: str
     latency_law_family_id: str
     tail_query_uniform_mix: float
+    early_stopping_patience: int
 
     def __post_init__(self) -> None:
         if (
@@ -21,6 +22,9 @@ class MultiLawFlowTrainingConfig:
             or self.training_id != "dinov3_flow_belief_multilaw_v2"
             or self.latency_law_family_id != "truncated_beta_family_5_26_400ms_v1"
             or not 0.0 < self.tail_query_uniform_mix < 0.5
+            or isinstance(self.early_stopping_patience, bool)
+            or not isinstance(self.early_stopping_patience, int)
+            or self.early_stopping_patience <= 0
         ):
             raise ValueError("multi-law Flow training config is invalid")
 

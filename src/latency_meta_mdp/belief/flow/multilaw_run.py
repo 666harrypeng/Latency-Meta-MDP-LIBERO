@@ -132,9 +132,9 @@ def train_multilaw_flow_belief_run(
         flow_config,
         max_epochs=max_epochs or flow_config.max_epochs,
         early_stopping_patience=(
-            min(flow_config.early_stopping_patience, max_epochs)
+            min(multilaw.early_stopping_patience, max_epochs)
             if max_epochs is not None
-            else flow_config.early_stopping_patience
+            else multilaw.early_stopping_patience
         ),
     )
     provenance = collect_implementation_provenance(project_root)
