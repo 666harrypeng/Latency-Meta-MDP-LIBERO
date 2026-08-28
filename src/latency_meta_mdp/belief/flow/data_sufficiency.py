@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 import uuid
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -15,7 +15,9 @@ import numpy as np
 import yaml
 
 from latency_meta_mdp.artifacts import collect_implementation_provenance, sha256_file
+from latency_meta_mdp.belief.common.feature_corpus import FeatureBeliefCorpus
 from latency_meta_mdp.episode_split import load_episode_split_plan
+from latency_meta_mdp.vision_probe_data import ProbeSplit
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,99 @@ def build_nested_episode_subsets(
     order = np.random.default_rng(seed).permutation(len(train))
     shuffled = tuple(train[index] for index in order)
     return {size: shuffled[:size] for size in sizes}
+
+
+def subset_feature_belief_corpus(
+    *,
+    corpus: Any,
+    training_episode_ids: tuple[str, ...],
+) -> FeatureBeliefCorpus:
+    selected = tuple(training_episode_ids)
+    if not selected or len(set(selected)) != len(selected) or any(not value for value in selected):
+        raise ValueError("feature-corpus training episode selection is invalid")
+    train_by_id = {
+        record.episode_id: record for record in corpus.records if record.split is ProbeSplit.TRAIN
+    }
+    if not set(selected) <= set(train_by_id):
+        raise ValueError("feature-corpus training episode selection is unavailable")
+    selected_set = set(selected)
+    records = tuple(
+        record
+        for record in corpus.records
+        if record.split is not ProbeSplit.TRAIN or record.episode_id in selected_set
+    )
+    references: dict[ProbeSplit, list[tuple[int, int]]] = defaultdict(list)
+    for record_offset, record in enumerate(records):
+        for index_offset in range(len(record.indices)):
+            references[record.split].append((record_offset, index_offset))
+    return FeatureBeliefCorpus(
+        level=corpus.level,
+        temporal_contract=corpus.temporal_contract,
+        latency_law=corpus.latency_law,
+        records=records,
+        sample_references={split: tuple(references[split]) for split in ProbeSplit},
+    )
+
+
+def decide_data_scaling(
+    *,
+    metrics_by_size_seed: dict[int, dict[int, dict[str, float]]],
+    improvement_trigger: float,
+    seed_disagreement_trigger: float,
+) -> dict[str, Any]:
+    sizes = tuple(sorted(metrics_by_size_seed))
+    if (
+        len(sizes) < 2
+        or sizes[-2:] != (120, 180)
+        or not 0.0 < improvement_trigger < 1.0
+        or not 0.0 < seed_disagreement_trigger < 1.0
+    ):
+        raise ValueError("data-scaling decision inputs are invalid")
+    seed_sets = [set(metrics_by_size_seed[size]) for size in sizes]
+    if not seed_sets[0] or any(seeds != seed_sets[0] for seeds in seed_sets[1:]):
+        raise ValueError("data-scaling model seeds are inconsistent")
+    metric_names = set(next(iter(metrics_by_size_seed[sizes[0]].values())))
+    if not metric_names:
+        raise ValueError("data-scaling metrics are empty")
+    medians = {}
+    for size in sizes:
+        rows = metrics_by_size_seed[size]
+        if any(set(row) != metric_names for row in rows.values()):
+            raise ValueError("data-scaling metric fields are inconsistent")
+        medians[size] = {}
+        for name in sorted(metric_names):
+            values = np.asarray([rows[seed][name] for seed in sorted(rows)], dtype=np.float64)
+            if np.any(~np.isfinite(values)) or np.any(values <= 0.0):
+                raise ValueError("data-scaling metrics must be finite and positive")
+            medians[size][name] = float(np.median(values))
+    improvements = {
+        name: (medians[120][name] - medians[180][name]) / medians[120][name]
+        for name in sorted(metric_names)
+    }
+    disagreements = {}
+    for name in sorted(metric_names):
+        values = np.asarray(
+            [metrics_by_size_seed[180][seed][name] for seed in sorted(seed_sets[0])],
+            dtype=np.float64,
+        )
+        disagreements[name] = float((np.max(values) - np.min(values)) / np.median(values))
+    reasons = [
+        f"unsaturated:{name}" for name, value in improvements.items() if value > improvement_trigger
+    ]
+    reasons.extend(
+        f"seed_disagreement:{name}"
+        for name, value in disagreements.items()
+        if value > seed_disagreement_trigger
+    )
+    return {
+        "decision": "collect_more" if reasons else "reuse",
+        "improvement_trigger": improvement_trigger,
+        "seed_disagreement_trigger": seed_disagreement_trigger,
+        "median_metrics_by_size": {str(size): medians[size] for size in sizes},
+        "improvements_120_to_180": improvements,
+        "seed_disagreement_at_180": disagreements,
+        "reasons": reasons,
+    }
 
 
 @dataclass(frozen=True)

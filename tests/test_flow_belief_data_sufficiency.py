@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import yaml
 
 from latency_meta_mdp.belief.flow.data_sufficiency import (
     build_nested_episode_subsets,
+    decide_data_scaling,
     load_flow_data_sufficiency_config,
+    subset_feature_belief_corpus,
     summarize_episode_motion,
 )
+from latency_meta_mdp.vision_probe_data import ProbeSplit
 
 
 def test_nested_episode_subsets_are_deterministic_nested_and_disjoint() -> None:
@@ -162,3 +167,77 @@ def test_data_sufficiency_config_locks_nested_scaling_protocol(tmp_path) -> None
     assert config.subset_sizes == (60, 120, 180)
     assert config.model_seeds == (20260829, 20260830)
     assert config.additional_tranche_size == 100
+
+
+def test_subset_feature_corpus_keeps_selected_train_and_all_validation() -> None:
+    records = (
+        SimpleNamespace(episode_id="train-a", split=ProbeSplit.TRAIN, indices=(1, 2)),
+        SimpleNamespace(episode_id="train-b", split=ProbeSplit.TRAIN, indices=(1,)),
+        SimpleNamespace(episode_id="train-c", split=ProbeSplit.TRAIN, indices=(1, 2, 3)),
+        SimpleNamespace(episode_id="validation", split=ProbeSplit.VALIDATION, indices=(1, 2)),
+    )
+    corpus = SimpleNamespace(
+        level=2,
+        temporal_contract="temporal",
+        latency_law="law",
+        records=records,
+    )
+
+    subset = subset_feature_belief_corpus(
+        corpus=corpus,
+        training_episode_ids=("train-c", "train-a"),
+    )
+
+    assert tuple(record.episode_id for record in subset.records) == (
+        "train-a",
+        "train-c",
+        "validation",
+    )
+    assert subset.episode_counts[ProbeSplit.TRAIN] == 2
+    assert subset.episode_counts[ProbeSplit.VALIDATION] == 1
+    assert len(subset.sample_references[ProbeSplit.TRAIN]) == 5
+    assert len(subset.sample_references[ProbeSplit.VALIDATION]) == 2
+
+
+def _scaling_row(value: float) -> dict[str, float]:
+    return {
+        "overall_object_position_rmse_mm": value,
+        "overall_object_velocity_rmse_mm_s": value * 4.0,
+        "pre_handoff_object_position_rmse_mm": value * 1.1,
+        "pre_handoff_object_velocity_rmse_mm_s": value * 5.0,
+        "worst_decile_object_position_rmse_mm": value * 2.0,
+    }
+
+
+def test_scaling_decision_requests_more_data_when_180_still_improves() -> None:
+    metrics = {
+        60: {1: _scaling_row(14.0), 2: _scaling_row(13.0)},
+        120: {1: _scaling_row(10.0), 2: _scaling_row(10.4)},
+        180: {1: _scaling_row(8.4), 2: _scaling_row(8.8)},
+    }
+
+    decision = decide_data_scaling(
+        metrics_by_size_seed=metrics,
+        improvement_trigger=0.10,
+        seed_disagreement_trigger=0.10,
+    )
+
+    assert decision["decision"] == "collect_more"
+    assert decision["improvements_120_to_180"]["overall_object_position_rmse_mm"] > 0.10
+
+
+def test_scaling_decision_reuses_data_after_plateau() -> None:
+    metrics = {
+        60: {1: _scaling_row(12.0), 2: _scaling_row(11.5)},
+        120: {1: _scaling_row(9.8), 2: _scaling_row(10.0)},
+        180: {1: _scaling_row(9.5), 2: _scaling_row(9.7)},
+    }
+
+    decision = decide_data_scaling(
+        metrics_by_size_seed=metrics,
+        improvement_trigger=0.10,
+        seed_disagreement_trigger=0.10,
+    )
+
+    assert decision["decision"] == "reuse"
+    assert decision["reasons"] == []
