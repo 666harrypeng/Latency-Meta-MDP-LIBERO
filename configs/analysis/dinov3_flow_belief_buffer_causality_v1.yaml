@@ -1,0 +1,21 @@
+schema_version: 1
+audit_id: dinov3_flow_belief_buffer_causality_v1
+contexts_per_phase: 4
+phases:
+  - pregrasp
+  - approach
+  - close
+  - lift
+branch_ids:
+  - expert
+  - hold
+  - half_speed
+  - delayed_prefix_5
+delay_ticks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+sample_count: 32
+solver: heun
+solver_step_count: 16
+required_real_action_count: 25
+half_speed_scale: 0.5
+delayed_prefix_ticks: 5
+sampling_seed: 20260829
