@@ -95,6 +95,49 @@ class EpisodeOutcomeTracker:
     def events(self) -> tuple[OutcomeEvent, ...]:
         return tuple(self._events)
 
+    def fingerprint_payload(self) -> dict[str, object]:
+        """Return a detached serialization of every causal tracker field."""
+
+        return {
+            "criteria": {
+                "physics_dt_us": self.criteria.physics_dt_us,
+                "formal_tick_us": self.criteria.formal_tick_us,
+                "stable_grasp_dwell_us": self.criteria.stable_grasp_dwell_us,
+                "lift_height_m": self.criteria.lift_height_m,
+                "lift_dwell_us": self.criteria.lift_dwell_us,
+                "grasp_deadline_us": self.criteria.grasp_deadline_us,
+                "lift_timeout_us": self.criteria.lift_timeout_us,
+            },
+            "status": self.status.value,
+            "terminal_reason": (
+                None if self.terminal_reason is None else self.terminal_reason.value
+            ),
+            "terminal_time_us": self.terminal_time_us,
+            "first_contact_us": self.first_contact_us,
+            "stable_grasp_us": self.stable_grasp_us,
+            "handoff_us": self.handoff_us,
+            "bilateral_closing_start_us": self._bilateral_closing_start_us,
+            "lift_dwell_start_us": self._lift_dwell_start_us,
+            "latest_time_us": self._latest_time_us,
+            "current_bilateral_closing": self._current_bilateral_closing,
+            "current_bilateral_contact": self._current_bilateral_contact,
+            "bilateral_contact_since_last_boundary": (
+                self._bilateral_contact_since_last_boundary
+            ),
+            "last_contact_time_us": self._last_contact_time_us,
+            "last_boundary_time_us": self._last_boundary_time_us,
+            "events": [
+                {
+                    "kind": event.kind,
+                    "time_us": event.time_us,
+                    "terminal_reason": (
+                        None if event.terminal_reason is None else event.terminal_reason.value
+                    ),
+                }
+                for event in self._events
+            ],
+        }
+
     @property
     def handoff_eligible(self) -> bool:
         return bool(

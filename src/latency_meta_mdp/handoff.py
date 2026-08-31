@@ -114,6 +114,36 @@ class OneWayHandoff:
         self.last_contact = None
         self._env.external_outcome_authority = self
 
+    def fingerprint_payload(self) -> dict[str, Any]:
+        """Return a detached serialization of causal handoff state."""
+
+        contact = self.last_contact
+        return {
+            "state": self.state.value,
+            "active_gripper_command": float(self.active_gripper_command),
+            "release_time_us": self.release_time_us,
+            "release_qpos": (
+                None if self.release_qpos is None else np.asarray(self.release_qpos).tolist()
+            ),
+            "release_qvel": (
+                None if self.release_qvel is None else np.asarray(self.release_qvel).tolist()
+            ),
+            "last_contact": (
+                None
+                if contact is None
+                else {
+                    "physics_step_index": contact.physics_step_index,
+                    "formal_tick_index": contact.formal_tick_index,
+                    "time_us": contact.time_us,
+                    "left_pad_contact": contact.left_pad_contact,
+                    "right_pad_contact": contact.right_pad_contact,
+                    "left_contact_count": contact.left_contact_count,
+                    "right_contact_count": contact.right_contact_count,
+                }
+            ),
+            "outcome": self.outcome_tracker.fingerprint_payload(),
+        }
+
     def _require_authority(self) -> None:
         if self._env.external_outcome_authority is not self:
             raise RuntimeError(

@@ -27,7 +27,13 @@ from latency_meta_mdp.handoff import (
     PadContactSample,
     PandaBallContactDetector,
 )
-from latency_meta_mdp.motion import DrivenBallWorld, build_motion_profile, load_motion_config
+from latency_meta_mdp.motion import (
+    DrivenBallWorld,
+    MotionProfile,
+    build_motion_profile,
+    load_motion_config,
+    motion_profile_from_mapping,
+)
 from latency_meta_mdp.outcomes import EpisodeOutcomeTracker, OutcomeCriteria, OutcomeStatus
 from latency_meta_mdp.recording import (
     BoundaryRecord,
@@ -273,6 +279,7 @@ def build_expert_episode_runtime(
     *,
     project_root: Path,
     spec: ExpertEpisodeSpec,
+    motion_profile_override: MotionProfile | None = None,
 ) -> ExpertEpisodeRuntime:
     """Construct one fresh episode-local runtime without advancing it."""
     root = project_root.resolve()
@@ -319,10 +326,17 @@ def build_expert_episode_runtime(
         contact_detector=PandaBallContactDetector(env),
         outcome_tracker=tracker,
     )
-    profile = build_motion_profile(
-        config=motion_config,
-        seed=spec.motion_seed,
-        workspace_z=task_spec.ball_initial_position[2],
+    profile = (
+        build_motion_profile(
+            config=motion_config,
+            seed=spec.motion_seed,
+            workspace_z=task_spec.ball_initial_position[2],
+        )
+        if motion_profile_override is None
+        else motion_profile_from_mapping(
+            motion_profile_override.to_mapping(),
+            config=motion_config,
+        )
     )
     event_capture = _PhysicalEventCapture(env=env, handoff=handoff)
     executor = FormalStepExecutor(
