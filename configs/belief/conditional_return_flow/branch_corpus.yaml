@@ -1,0 +1,14 @@
+schema_version: 1
+config_id: conditional_return_control_branch_corpus
+contexts_per_phase_per_episode: 1
+phases:
+  - pregrasp
+  - approach
+  - close
+  - lift
+arm_scale_factors:
+  - 0.5
+  - 0.8
+prefix_hold_ticks:
+  - 5
+  - 10
