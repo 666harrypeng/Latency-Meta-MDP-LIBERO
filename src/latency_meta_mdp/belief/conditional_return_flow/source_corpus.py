@@ -18,6 +18,7 @@ from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
     BranchCorpusConfig,
     SourceContextIdentity,
     SourceSelectionExclusion,
+    normalize_scene_seed_ranges,
 )
 from latency_meta_mdp.episode_split import load_episode_split_plan
 from latency_meta_mdp.expert_collection import ExpertEpisodeSpec
@@ -58,7 +59,7 @@ _OBSERVATION_ARRAYS = (
     "gripper_qvel",
 )
 _EPISODE_MANIFEST_RE = re.compile(
-    r"^episodes/L(?P<level>[123])/seed_[0-9]{6}/manifest\.json$"
+    r"^episodes/L(?P<level>[123])/seed_(?P<scene_seed>[0-9]{6})/manifest\.json$"
 )
 
 
@@ -296,10 +297,12 @@ def load_verified_source_episodes(
     source_bulk_manifest: Path,
     split_config_path: Path,
     levels: tuple[int, ...],
+    allowed_scene_seed_ranges: tuple[tuple[int, int], ...] | None = None,
 ) -> tuple[VerifiedSourceEpisode, ...]:
     if levels != tuple(sorted(set(levels))) or any(level not in (1, 2, 3) for level in levels):
         raise ValueError("source levels must be sorted unique values from 1, 2, 3")
     root = project_root.resolve()
+    seed_ranges = normalize_scene_seed_ranges(allowed_scene_seed_ranges)
     source_path = source_bulk_manifest.resolve()
     source_root = source_path.parent
     top = _load_json(source_path)
@@ -322,6 +325,11 @@ def load_verified_source_episodes(
         if identity is None:
             raise ValueError("formal source episode path is malformed")
         if int(identity.group("level")) not in levels:
+            continue
+        scene_seed = int(identity.group("scene_seed"))
+        if seed_ranges is not None and not any(
+            start <= scene_seed < stop for start, stop in seed_ranges
+        ):
             continue
         episode = _verify_nested_episode(
             project_root=root,

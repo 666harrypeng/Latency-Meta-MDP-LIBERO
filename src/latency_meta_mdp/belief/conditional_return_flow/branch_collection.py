@@ -14,6 +14,7 @@ from latency_meta_mdp.belief.conditional_return_flow.branch_artifacts import (
 )
 from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
     load_branch_corpus_config,
+    normalize_scene_seed_ranges,
 )
 from latency_meta_mdp.belief.conditional_return_flow.branch_runtime import (
     build_branch_runtime,
@@ -88,6 +89,7 @@ def collect_control_branch_corpus(
     output_dir: Path,
     levels: tuple[int, ...],
     maximum_contexts_per_level: int | None = None,
+    allowed_scene_seed_ranges: tuple[tuple[int, int], ...] | None = None,
 ) -> Path:
     started_at = perf_counter()
     if not levels or levels != tuple(sorted(set(levels))) or any(
@@ -95,6 +97,7 @@ def collect_control_branch_corpus(
     ):
         raise ValueError("branch collection levels must be sorted unique values from 1, 2, 3")
     root = project_root.resolve()
+    seed_ranges = normalize_scene_seed_ranges(allowed_scene_seed_ranges)
     inputs = _resolve_inputs(
         project_root=root,
         source_bulk_manifest=source_bulk_manifest,
@@ -117,6 +120,7 @@ def collect_control_branch_corpus(
         source_bulk_manifest=inputs["source_bulk_manifest"],
         split_config_path=inputs["split_config"],
         levels=levels,
+        allowed_scene_seed_ranges=seed_ranges,
     )
     selection = select_source_contexts(episodes=episodes, config=config, temporal=temporal)
     contexts = _limit_contexts_per_level(
@@ -206,7 +210,7 @@ def collect_control_branch_corpus(
         "collection_wall_time_seconds": perf_counter() - started_at,
         "peak_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024,
     }
-    bounded = maximum_contexts_per_level is not None
+    bounded = maximum_contexts_per_level is not None or seed_ranges is not None
     corpus = ControlBranchCorpus(
         contexts=tuple(row.identity for row in contexts),
         canonical_replay_fingerprints=tuple(canonical_fingerprints),
@@ -216,6 +220,7 @@ def collect_control_branch_corpus(
         required_branch_kinds=required_branch_kinds,
         requested_levels=levels,
         selection_truncations=truncations,
+        allowed_scene_seed_ranges=seed_ranges,
     )
     return write_control_branch_corpus(
         corpus=corpus,

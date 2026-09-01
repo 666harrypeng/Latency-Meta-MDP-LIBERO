@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import errno
+import hashlib
 import json
 import os
 import shutil
@@ -21,6 +22,7 @@ from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
     ExecutablePrefix,
     SourceContextIdentity,
     SourceSelectionExclusion,
+    normalize_scene_seed_ranges,
 )
 
 _ARTIFACT_NAMES = (
@@ -30,8 +32,11 @@ _ARTIFACT_NAMES = (
     "selection_exclusions.json",
     "selection_truncations.json",
 )
-_FORMAT_ID = "conditional_return_control_branch_corpus_v2"
-_LEGACY_FORMAT_ID = "conditional_return_control_branch_corpus_v1"
+_FORMAT_ID = "conditional_return_control_branch_corpus_v3"
+_LEGACY_FORMAT_IDS = {
+    "conditional_return_control_branch_corpus_v1",
+    "conditional_return_control_branch_corpus_v2",
+}
 _PROVENANCE_FIELDS = {
     "implementation_revision",
     "implementation_source_sha256",
@@ -61,6 +66,9 @@ _RESERVED_FIELDS = {
     "selection_slot_count",
     "selection_exclusion_count",
     "selection_truncation_count",
+    "allowed_scene_seed_ranges",
+    "selected_episode_count",
+    "selected_episode_identities_sha256",
     "requested_levels",
     "required_branch_kinds",
     "artifacts",
@@ -82,6 +90,36 @@ def _is_git_revision(value: object) -> bool:
         and len(value) == 40
         and all(character in "0123456789abcdef" for character in value)
     )
+
+
+def _selected_episode_identities(
+    corpus: ControlBranchCorpus,
+) -> tuple[tuple[str, int, int, str], ...]:
+    identities: dict[str, tuple[str, int, int, str]] = {}
+    source_hashes: dict[str, tuple[str, str, str, str]] = {}
+    for row in (*corpus.contexts, *corpus.selection_truncations):
+        identity = (row.episode_id, row.level, row.scene_seed, row.split)
+        hashes = (
+            row.source_episode_manifest_sha256,
+            row.source_arrays_sha256,
+            row.source_metadata_sha256,
+            row.motion_profile_sha256,
+        )
+        if (
+            identities.setdefault(row.episode_id, identity) != identity
+            or source_hashes.setdefault(row.episode_id, hashes) != hashes
+        ):
+            raise ValueError("source selection episode identity is inconsistent")
+    for row in corpus.selection_exclusions:
+        identity = (row.episode_id, row.level, row.scene_seed, row.split)
+        if identities.setdefault(row.episode_id, identity) != identity:
+            raise ValueError("source selection episode identity is inconsistent")
+    return tuple(sorted(identities.values()))
+
+
+def _episode_identities_sha256(values: tuple[tuple[str, int, int, str], ...]) -> str:
+    payload = json.dumps(list(values), separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _validate_provenance(value: dict[str, Any]) -> None:
@@ -114,12 +152,11 @@ def _validate_provenance(value: dict[str, Any]) -> None:
 
 
 def _validate_manifest_contract(manifest: dict[str, Any]) -> None:
-    if (
-        manifest.get("schema_version") == 1
-        and manifest.get("format_id") == _LEGACY_FORMAT_ID
-    ):
-        raise ValueError("legacy v1 control branch artifacts require explicit recertification")
-    if manifest.get("schema_version") != 2 or manifest.get("format_id") != _FORMAT_ID:
+    if manifest.get("format_id") in _LEGACY_FORMAT_IDS or manifest.get(
+        "schema_version"
+    ) in {1, 2}:
+        raise ValueError("legacy v1/v2 control branch artifacts require explicit recertification")
+    if manifest.get("schema_version") != 3 or manifest.get("format_id") != _FORMAT_ID:
         raise ValueError("unsupported control branch artifact schema")
     if set(manifest) != _MANIFEST_FIELDS:
         raise ValueError("control branch manifest fields are invalid")
@@ -136,6 +173,7 @@ class ControlBranchCorpus:
     required_branch_kinds: tuple[str, ...]
     requested_levels: tuple[int, ...]
     selection_truncations: tuple[SourceContextIdentity, ...] = ()
+    allowed_scene_seed_ranges: tuple[tuple[int, int], ...] | None = None
 
     def __post_init__(self) -> None:
         contexts = tuple(self.contexts)
@@ -143,6 +181,7 @@ class ControlBranchCorpus:
         rollouts = tuple(self.rollouts)
         exclusions = tuple(self.selection_exclusions)
         truncations = tuple(self.selection_truncations)
+        seed_ranges = normalize_scene_seed_ranges(self.allowed_scene_seed_ranges)
         if not contexts or not rollouts or len(fingerprints) != len(contexts):
             raise ValueError("control branch corpus cannot be empty or misaligned")
         identifiers = tuple(row.source_context_id for row in contexts)
@@ -174,6 +213,15 @@ class ControlBranchCorpus:
             or exclusion_slots & truncation_slots
         ):
             raise ValueError("source selection slots must be unique and disjoint")
+        episode_identities = _selected_episode_identities(self)
+        if len(episode_identities) * 4 != self.expected_selection_slot_count:
+            raise ValueError("source selection slots do not form complete episode inventories")
+        selection_rows = (*contexts, *truncations, *exclusions)
+        if seed_ranges is not None and any(
+            not any(start <= row.scene_seed < stop for start, stop in seed_ranges)
+            for row in selection_rows
+        ):
+            raise ValueError("source selection contains a seed outside its admitted ranges")
         if (
             not self.required_branch_kinds
             or len(set(self.required_branch_kinds)) != len(self.required_branch_kinds)
@@ -193,6 +241,7 @@ class ControlBranchCorpus:
         object.__setattr__(self, "rollouts", rollouts)
         object.__setattr__(self, "selection_exclusions", exclusions)
         object.__setattr__(self, "selection_truncations", truncations)
+        object.__setattr__(self, "allowed_scene_seed_ranges", seed_ranges)
 
 
 @dataclass(frozen=True)
@@ -402,9 +451,10 @@ def write_control_branch_corpus(
             [asdict(row) for row in corpus.selection_truncations],
         )
         artifacts = {name: sha256_file(building / name) for name in _ARTIFACT_NAMES}
+        episode_identities = _selected_episode_identities(corpus)
         manifest = {
             **manifest_fields,
-            "schema_version": 2,
+            "schema_version": 3,
             "format_id": _FORMAT_ID,
             "scientific_gate_pass": scientific_pass,
             "scientific_blockers": scientific_blockers,
@@ -416,6 +466,15 @@ def write_control_branch_corpus(
             "selection_slot_count": corpus.expected_selection_slot_count,
             "selection_exclusion_count": len(corpus.selection_exclusions),
             "selection_truncation_count": len(corpus.selection_truncations),
+            "allowed_scene_seed_ranges": (
+                None
+                if corpus.allowed_scene_seed_ranges is None
+                else [list(row) for row in corpus.allowed_scene_seed_ranges]
+            ),
+            "selected_episode_count": len(episode_identities),
+            "selected_episode_identities_sha256": _episode_identities_sha256(
+                episode_identities
+            ),
             "requested_levels": list(corpus.requested_levels),
             "required_branch_kinds": list(corpus.required_branch_kinds),
             "artifacts": artifacts,
@@ -522,6 +581,7 @@ def _reconstruct_loaded_corpus(
     fingerprints: tuple[str, ...],
     exclusions: tuple[SourceSelectionExclusion, ...],
     truncations: tuple[SourceContextIdentity, ...],
+    allowed_scene_seed_ranges: tuple[tuple[int, int], ...] | None,
     parameters: list[dict[str, Any]],
     arrays: dict[str, np.ndarray],
 ) -> ControlBranchCorpus:
@@ -617,6 +677,7 @@ def _reconstruct_loaded_corpus(
         ),
         required_branch_kinds=required_kinds,
         requested_levels=requested_levels,
+        allowed_scene_seed_ranges=allowed_scene_seed_ranges,
     )
     observed_levels = (
         {row.level for row in contexts}
@@ -657,6 +718,13 @@ def load_verified_control_branch_corpus(manifest_path: Path) -> VerifiedControlB
     selection_truncation_count = _require_manifest_integer(
         manifest, "selection_truncation_count"
     )
+    allowed_scene_seed_ranges = normalize_scene_seed_ranges(
+        manifest["allowed_scene_seed_ranges"]
+    )
+    selected_episode_count = _require_manifest_integer(manifest, "selected_episode_count")
+    selected_episode_identities_sha256 = manifest["selected_episode_identities_sha256"]
+    if not _is_sha256(selected_episode_identities_sha256):
+        raise ValueError("selected episode identity digest is invalid")
     if (
         context_count != len(contexts)
         or branch_count != len(parameters)
@@ -689,9 +757,17 @@ def load_verified_control_branch_corpus(manifest_path: Path) -> VerifiedControlB
         fingerprints=fingerprints,
         exclusions=exclusions,
         truncations=truncations,
+        allowed_scene_seed_ranges=allowed_scene_seed_ranges,
         parameters=parameters,
         arrays=arrays,
     )
+    selected_episode_identities = _selected_episode_identities(corpus)
+    if (
+        selected_episode_count != len(selected_episode_identities)
+        or selected_episode_identities_sha256
+        != _episode_identities_sha256(selected_episode_identities)
+    ):
+        raise ValueError("selected episode identity provenance is inconsistent")
     scientific_blockers = _scientific_blockers(corpus)
     scientific_gate_pass = not scientific_blockers
     if (

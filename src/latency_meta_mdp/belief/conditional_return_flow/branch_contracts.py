@@ -14,6 +14,36 @@ _SPLITS = {"train", "validation"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+def normalize_scene_seed_ranges(
+    value: object,
+) -> tuple[tuple[int, int], ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ValueError("scene seed ranges must be a non-empty sequence")
+    result = []
+    for item in value:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            raise ValueError("scene seed ranges must contain half-open pairs")
+        start, stop = item
+        if (
+            isinstance(start, bool)
+            or not isinstance(start, int)
+            or isinstance(stop, bool)
+            or not isinstance(stop, int)
+            or start < 0
+            or stop <= start
+        ):
+            raise ValueError("scene seed ranges must be ordered non-negative integers")
+        result.append((start, stop))
+    normalized = tuple(result)
+    if normalized != tuple(sorted(normalized)) or any(
+        left[1] > right[0] for left, right in zip(normalized, normalized[1:])
+    ):
+        raise ValueError("scene seed ranges must be sorted and non-overlapping")
+    return normalized
+
+
 def _readonly_exact(
     value: np.ndarray,
     *,
@@ -103,9 +133,18 @@ class SourceContextIdentity:
     motion_profile_sha256: str
 
     def __post_init__(self) -> None:
-        if not self.source_context_id or not self.episode_id:
+        if (
+            not isinstance(self.source_context_id, str)
+            or not self.source_context_id
+            or not isinstance(self.episode_id, str)
+            or not self.episode_id
+        ):
             raise ValueError("source context identity strings cannot be empty")
-        if self.level not in (1, 2, 3):
+        if (
+            isinstance(self.level, bool)
+            or not isinstance(self.level, int)
+            or self.level not in (1, 2, 3)
+        ):
             raise ValueError("source context level must be 1, 2, or 3")
         if (
             isinstance(self.scene_seed, bool)
