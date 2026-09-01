@@ -2,3 +2,7 @@
 	path = third_party/openpi
 	url = https://github.com/Physical-Intelligence/openpi.git
 	shallow = true
+[submodule "third_party/jepa-wms"]
+	path = third_party/jepa-wms
+	url = https://github.com/facebookresearch/jepa-wms.git
+	shallow = true
