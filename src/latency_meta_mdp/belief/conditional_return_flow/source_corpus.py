@@ -17,6 +17,7 @@ from latency_meta_mdp.artifacts import sha256_file
 from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
     BranchCorpusConfig,
     SourceContextIdentity,
+    SourceSelectionExclusion,
 )
 from latency_meta_mdp.episode_split import load_episode_split_plan
 from latency_meta_mdp.expert_collection import ExpertEpisodeSpec
@@ -59,6 +60,34 @@ _OBSERVATION_ARRAYS = (
 _EPISODE_MANIFEST_RE = re.compile(
     r"^episodes/L(?P<level>[123])/seed_[0-9]{6}/manifest\.json$"
 )
+
+
+@dataclass(frozen=True)
+class SourceContextSelection:
+    contexts: tuple[SelectedSourceContext, ...]
+    exclusions: tuple[SourceSelectionExclusion, ...]
+    expected_slot_count: int
+
+    def __post_init__(self) -> None:
+        contexts = tuple(self.contexts)
+        exclusions = tuple(self.exclusions)
+        if (
+            isinstance(self.expected_slot_count, bool)
+            or not isinstance(self.expected_slot_count, int)
+            or self.expected_slot_count <= 0
+            or len(contexts) + len(exclusions) != self.expected_slot_count
+        ):
+            raise ValueError("source selection does not account for every episode-phase slot")
+        context_keys = {(row.identity.episode_id, row.identity.source_phase) for row in contexts}
+        exclusion_keys = {(row.episode_id, row.source_phase) for row in exclusions}
+        if (
+            len(context_keys) != len(contexts)
+            or len(exclusion_keys) != len(exclusions)
+            or context_keys & exclusion_keys
+        ):
+            raise ValueError("source selection episode-phase slots must be unique")
+        object.__setattr__(self, "contexts", contexts)
+        object.__setattr__(self, "exclusions", exclusions)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -376,8 +405,9 @@ def select_source_contexts(
     episodes: tuple[VerifiedSourceEpisode, ...],
     config: BranchCorpusConfig,
     temporal: TemporalContract,
-) -> tuple[SelectedSourceContext, ...]:
+) -> SourceContextSelection:
     selected = []
+    exclusions = []
     for episode in episodes:
         arrays = episode.load_arrays(
             names=(
@@ -399,13 +429,35 @@ def select_source_contexts(
         outcomes = arrays["boundary_outcome_status"].astype(str)
         interval = temporal.belief_source_interval(episode_action_count=len(actions))
         for phase in config.phases:
-            candidates = np.flatnonzero(phases == phase)
-            candidates = candidates[
-                (candidates >= interval.minimum)
-                & (candidates <= interval.maximum)
-                & (outcomes[candidates] == "running")
+            phase_candidates = np.flatnonzero(phases == phase)
+            interval_candidates = phase_candidates[
+                (phase_candidates >= interval.minimum)
+                & (phase_candidates <= interval.maximum)
             ]
+            candidates = interval_candidates[outcomes[interval_candidates] == "running"]
             if len(candidates) == 0:
+                reason = (
+                    "phase_absent"
+                    if len(phase_candidates) == 0
+                    else "no_phase_tick_in_source_interval"
+                    if len(interval_candidates) == 0
+                    else "no_running_phase_tick_in_source_interval"
+                )
+                exclusions.append(
+                    SourceSelectionExclusion(
+                        episode_id=episode.episode_id,
+                        level=episode.level,
+                        scene_seed=episode.scene_seed,
+                        split=episode.split,
+                        source_phase=phase,
+                        reason=reason,
+                        source_interval_minimum=interval.minimum,
+                        source_interval_maximum=interval.maximum,
+                        phase_tick_count=len(phase_candidates),
+                        interval_phase_tick_count=len(interval_candidates),
+                        running_interval_phase_tick_count=len(candidates),
+                    )
+                )
                 continue
             source_tick = int(candidates[(len(candidates) - 1) // 2])
             observation_hash = source_observation_sha256(
@@ -431,7 +483,7 @@ def select_source_contexts(
                 motion_profile_sha256=episode.motion_profile_sha256,
             )
             selected.append(SelectedSourceContext(identity=identity, episode=episode))
-    return tuple(
+    contexts = tuple(
         sorted(
             selected,
             key=lambda row: (
@@ -441,4 +493,19 @@ def select_source_contexts(
                 row.identity.source_tick,
             ),
         )
+    )
+    ordered_exclusions = tuple(
+        sorted(
+            exclusions,
+            key=lambda row: (
+                row.level,
+                row.scene_seed,
+                config.phases.index(row.source_phase),
+            ),
+        )
+    )
+    return SourceContextSelection(
+        contexts=contexts,
+        exclusions=ordered_exclusions,
+        expected_slot_count=len(episodes) * len(config.phases),
     )

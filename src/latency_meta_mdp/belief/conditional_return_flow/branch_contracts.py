@@ -135,6 +135,71 @@ class SourceContextIdentity:
 
 
 @dataclass(frozen=True)
+class SourceSelectionExclusion:
+    episode_id: str
+    level: int
+    scene_seed: int
+    split: str
+    source_phase: str
+    reason: str
+    source_interval_minimum: int
+    source_interval_maximum: int
+    phase_tick_count: int
+    interval_phase_tick_count: int
+    running_interval_phase_tick_count: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.episode_id, str) or not self.episode_id:
+            raise ValueError("source selection exclusion episode ID cannot be empty")
+        if (
+            isinstance(self.level, bool)
+            or not isinstance(self.level, int)
+            or self.level not in (1, 2, 3)
+        ):
+            raise ValueError("source selection exclusion level must be 1, 2, or 3")
+        if (
+            isinstance(self.scene_seed, bool)
+            or not isinstance(self.scene_seed, int)
+            or self.scene_seed < 0
+        ):
+            raise ValueError("source selection exclusion seed must be non-negative")
+        if self.split not in _SPLITS or self.source_phase not in _PHASES:
+            raise ValueError("source selection exclusion split or phase is invalid")
+        if (
+            isinstance(self.source_interval_minimum, bool)
+            or not isinstance(self.source_interval_minimum, int)
+            or isinstance(self.source_interval_maximum, bool)
+            or not isinstance(self.source_interval_maximum, int)
+            or self.source_interval_minimum < 0
+            or self.source_interval_maximum < self.source_interval_minimum
+        ):
+            raise ValueError("source selection exclusion interval is invalid")
+        counts = (
+            self.phase_tick_count,
+            self.interval_phase_tick_count,
+            self.running_interval_phase_tick_count,
+        )
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in counts
+        ):
+            raise ValueError("source selection exclusion counts must be non-negative integers")
+        if not counts[2] <= counts[1] <= counts[0]:
+            raise ValueError("source selection exclusion counts are inconsistent")
+        expected_reason = (
+            "phase_absent"
+            if counts[0] == 0
+            else "no_phase_tick_in_source_interval"
+            if counts[1] == 0
+            else "no_running_phase_tick_in_source_interval"
+            if counts[2] == 0
+            else None
+        )
+        if expected_reason is None or self.reason != expected_reason:
+            raise ValueError("source selection exclusion reason does not match its counts")
+
+
+@dataclass(frozen=True)
 class ExecutablePrefix:
     controls: np.ndarray
     from_active_buffer_mask: np.ndarray

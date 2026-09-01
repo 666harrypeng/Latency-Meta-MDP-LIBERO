@@ -118,11 +118,17 @@ def collect_control_branch_corpus(
         split_config_path=inputs["split_config"],
         levels=levels,
     )
-    contexts = select_source_contexts(episodes=episodes, config=config, temporal=temporal)
+    selection = select_source_contexts(episodes=episodes, config=config, temporal=temporal)
     contexts = _limit_contexts_per_level(
-        contexts,
+        selection.contexts,
         levels=levels,
         limit=maximum_contexts_per_level,
+    )
+    retained_ids = {row.identity.source_context_id for row in contexts}
+    truncations = tuple(
+        row.identity
+        for row in selection.contexts
+        if row.identity.source_context_id not in retained_ids
     )
     if not contexts:
         raise ValueError("branch collection selected no source contexts")
@@ -200,17 +206,20 @@ def collect_control_branch_corpus(
         "collection_wall_time_seconds": perf_counter() - started_at,
         "peak_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024,
     }
+    bounded = maximum_contexts_per_level is not None
     corpus = ControlBranchCorpus(
         contexts=tuple(row.identity for row in contexts),
         canonical_replay_fingerprints=tuple(canonical_fingerprints),
         rollouts=tuple(rollouts),
-        selection_exclusions=(),
+        selection_exclusions=selection.exclusions,
+        expected_selection_slot_count=selection.expected_slot_count,
         required_branch_kinds=required_branch_kinds,
         requested_levels=levels,
+        selection_truncations=truncations,
     )
     return write_control_branch_corpus(
         corpus=corpus,
         output_dir=output_dir,
         manifest_fields=manifest_fields,
-        bounded=maximum_contexts_per_level is not None,
+        bounded=bounded,
     )
