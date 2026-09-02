@@ -1,0 +1,13 @@
+upstream:
+  commit: 4ea77366ca48ee453e7df139e39fa6532af49f3b
+  license: Apache-2.0
+environment:
+  directory: .venv-expert-realization
+  python: "3.10"
+  torch: 2.7.1+cu126
+  torch_index: https://download.pytorch.org/whl/cu126
+qualification:
+  robot: franka.yml
+  motion_planning: obstacle_free
+  peak_vram_measurement_scope: torch_allocator_max_memory_allocated
+  report_path: outputs/expert_realization/curobo_runtime_qualification.json

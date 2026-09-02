@@ -1,6 +1,7 @@
 .venv/
 .venv-belief/
 .venv-jepa/
+.venv-expert-realization/
 __pycache__/
 *.py[cod]
 .pytest_cache/

@@ -29,6 +29,9 @@ packages = ["src/latency_meta_mdp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+  "integration: requires the isolated expert-realization CuRobo runtime",
+]
 
 [tool.ruff]
 line-length = 100
