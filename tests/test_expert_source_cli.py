@@ -51,7 +51,7 @@ def test_dry_run_expands_exact_request_without_creating_paths(
     assert captured.out == ""
     summary = json.loads(captured.err)
     assert summary["mode"] == "dry_run"
-    assert summary["corpus_id"] == "panda-ball-structured-source-pilot-3x4-v1"
+    assert summary["corpus_id"] == "panda-ball-structured-source-pilot-3x4-v2"
     assert summary["primary_master_task_indices"] == [0, 1, 2]
     assert summary["reserve_master_task_indices"] == [3, 4, 5]
     assert summary["levels"] == [1, 2, 3]

@@ -10,8 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def _structured_mapping() -> dict[str, object]:
     return {
-        "schema_version": 2,
-        "expert_id": "panda_ball_smooth_approach_funnel_v1",
+        "schema_version": 3,
+        "expert_id": "panda_ball_smooth_approach_canonical_grasp_v2",
         "action_contract_id": "panda_osc_pose_delta_v1",
         "decision_source_tick": 5,
         "shared_prefix_policy": "settle_open_hold_v1",
@@ -26,7 +26,8 @@ def _structured_mapping() -> dict[str, object]:
         "high_arc_extra_height_m": [0.025, 0.065],
         "lateral_offset_m": [0.020, 0.060],
         "soft_guide_radius_m": 0.020,
-        "tracking_error_clip_m": [0.022, 0.038],
+        "tracking_error_clip_m": 0.040,
+        "grasp_eef_height_offset_m": 0.005,
         "funnel_descent_ticks": 30,
         "funnel_entry_deadline_slack_ticks": 35,
         "close_window_half_width_ticks": 18,
@@ -150,7 +151,8 @@ def test_checked_in_configs_preserve_paired_pilot_and_exact_bounds() -> None:
     assert structured.high_arc_extra_height_m == (0.025, 0.065)
     assert structured.lateral_offset_m == (0.02, 0.06)
     assert structured.soft_guide_radius_m == 0.02
-    assert structured.tracking_error_clip_m == (0.022, 0.038)
+    assert structured.tracking_error_clip_m == 0.040
+    assert structured.grasp_eef_height_offset_m == 0.005
     assert structured.funnel_descent_ticks == 30
     assert structured.funnel_entry_deadline_slack_ticks == 35
     assert structured.close_window_half_width_ticks == 18

@@ -80,7 +80,8 @@ def test_strategy_sampling_has_bounded_approach_diversity_and_canonical_grasp() 
         bounds = config.expert.close_target_tick_ranges[strategy.family.value]
         assert bounds[0] <= strategy.close_target_tick <= bounds[1]
         assert 0.14 <= strategy.prediction_lead_seconds <= 0.26
-        assert 0.022 <= strategy.tracking_error_clip_m <= 0.038
+        assert strategy.tracking_error_clip_m == 0.040
+        assert strategy.grasp_eef_height_offset_m == 0.005
         assert strategy.funnel_entry_height_m == 0.10
         assert strategy.funnel_descent_ticks == 30
         assert strategy.close_dwell_ticks == 2

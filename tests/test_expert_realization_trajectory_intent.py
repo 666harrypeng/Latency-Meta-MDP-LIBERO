@@ -93,6 +93,10 @@ def test_intent_is_one_curve_followed_by_one_canonical_funnel() -> None:
         assert funnel.centering_tolerance_m == 0.004
         assert funnel.distance_tolerance_m == 0.016
         assert funnel.relative_speed_tolerance_mps == 0.13
+        np.testing.assert_array_equal(
+            funnel.eef_capture_offset_world,
+            np.array([0.0, 0.0, 0.005], dtype=np.float64),
+        )
         assert funnel.lift_relative_displacement_world.tolist() == [0.0, 0.0, 0.16]
         assert not curve.soft_guide_regions_world.flags.writeable
         assert not curve.funnel_entry_position_world.flags.writeable
@@ -127,6 +131,10 @@ def test_all_families_share_identical_task_specific_funnel_geometry() -> None:
         np.testing.assert_array_equal(
             funnel.lift_relative_displacement_world,
             funnels[0].lift_relative_displacement_world,
+        )
+        np.testing.assert_array_equal(
+            funnel.eef_capture_offset_world,
+            funnels[0].eef_capture_offset_world,
         )
         assert funnel.close_dwell_ticks == funnels[0].close_dwell_ticks
         assert (

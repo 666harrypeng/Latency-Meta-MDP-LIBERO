@@ -1,5 +1,5 @@
 schema_version: 1
-corpus_id: panda-ball-structured-source-pilot-3x4-v1
+corpus_id: panda-ball-structured-source-pilot-3x4-v2
 logical_task_index_start: 0
 task_instance_count: 3
 levels: [1, 2, 3]

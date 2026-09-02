@@ -851,6 +851,7 @@ class StrategyParameters:
     lateral_direction_sign: int | None
     soft_guide_radius_m: float
     tracking_error_clip_m: float
+    grasp_eef_height_offset_m: float
     funnel_descent_ticks: int
     funnel_entry_deadline_slack_ticks: int
     close_window_half_width_ticks: int
@@ -884,7 +885,6 @@ class StrategyParameters:
                 self.prediction_lead_seconds,
                 config.prediction_lead_seconds,
             ),
-            "tracking_error_clip_m": (self.tracking_error_clip_m, config.tracking_error_clip_m),
         }
         for name, (value, bounds) in values.items():
             if (
@@ -921,6 +921,8 @@ class StrategyParameters:
         canonical_values = {
             "funnel_entry_height_m": config.funnel_entry_height_m,
             "soft_guide_radius_m": config.soft_guide_radius_m,
+            "tracking_error_clip_m": config.tracking_error_clip_m,
+            "grasp_eef_height_offset_m": config.grasp_eef_height_offset_m,
             "funnel_descent_ticks": config.funnel_descent_ticks,
             "funnel_entry_deadline_slack_ticks": config.funnel_entry_deadline_slack_ticks,
             "close_window_half_width_ticks": config.close_window_half_width_ticks,
@@ -956,6 +958,7 @@ class StrategyParameters:
             "lateral_direction_sign": self.lateral_direction_sign,
             "soft_guide_radius_m": self.soft_guide_radius_m,
             "tracking_error_clip_m": self.tracking_error_clip_m,
+            "grasp_eef_height_offset_m": self.grasp_eef_height_offset_m,
             "funnel_descent_ticks": self.funnel_descent_ticks,
             "funnel_entry_deadline_slack_ticks": self.funnel_entry_deadline_slack_ticks,
             "close_window_half_width_ticks": self.close_window_half_width_ticks,
@@ -1019,11 +1022,8 @@ def sample_strategy_parameters(
             lateral_direction_sign if family_value is StrategyFamily.LATERAL_ARC else None
         ),
         soft_guide_radius_m=config.soft_guide_radius_m,
-        tracking_error_clip_m=_draw_uniform(
-            strategy_seed,
-            field="tracking_error_clip_m",
-            bounds=config.tracking_error_clip_m,
-        ),
+        tracking_error_clip_m=config.tracking_error_clip_m,
+        grasp_eef_height_offset_m=config.grasp_eef_height_offset_m,
         funnel_descent_ticks=config.funnel_descent_ticks,
         funnel_entry_deadline_slack_ticks=config.funnel_entry_deadline_slack_ticks,
         close_window_half_width_ticks=config.close_window_half_width_ticks,

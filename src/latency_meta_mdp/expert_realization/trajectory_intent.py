@@ -178,6 +178,7 @@ class CanonicalGraspFunnel:
     ball_relative_entry_offset_world: np.ndarray
     centered_pad_axis_world: np.ndarray
     fixed_orientation_world: np.ndarray
+    eef_capture_offset_world: np.ndarray
     close_earliest_tick: int
     close_target_tick: int
     close_deadline_tick: int
@@ -214,6 +215,15 @@ class CanonicalGraspFunnel:
             self,
             "fixed_orientation_world",
             _proper_rotation(self.fixed_orientation_world, name="fixed_orientation_world"),
+        )
+        object.__setattr__(
+            self,
+            "eef_capture_offset_world",
+            _array(
+                self.eef_capture_offset_world,
+                shape=(3,),
+                name="eef_capture_offset_world",
+            ),
         )
         ticks = (
             self.close_earliest_tick,
@@ -405,6 +415,10 @@ def build_trajectory_intent(
         ball_relative_entry_offset_world=entry_offset,
         centered_pad_axis_world=orientation[:, 0],
         fixed_orientation_world=orientation,
+        eef_capture_offset_world=np.array(
+            [0.0, 0.0, strategy.grasp_eef_height_offset_m],
+            dtype=np.float64,
+        ),
         close_earliest_tick=close_target - half_width,
         close_target_tick=close_target,
         close_deadline_tick=close_target + half_width,

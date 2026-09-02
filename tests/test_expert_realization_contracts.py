@@ -353,6 +353,7 @@ def test_direct_strategy_parameters_must_obey_the_bound_config() -> None:
             lateral_direction_sign=None,
             soft_guide_radius_m=9.0,
             tracking_error_clip_m=9.0,
+            grasp_eef_height_offset_m=9.0,
             funnel_descent_ticks=999,
             funnel_entry_deadline_slack_ticks=999,
             close_window_half_width_ticks=999,

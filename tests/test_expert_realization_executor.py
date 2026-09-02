@@ -241,12 +241,14 @@ def test_funnel_is_tangent_continuous_then_close_and_lift_are_event_gated(
     )
     np.testing.assert_allclose(
         close_offset,
-        intent.capture_velocity_world * intent.strategy.prediction_lead_seconds,
+        intent.capture_velocity_world * intent.strategy.prediction_lead_seconds
+        + intent.grasp_funnel.eef_capture_offset_world,
         atol=1.0e-12,
     )
     np.testing.assert_allclose(
         follow_offset,
-        intent.capture_velocity_world * intent.strategy.prediction_lead_seconds,
+        intent.capture_velocity_world * intent.strategy.prediction_lead_seconds
+        + intent.grasp_funnel.eef_capture_offset_world,
         atol=1.0e-12,
     )
     lift = decisions[close_tick + intent.grasp_funnel.close_dwell_ticks]
@@ -329,7 +331,8 @@ def test_post_target_funnel_tracks_current_object_until_geometry_is_ready(
     np.testing.assert_allclose(
         late.target_eef_position_world,
         _object_at(intent, close_tick + 1)
-        + late.estimated_object_velocity_world * intent.strategy.prediction_lead_seconds,
+        + late.estimated_object_velocity_world * intent.strategy.prediction_lead_seconds
+        + intent.grasp_funnel.eef_capture_offset_world,
         atol=1.0e-12,
     )
 
@@ -418,7 +421,8 @@ def test_funnel_endpoint_is_reanchored_to_observed_object_at_actual_entry(
         _object_at(intent, effective_close - 1)
         + shift
         + final_funnel_command.estimated_object_velocity_world
-        * intent.strategy.prediction_lead_seconds,
+        * intent.strategy.prediction_lead_seconds
+        + intent.grasp_funnel.eef_capture_offset_world,
         atol=1.0e-12,
     )
 

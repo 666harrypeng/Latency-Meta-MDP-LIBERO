@@ -384,7 +384,10 @@ class StructuredExpertExecutor:
             - 15.0 * descent_progress**4
             + 6.0 * descent_progress**5
         )
-        height = self.intent.strategy.funnel_entry_height_m * (1.0 - descent)
+        capture_height = self.intent.grasp_funnel.eef_capture_offset_world[2]
+        height = capture_height + (
+            self.intent.strategy.funnel_entry_height_m - capture_height
+        ) * (1.0 - descent)
         horizon = bounded_prediction_horizon(
             source_tick=snapshot.formal_tick_index,
             requested_seconds=self.intent.strategy.prediction_lead_seconds,
@@ -547,7 +550,7 @@ class StructuredExpertExecutor:
                 phase = StructuredExpertPhase.CLOSE_STABILIZE
                 target = np.asarray(snapshot.object_body_pos, dtype=np.float64) + (
                     estimated_velocity * self.intent.strategy.prediction_lead_seconds
-                )
+                ) + funnel.eef_capture_offset_world
                 gripper_command = self.action_contract.gripper_close_command
             else:
                 phase = StructuredExpertPhase.GRASP_FUNNEL
@@ -562,6 +565,7 @@ class StructuredExpertExecutor:
                         np.asarray(snapshot.object_body_pos, dtype=np.float64)
                         + estimated_velocity * horizon
                         + 0.5 * motion.acceleration_world * horizon**2
+                        + funnel.eef_capture_offset_world
                     )
                 gripper_command = self.action_contract.gripper_open_command
         else:
@@ -596,6 +600,7 @@ class StructuredExpertExecutor:
                     np.asarray(snapshot.object_body_pos, dtype=np.float64)
                     + estimated_velocity * horizon
                     + 0.5 * motion.acceleration_world * horizon**2
+                    + funnel.eef_capture_offset_world
                 )
             gripper_command = self.action_contract.gripper_close_command
 

@@ -101,7 +101,8 @@ class StructuredExpertConfig:
     high_arc_extra_height_m: tuple[float, float]
     lateral_offset_m: tuple[float, float]
     soft_guide_radius_m: float
-    tracking_error_clip_m: tuple[float, float]
+    tracking_error_clip_m: float
+    grasp_eef_height_offset_m: float
     funnel_descent_ticks: int
     funnel_entry_deadline_slack_ticks: int
     close_window_half_width_ticks: int
@@ -130,12 +131,13 @@ class StructuredExpertConfig:
             "prediction_lead_seconds",
             "high_arc_extra_height_m",
             "lateral_offset_m",
-            "tracking_error_clip_m",
         ):
             _float_pair(getattr(self, field), name=field)
         for field in (
             "funnel_entry_height_m",
             "soft_guide_radius_m",
+            "tracking_error_clip_m",
+            "grasp_eef_height_offset_m",
             "close_centering_tolerance_m",
             "close_distance_tolerance_m",
             "close_relative_speed_tolerance_mps",
@@ -173,10 +175,10 @@ class StructuredExpertConfig:
             name="subseed_tags",
             check=lambda item: _require_str(item, name="subseed tag"),
         )
-        if self.schema_version != 2:
-            raise ValueError("structured expert schema_version must be 2")
+        if self.schema_version != 3:
+            raise ValueError("structured expert schema_version must be 3")
         if (
-            self.expert_id != "panda_ball_smooth_approach_funnel_v1"
+            self.expert_id != "panda_ball_smooth_approach_canonical_grasp_v2"
             or self.action_contract_id != "panda_osc_pose_delta_v1"
             or self.decision_source_tick != 5
             or self.shared_prefix_policy != "settle_open_hold_v1"
@@ -198,7 +200,8 @@ class StructuredExpertConfig:
             or self.high_arc_extra_height_m != (0.025, 0.065)
             or self.lateral_offset_m != (0.02, 0.06)
             or self.soft_guide_radius_m != 0.02
-            or self.tracking_error_clip_m != (0.022, 0.038)
+            or self.tracking_error_clip_m != 0.040
+            or self.grasp_eef_height_offset_m != 0.005
             or self.funnel_descent_ticks != 30
             or self.funnel_entry_deadline_slack_ticks != 35
             or self.close_window_half_width_ticks != 18
@@ -232,7 +235,8 @@ class StructuredExpertConfig:
             "high_arc_extra_height_m": list(self.high_arc_extra_height_m),
             "lateral_offset_m": list(self.lateral_offset_m),
             "soft_guide_radius_m": self.soft_guide_radius_m,
-            "tracking_error_clip_m": list(self.tracking_error_clip_m),
+            "tracking_error_clip_m": self.tracking_error_clip_m,
+            "grasp_eef_height_offset_m": self.grasp_eef_height_offset_m,
             "funnel_descent_ticks": self.funnel_descent_ticks,
             "funnel_entry_deadline_slack_ticks": self.funnel_entry_deadline_slack_ticks,
             "close_window_half_width_ticks": self.close_window_half_width_ticks,
@@ -292,7 +296,12 @@ def load_structured_expert_config(path: Path) -> StructuredExpertConfig:
         soft_guide_radius_m=_require_float(
             raw["soft_guide_radius_m"], name="soft_guide_radius_m"
         ),
-        tracking_error_clip_m=_pair(raw["tracking_error_clip_m"], name="tracking_error_clip_m"),
+        tracking_error_clip_m=_require_float(
+            raw["tracking_error_clip_m"], name="tracking_error_clip_m"
+        ),
+        grasp_eef_height_offset_m=_require_float(
+            raw["grasp_eef_height_offset_m"], name="grasp_eef_height_offset_m"
+        ),
         funnel_descent_ticks=_require_int(
             raw["funnel_descent_ticks"], name="funnel_descent_ticks"
         ),

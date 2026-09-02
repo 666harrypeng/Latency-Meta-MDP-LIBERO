@@ -1,5 +1,5 @@
 schema_version: 1
-split_id: panda-ball-formal-source-pilot-2train-1validation-v1
-corpus_id: panda-ball-structured-source-pilot-3x4-v1
+split_id: panda-ball-formal-source-pilot-2train-1validation-v2
+corpus_id: panda-ball-structured-source-pilot-3x4-v2
 train_master_task_indices: [0, 1, 3, 4]
 validation_master_task_indices: [2, 5]
