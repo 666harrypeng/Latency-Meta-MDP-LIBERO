@@ -91,7 +91,7 @@ def strategy_config_and_keys(instance: object):
     return config, keys
 
 
-def make_formal_source_metadata():
+def make_formal_source_metadata(*, camera_height: int = 2, camera_width: int = 3):
     from latency_meta_mdp.expert_realization.contracts import (
         ExpertRealizationId,
         ExpertRealizationKey,
@@ -120,8 +120,8 @@ def make_formal_source_metadata():
         instruction="Grasp the moving ball and lift it.",
         physics_dt_us=2_000,
         formal_tick_us=20_000,
-        camera_height=2,
-        camera_width=3,
+        camera_height=camera_height,
+        camera_width=camera_width,
         action_contract_id="panda_osc_pose_delta_v1",
         action_dim=7,
         actuator_dim=9,
@@ -168,8 +168,16 @@ def make_formal_source_records(metadata):
                     source_physics_step=tick * 10,
                     source_formal_tick=tick,
                     source_time_us=tick * 20_000,
-                    agentview_rgb=np.full((2, 3, 3), tick, dtype=np.uint8),
-                    robot0_eye_in_hand_rgb=np.full((2, 3, 3), tick + 1, dtype=np.uint8),
+                    agentview_rgb=np.full(
+                        (metadata.camera_height, metadata.camera_width, 3),
+                        tick,
+                        dtype=np.uint8,
+                    ),
+                    robot0_eye_in_hand_rgb=np.full(
+                        (metadata.camera_height, metadata.camera_width, 3),
+                        tick + 1,
+                        dtype=np.uint8,
+                    ),
                     robot_qpos=np.arange(7, dtype=np.float64) + tick,
                     robot_qvel=np.zeros(7, dtype=np.float64),
                     gripper_qpos=np.zeros(2, dtype=np.float64),
@@ -231,3 +239,22 @@ def make_formal_source_records(metadata):
         terminal_reason="lift_succeeded",
     )
     return tuple(boundaries), (transition,), (event,)
+
+
+def make_formal_source_episode(*, camera_height: int = 2, camera_width: int = 3):
+    from latency_meta_mdp.expert_realization.source_corpus.contracts import (
+        FormalSourceSynchronizedEpisode,
+    )
+
+    metadata = make_formal_source_metadata(
+        camera_height=camera_height,
+        camera_width=camera_width,
+    )
+    boundaries, transitions, events = make_formal_source_records(metadata)
+    return FormalSourceSynchronizedEpisode(
+        metadata=metadata,
+        boundaries=boundaries,
+        transitions=transitions,
+        physical_events=events,
+        terminal_reason="lift_succeeded",
+    )
