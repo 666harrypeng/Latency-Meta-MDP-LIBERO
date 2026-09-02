@@ -10,6 +10,6 @@ families:
   - lateral_arc
   - time_shifted_smooth
 family_allocation: iid_uniform_seeded
-reserve_task_instance_count: 3
+reserve_task_instance_count: 6
 require_complete_realization_block: true
 split_unit: master_task_index

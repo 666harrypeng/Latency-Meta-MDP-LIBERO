@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections import Counter
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -239,6 +240,11 @@ def collect_formal_source(
             for item in formal_request.primary_tasks + formal_request.reserve_tasks
         ),
         target_block_count=formal_request.config.task_instance_count,
+        target_block_counts=Counter(
+            split_plan.split_for(item.logical_task_index)
+            for item in formal_request.primary_tasks
+        ),
+        split_for=split_plan.split_for,
         plan_block=plan_block,
         execute_block=execute_block,
         publish_blocks=lambda blocks: publish_completed_blocks(

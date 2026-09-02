@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -252,6 +253,8 @@ def schedule_paired_master_blocks(
     *,
     master_task_indices: tuple[int, ...],
     target_block_count: int,
+    target_block_counts: Mapping[str, int] | None = None,
+    split_for: Callable[[int], str] | None = None,
     plan_block: Callable[[int], PlannedMasterBlock],
     execute_block: Callable[[PlannedMasterBlock], CompletedMasterBlock],
     publish_blocks: Callable[[tuple[CompletedMasterBlock, ...]], Path],
@@ -270,12 +273,44 @@ def schedule_paired_master_blocks(
         or target_block_count > len(master_task_indices)
     ):
         raise ValueError("target_block_count is outside the declared master-task universe")
+    if (target_block_counts is None) != (split_for is None):
+        raise ValueError("target_block_counts and split_for must be provided together")
+    if target_block_counts is None:
+        required_by_split = {"all": target_block_count}
+        master_splits = {value: "all" for value in master_task_indices}
+    else:
+        if (
+            not isinstance(target_block_counts, Mapping)
+            or not target_block_counts
+            or any(type(name) is not str or not name for name in target_block_counts)
+            or any(type(count) is not int or count <= 0 for count in target_block_counts.values())
+            or sum(target_block_counts.values()) != target_block_count
+        ):
+            raise ValueError("target_block_counts must be positive and sum to target_block_count")
+        assert split_for is not None
+        required_by_split = dict(target_block_counts)
+        master_splits = {value: split_for(value) for value in master_task_indices}
+        if any(split not in required_by_split for split in master_splits.values()):
+            raise ValueError("master task belongs to a split without a target quota")
+        available_by_split = Counter(master_splits.values())
+        if any(
+            available_by_split[name] < required
+            for name, required in required_by_split.items()
+        ):
+            raise ValueError("declared master-task universe cannot satisfy split quotas")
     if not callable(plan_block) or not callable(execute_block) or not callable(publish_blocks):
         raise TypeError("block planner, executor, and publisher must be callable")
     admitted = []
+    admitted_by_split: Counter[str] = Counter()
     for logical_master_task_index in master_task_indices:
-        if len(admitted) == target_block_count:
+        if all(
+            admitted_by_split[name] == required
+            for name, required in required_by_split.items()
+        ):
             break
+        split = master_splits[logical_master_task_index]
+        if admitted_by_split[split] == required_by_split[split]:
+            continue
         try:
             planned = plan_block(logical_master_task_index)
         except BlockPlanningFailure:
@@ -293,7 +328,11 @@ def schedule_paired_master_blocks(
         ):
             raise ValueError("block executor returned a mismatched completed block")
         admitted.append(completed)
-    if len(admitted) != target_block_count:
+        admitted_by_split[split] += 1
+    if len(admitted) != target_block_count or any(
+        admitted_by_split[name] != required
+        for name, required in required_by_split.items()
+    ):
         raise RuntimeError("formal source reserve blocks were exhausted before target admission")
     result = publish_blocks(tuple(admitted))
     if not isinstance(result, Path):

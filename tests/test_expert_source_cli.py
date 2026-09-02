@@ -53,13 +53,23 @@ def test_dry_run_expands_exact_request_without_creating_paths(
     assert summary["mode"] == "dry_run"
     assert summary["corpus_id"] == "panda-ball-structured-source-pilot-3x4-v2"
     assert summary["primary_master_task_indices"] == [0, 1, 2]
-    assert summary["reserve_master_task_indices"] == [3, 4, 5]
+    assert summary["reserve_master_task_indices"] == [3, 4, 5, 6, 7, 8]
     assert summary["levels"] == [1, 2, 3]
     assert summary["realizations_per_task"] == 4
     assert summary["target_success_count"] == 36
-    assert summary["predeclared_realization_count"] == 72
+    assert summary["predeclared_realization_count"] == 108
     assert summary["expected_planner_calls_if_candidate_zero_qualifies"] == 39
-    assert set(summary["family_assignments"]) == {"0", "1", "2", "3", "4", "5"}
+    assert set(summary["family_assignments"]) == {
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+    }
     assert all(len(rows) == 4 for rows in summary["family_assignments"].values())
     assert len(summary["formal_config_sha256"]) == 64
     assert len(summary["formal_request_sha256"]) == 64

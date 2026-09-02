@@ -205,13 +205,13 @@ def test_formal_collection_configs_lock_36_successes_and_sequential_planning() -
     split = load_master_task_split_plan(FORMAL_SPLIT_CONFIG)
 
     assert formal.task_instance_count == 3
-    assert formal.reserve_task_instance_count == 3
+    assert formal.reserve_task_instance_count == 6
     assert formal.levels == (1, 2, 3)
     assert formal.realizations_per_task == 4
     assert formal.primary_trajectory_count == 36
     assert execution.to_mapping() == _valid_execution_mapping()
-    assert split.train_master_task_indices == (0, 1, 3, 4)
-    assert split.validation_master_task_indices == (2, 5)
+    assert split.train_master_task_indices == (0, 1, 3, 4, 6, 7)
+    assert split.validation_master_task_indices == (2, 5, 8)
     assert split.corpus_id == formal.corpus_id
     split.require_exact_indices(formal.primary_task_indices + formal.reserve_task_indices)
 
