@@ -97,6 +97,7 @@ def test_hidden_family_allocation_is_independent_uniform_and_allows_repeated_mod
 def test_formal_realization_requests_bind_task_family_namespace_and_unique_seed() -> None:
     """Break caught: one task's hidden family assignment is not part of its semantic request."""
     from latency_meta_mdp.expert_realization.contracts import (
+        ExpertRealizationKey,
         build_formal_realization_requests,
     )
 
@@ -116,6 +117,15 @@ def test_formal_realization_requests_bind_task_family_namespace_and_unique_seed(
     assert len({row.realization_seed for row in requests}) == 4
     assert len({row.realization_namespace_sha256 for row in requests}) == 1
     assert all(row.task_instance_id == task for row in requests)
+    assert all(
+        row.to_expert_realization_key()
+        == ExpertRealizationKey(
+            row.task_instance_id,
+            row.realization_slot,
+            row.realization_namespace_sha256,
+        )
+        for row in requests
+    )
     assert tuple(type(row).from_mapping(row.to_mapping()) for row in requests) == requests
 
 

@@ -159,7 +159,6 @@ def test_strategy_rejects_key_from_another_task_or_config() -> None:
             config,
             assigned_family=StrategyFamily.CANONICAL_DIRECT,
         )
-
     raw = Path.cwd() / "configs/expert_realization/panda_ball_structured.yaml"
     assert hashlib.sha256(raw.read_bytes()).hexdigest() == config.source_sha256
     with pytest.raises(ValueError, match="source_sha256"):
@@ -175,4 +174,50 @@ def test_strategy_rejects_key_from_another_task_or_config() -> None:
             wrong_key,
             config,
             assigned_family=StrategyFamily.CANONICAL_DIRECT,
+        )
+
+
+def test_formal_request_is_the_only_source_of_formal_family_and_strategy_seed() -> None:
+    """Break caught: formal collection reconstructs family or seed outside its request universe."""
+    from dataclasses import replace
+
+    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+    from latency_meta_mdp.expert_realization.contracts import (
+        TaskInstanceId,
+        build_formal_realization_requests,
+        build_formal_request_universe,
+    )
+    from latency_meta_mdp.expert_realization.strategy import sample_requested_strategy
+
+    config = _strategy_config()
+    formal = replace(
+        load_formal_corpus_config(Path("configs/collection/panda_ball_structured_formal.yaml")),
+        task_instance_count=1,
+        realizations_per_task=3,
+        reserve_task_instance_count=0,
+    )
+    universe = build_formal_request_universe(
+        formal,
+        corpus_config_sha256="a" * 64,
+        structured_expert_config_sha256=config.source_sha256,
+    )
+    task_id = TaskInstanceId(
+        level=1,
+        task_instance_seed=universe.primary_tasks[0].master_task_seed,
+        motion_profile_sha256="b" * 64,
+        initial_state_sha256="c" * 64,
+    )
+    request = build_formal_realization_requests(universe, task_id)[0]
+    task = _task_instance(seed=task_id.task_instance_seed)
+    object.__setattr__(task, "task_instance_id", task_id)
+
+    strategy = sample_requested_strategy(task, request, config, universe=universe)
+
+    assert strategy.family is request.assigned_family
+    with pytest.raises(ValueError, match="universe"):
+        sample_requested_strategy(
+            task,
+            request,
+            config,
+            universe=replace(universe, structured_expert_config_sha256="d" * 64),
         )

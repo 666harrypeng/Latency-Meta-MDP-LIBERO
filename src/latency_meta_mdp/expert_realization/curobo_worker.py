@@ -140,6 +140,15 @@ def _parse_approach_geometry(
     return guides, guide_radii, entry, entry_tangent
 
 
+def _planner_invocation_timeout_reason(
+    invocation_seconds: tuple[float, ...], timeout_seconds: float
+) -> str | None:
+    for index, duration in enumerate(invocation_seconds):
+        if duration > timeout_seconds:
+            return f"CuRobo pose invocation {index} exceeded {timeout_seconds} seconds"
+    return None
+
+
 def run_planner_request(request_path: Path, result_root: Path) -> None:
     import torch
     from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
@@ -153,7 +162,9 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
         write_single_candidate_result,
     )
     from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
-    from latency_meta_mdp.expert_realization.trajectory_smoothing import smooth_joint_approach
+    from latency_meta_mdp.expert_realization.trajectory_smoothing import (
+        build_cartesian_approach_reference,
+    )
 
     raw = json.loads(Path(request_path).read_text())
     expected_fields = {
@@ -246,8 +257,10 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
     planner.warmup(enable_graph=False, num_warmup_iterations=1)
     all_qpos: list[np.ndarray] = []
     costs, position_errors, rotation_errors = [], [], []
+    invocation_seconds: list[float] = []
     current = start_qpos
     failure_reason = None
+    invocation_timeout = False
     for target in targets:
         hand_goal = _tcp_world_to_hand_base(
             bridge,
@@ -269,7 +282,17 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
                 quaternion, device="cuda", dtype=torch.float32
             ).reshape(1, 1, 1, 1, 4),
         )
+        invocation_started = time.perf_counter()
         result = planner.plan_pose(goal, current_state, enable_graph_attempt=0, max_attempts=5)
+        invocation_seconds.append(time.perf_counter() - invocation_started)
+        timeout_reason = _planner_invocation_timeout_reason(
+            tuple(invocation_seconds),
+            timeout_seconds,
+        )
+        if timeout_reason is not None:
+            failure_reason = timeout_reason
+            invocation_timeout = True
+            break
         if result is None or not bool(result.success.any()):
             failure_reason = "CuRobo returned no successful trajectory"
             break
@@ -286,24 +309,57 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
         )
     planning_time = time.perf_counter() - started
     geometric_seed_qpos_path = None
-    smoothed = None
-    eef = None
+    cartesian_reference = None
+    proposal_qpos = None
     if failure_reason is None:
         geometric_seed_qpos_path = np.concatenate(all_qpos, axis=0)
         arrival_duration = (
             intent["funnel_entry_target_tick"] - intent["reference_start_tick"]
         ) * 0.02
         try:
-            smoothed = smooth_joint_approach(
-                geometric_seed_qpos_path,
+            cartesian_reference = build_cartesian_approach_reference(
+                start_position_world=_eef_positions_world(
+                    planner,
+                    bridge,
+                    geometric_seed_qpos_path[:1],
+                )[0],
+                soft_guide_regions_world=guides,
+                funnel_entry_position_world=entry,
+                funnel_entry_tangent_world=entry_tangent,
                 duration_seconds=float(arrival_duration),
                 sample_period_seconds=0.02,
-                joint_lower=bridge.joint_lower,
-                joint_upper=bridge.joint_upper,
-                joint_velocity=bridge.joint_velocity,
-                joint_acceleration=bridge.joint_acceleration,
             )
-            eef = _eef_positions_world(planner, bridge, smoothed.qpos)
+            raw_arc = np.concatenate(
+                [
+                    np.array([0.0]),
+                    np.cumsum(
+                        np.linalg.norm(
+                            np.diff(geometric_seed_qpos_path, axis=0),
+                            axis=1,
+                        )
+                    ),
+                ]
+            )
+            if raw_arc[-1] <= 0.0:
+                raise ValueError("CuRobo geometric proposal contains no motion")
+            target_arc = np.linspace(
+                0.0,
+                raw_arc[-1],
+                len(cartesian_reference.timestamps_seconds),
+                dtype=np.float64,
+            )
+            proposal_qpos = np.stack(
+                [
+                    np.interp(target_arc, raw_arc, geometric_seed_qpos_path[:, joint])
+                    for joint in range(7)
+                ],
+                axis=1,
+            )
+            if np.any(proposal_qpos < bridge.joint_lower) or np.any(
+                proposal_qpos > bridge.joint_upper
+            ):
+                raise ValueError("CuRobo proposal interpolation violates joint position limits")
+            eef = cartesian_reference.positions_world
             for guide, radius in zip(guides, guide_radii, strict=True):
                 if float(np.linalg.norm(eef - guide, axis=1).min()) > float(radius):
                     raise ValueError("smoothed path misses a soft approach guide")
@@ -323,22 +379,21 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
             candidate_index=index,
             requested_seed=requested_seed,
             effective_seed=effective_seed,
-            status=PlannerCandidateStatus.PLANNER_FAILURE,
+            status=(
+                PlannerCandidateStatus.TIMEOUT
+                if invocation_timeout
+                else PlannerCandidateStatus.PLANNER_FAILURE
+            ),
             reason=failure_reason,
             planning_time_seconds=planning_time,
         )
-    elif planning_time > timeout_seconds:
-        candidate = PlannerCandidate.failure(
-            expert_realization_key=key,
-            candidate_index=index,
-            requested_seed=requested_seed,
-            effective_seed=effective_seed,
-            status=PlannerCandidateStatus.TIMEOUT,
-            reason=f"planner call exceeded {timeout_seconds} seconds",
-            planning_time_seconds=planning_time,
-        )
     else:
-        assert geometric_seed_qpos_path is not None and smoothed is not None and eef is not None
+        assert (
+            geometric_seed_qpos_path is not None
+            and cartesian_reference is not None
+            and proposal_qpos is not None
+        )
+        eef = cartesian_reference.positions_world
         candidate = PlannerCandidate(
             expert_realization_key=key,
             candidate_index=index,
@@ -346,8 +401,8 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
             effective_seed=effective_seed,
             status=PlannerCandidateStatus.SUCCESS,
             geometric_seed_qpos_path=geometric_seed_qpos_path,
-            qpos_path=smoothed.qpos,
-            timestamps_seconds=smoothed.timestamps_seconds,
+            qpos_path=proposal_qpos,
+            timestamps_seconds=cartesian_reference.timestamps_seconds,
             eef_positions_world=eef,
             eef_path_length_m=float(np.linalg.norm(np.diff(eef, axis=0), axis=1).sum()),
             certified_clearance_lower_bound_m=0.0,

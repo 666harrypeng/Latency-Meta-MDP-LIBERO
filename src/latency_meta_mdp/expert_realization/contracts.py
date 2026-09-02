@@ -420,12 +420,10 @@ class FormalRealizationRequest:
             self.realization_namespace_sha256,
             name="realization_namespace_sha256",
         )
-        expected = _seed(
-            {
-                "task_instance_id": self.task_instance_id.to_mapping(),
-                "realization_slot": self.realization_slot,
-                "realization_namespace_sha256": self.realization_namespace_sha256,
-            }
+        expected = derive_realization_seed(
+            self.task_instance_id,
+            self.realization_slot,
+            self.realization_namespace_sha256,
         )
         if type(self.realization_seed) is not int or self.realization_seed != expected:
             raise ValueError("realization_seed does not match request identity")
@@ -438,6 +436,16 @@ class FormalRealizationRequest:
             "realization_namespace_sha256": self.realization_namespace_sha256,
             "realization_seed": self.realization_seed,
         }
+
+    def to_expert_realization_key(self) -> ExpertRealizationKey:
+        key = ExpertRealizationKey(
+            self.task_instance_id,
+            self.realization_slot,
+            self.realization_namespace_sha256,
+        )
+        if key.realization_seed != self.realization_seed:
+            raise ValueError("formal request and expert realization key seeds do not match")
+        return key
 
     @classmethod
     def from_mapping(cls, mapping: Any) -> FormalRealizationRequest:
@@ -567,12 +575,10 @@ def build_formal_realization_requests(
             realization_slot=assignment.realization_slot,
             assigned_family=assignment.family,
             realization_namespace_sha256=namespace,
-            realization_seed=_seed(
-                {
-                    "task_instance_id": task_instance_id.to_mapping(),
-                    "realization_slot": assignment.realization_slot,
-                    "realization_namespace_sha256": namespace,
-                }
+            realization_seed=derive_realization_seed(
+                task_instance_id,
+                assignment.realization_slot,
+                namespace,
             ),
         )
         for assignment in universe.family_assignments[master.logical_task_index]

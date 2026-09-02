@@ -315,3 +315,15 @@ def test_worker_parser_preserves_empty_soft_guide_matrix_shape() -> None:
     assert radii.shape == (0,)
     assert entry.shape == (3,)
     assert tangent.shape == (3,)
+
+
+def test_planner_timeout_is_per_pose_invocation_not_sum_over_guides() -> None:
+    """Break caught: a three-target approach is rejected because total planning exceeds 5 s."""
+    from latency_meta_mdp.expert_realization.curobo_worker import (
+        _planner_invocation_timeout_reason,
+    )
+
+    assert _planner_invocation_timeout_reason((4.2, 4.1, 4.3), 5.0) is None
+    assert _planner_invocation_timeout_reason((4.2, 5.1, 4.3), 5.0) == (
+        "CuRobo pose invocation 1 exceeded 5.0 seconds"
+    )

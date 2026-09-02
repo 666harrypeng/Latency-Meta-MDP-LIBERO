@@ -1,0 +1,18 @@
+schema_version: 1
+review_id: panda-ball-smooth-random-review-3x3x3-v1
+corpus_id: panda-ball-smooth-random-review-v1
+logical_task_index_start: 0
+task_instance_count: 3
+levels: [1, 2, 3]
+realizations_per_task: 3
+families:
+  - canonical_direct
+  - early_high_arc
+  - lateral_arc
+  - time_shifted_smooth
+family_allocation: iid_uniform_seeded
+planner_candidate_count: 8
+maximum_formal_ticks: 220
+review_video_fps: 25
+bounded_review_only: true
+training_authorized: false

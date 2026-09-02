@@ -15,8 +15,11 @@ from latency_meta_mdp.expert_realization.config import (
 )
 from latency_meta_mdp.expert_realization.contracts import (
     ExpertRealizationKey,
+    FormalRealizationRequest,
+    FormalRequestUniverse,
     StrategyFamily,
     StrategyParameters,
+    build_formal_realization_requests,
     sample_strategy_parameters,
 )
 from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
@@ -88,4 +91,35 @@ def sample_strategy(
         config.expert,
         family=assigned_family,
         realization_seed=realization_key.realization_seed,
+    )
+
+
+def sample_requested_strategy(
+    task_instance: MaterializedTaskInstance,
+    request: FormalRealizationRequest,
+    config: StructuredStrategyConfig,
+    *,
+    universe: FormalRequestUniverse,
+) -> StrategyParameters:
+    """Resolve one formal request without reconstructing its family or random seed."""
+    if not isinstance(task_instance, MaterializedTaskInstance):
+        raise TypeError("task_instance must be a MaterializedTaskInstance")
+    if not isinstance(request, FormalRealizationRequest):
+        raise TypeError("request must be a FormalRealizationRequest")
+    if not isinstance(config, StructuredStrategyConfig):
+        raise TypeError("config must be a StructuredStrategyConfig")
+    if not isinstance(universe, FormalRequestUniverse):
+        raise TypeError("universe must be a FormalRequestUniverse")
+    task_instance.validate_publication_consistency()
+    if universe.structured_expert_config_sha256 != config.source_sha256:
+        raise ValueError("formal request universe does not bind the structured strategy config")
+    if request.task_instance_id != task_instance.task_instance_id:
+        raise ValueError("formal realization request does not belong to the task instance")
+    if request not in build_formal_realization_requests(universe, task_instance.task_instance_id):
+        raise ValueError("formal realization request is not part of its request universe")
+    key = request.to_expert_realization_key()
+    return sample_strategy_parameters(
+        config.expert,
+        family=request.assigned_family,
+        realization_seed=key.realization_seed,
     )
