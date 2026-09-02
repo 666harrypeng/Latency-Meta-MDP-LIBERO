@@ -123,7 +123,11 @@ def _admitted(episode):
         episode=episode,
         strategy_parameters={"prediction_lead_seconds": 0.12},
         selected_planner_fingerprint="c" * 64,
-        qualification={"eligible": True, "failures": []},
+        qualification={
+            "eligible": True,
+            "failures": [],
+            "actual_rollout_safety": {"terminal_success": True},
+        },
     )
 
 

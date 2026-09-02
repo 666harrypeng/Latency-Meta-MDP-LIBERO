@@ -255,7 +255,7 @@ def test_formal_source_execution_returns_episode_beside_physical_qualification(
     assert result.episode is episode
     assert result.safety_report is report
     assert result.qualification.eligible is True
-    assert result.qualification_mapping()["admission"]["eligible"] is True
+    assert result.qualification_mapping()["eligible"] is True
 
 
 def test_formal_source_execution_rejects_a_task_success_that_fails_physics(

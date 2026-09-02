@@ -402,7 +402,12 @@ def _validate_relations(
             qualification = json.loads(row["qualification_json"])
         except json.JSONDecodeError as error:
             raise ValueError("episode metadata contains invalid JSON payload") from error
-        if type(strategy) is not dict or qualification != {"eligible": True, "failures": []}:
+        if (
+            type(strategy) is not dict
+            or type(qualification) is not dict
+            or qualification.get("eligible") is not True
+            or qualification.get("failures") != []
+        ):
             raise ValueError("episode metadata qualification is not an admitted success")
         shard = row["data_shard"]
         if shard not in manifest.artifacts or _SHARD.fullmatch(shard) is None:

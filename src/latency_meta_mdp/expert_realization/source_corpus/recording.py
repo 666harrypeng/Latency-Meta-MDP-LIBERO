@@ -77,8 +77,8 @@ class QualifiedSourceRecording:
 
     def qualification_mapping(self) -> dict[str, Any]:
         return {
+            **self.qualification.to_mapping(),
             "actual_rollout_safety": self.safety_report.to_mapping(),
-            "admission": self.qualification.to_mapping(),
         }
 
 
