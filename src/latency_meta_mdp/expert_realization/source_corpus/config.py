@@ -57,8 +57,6 @@ class SourceCorpusConfig:
     target_shard_bytes: int
     episode_row_group: bool
     split_unit: str
-    source_stats_split: str
-    source_stats_quantiles: tuple[float, float]
 
     def __post_init__(self) -> None:
         for name in (
@@ -75,13 +73,8 @@ class SourceCorpusConfig:
             "image_encoding",
             "parquet_compression",
             "split_unit",
-            "source_stats_split",
         ):
             _normalized_text(getattr(self, name), name=name)
-        if type(self.source_stats_quantiles) is not tuple or any(
-            type(value) is not float for value in self.source_stats_quantiles
-        ):
-            raise TypeError("source_stats_quantiles must be a tuple of floats")
         if self.schema_version != 1:
             raise ValueError("schema_version must equal 1")
         if self.format_id != "structured_expert_source_parquet_v1":
@@ -100,15 +93,9 @@ class SourceCorpusConfig:
             raise ValueError("episode_row_group must be true")
         if self.split_unit != "master_task_index":
             raise ValueError("split_unit must equal master_task_index")
-        if self.source_stats_split != "train":
-            raise ValueError("source_stats_split must equal train")
-        if self.source_stats_quantiles != (0.01, 0.99):
-            raise ValueError("source_stats_quantiles must equal the canonical quantiles")
 
     def to_mapping(self) -> dict[str, Any]:
-        result = {item.name: getattr(self, item.name) for item in fields(self)}
-        result["source_stats_quantiles"] = list(self.source_stats_quantiles)
-        return result
+        return {item.name: getattr(self, item.name) for item in fields(self)}
 
     @classmethod
     def from_mapping(cls, mapping: Any) -> SourceCorpusConfig:
@@ -116,11 +103,7 @@ class SourceCorpusConfig:
             mapping,
             {item.name for item in fields(cls)},
             name="source corpus",
-        ).copy()
-        quantiles = raw["source_stats_quantiles"]
-        if type(quantiles) is not list:
-            raise TypeError("source_stats_quantiles must be a YAML list")
-        raw["source_stats_quantiles"] = tuple(quantiles)
+        )
         return cls(**raw)
 
 

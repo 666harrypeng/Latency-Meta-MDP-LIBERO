@@ -20,8 +20,6 @@ def _valid_source_mapping() -> dict[str, object]:
         "target_shard_bytes": 268_435_456,
         "episode_row_group": True,
         "split_unit": "master_task_index",
-        "source_stats_split": "train",
-        "source_stats_quantiles": [0.01, 0.99],
     }
 
 
@@ -51,7 +49,6 @@ def test_source_config_loads_the_canonical_lossless_parquet_contract() -> None:
 
     assert config.to_mapping() == _valid_source_mapping()
     assert config.target_shard_bytes == 256 * 1024 * 1024
-    assert config.source_stats_quantiles == (0.01, 0.99)
 
 
 @pytest.mark.parametrize(
@@ -69,8 +66,6 @@ def test_source_config_loads_the_canonical_lossless_parquet_contract() -> None:
         (lambda row: row.update(target_shard_bytes=1024 * 1024 * 1024 + 1), "target_shard"),
         (lambda row: row.update(episode_row_group=False), "episode_row_group"),
         (lambda row: row.update(split_unit="episode"), "split_unit"),
-        (lambda row: row.update(source_stats_split="all"), "source_stats_split"),
-        (lambda row: row.update(source_stats_quantiles=[0.05, 0.95]), "quantiles"),
     ],
 )
 def test_source_config_rejects_storage_semantic_drift(
@@ -110,17 +105,6 @@ def test_source_config_rejects_yaml_scalar_and_container_coercion(
 
     with pytest.raises((TypeError, ValueError), match=field):
         load_source_corpus_config(_write(tmp_path, "source.yaml", mapping))
-
-
-def test_source_config_mapping_requires_json_list_quantiles() -> None:
-    """Break caught: an in-memory caller bypasses the serialized-list contract."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import SourceCorpusConfig
-
-    mapping = _valid_source_mapping()
-    mapping["source_stats_quantiles"] = (0.01, 0.99)
-
-    with pytest.raises(TypeError, match="source_stats_quantiles"):
-        SourceCorpusConfig.from_mapping(mapping)
 
 
 def test_master_task_split_plan_round_trips_and_covers_a_declared_universe(

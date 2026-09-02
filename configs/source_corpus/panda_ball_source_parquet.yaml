@@ -7,5 +7,3 @@ parquet_compression_level: 3
 target_shard_bytes: 268435456
 episode_row_group: true
 split_unit: master_task_index
-source_stats_split: train
-source_stats_quantiles: [0.01, 0.99]
