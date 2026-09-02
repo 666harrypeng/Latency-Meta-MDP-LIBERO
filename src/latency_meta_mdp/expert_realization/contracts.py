@@ -284,9 +284,11 @@ class StrategyParameters:
     interception_lead_seconds: float
     pregrasp_height_m: float
     lateral_offset_m: float | None
+    lateral_direction_sign: int | None
     tracking_error_clip_m: float
     close_dwell_ticks: int
     lift_lateral_offset_m: float
+    lift_lateral_direction_sign: int
     lift_vertical_offset_m: float
     fixed_orientation: bool
     rotation_action_variation: bool
@@ -333,11 +335,20 @@ class StrategyParameters:
             or not config.lateral_offset_m[0] <= self.lateral_offset_m <= config.lateral_offset_m[1]
         ):
             raise ValueError("lateral_offset_m is outside the structured expert bounds")
+        if self.family is StrategyFamily.LATERAL_ARC:
+            if self.lateral_direction_sign not in (-1, 1):
+                raise ValueError("lateral_arc requires a signed lateral direction")
+        elif self.lateral_direction_sign is not None:
+            raise ValueError("only lateral_arc may have a lateral direction sign")
         if (
             type(self.close_dwell_ticks) is not int
             or self.close_dwell_ticks not in config.close_dwell_ticks
         ):
             raise ValueError("close_dwell_ticks is outside the structured expert choices")
+        if type(self.lift_lateral_direction_sign) is not int or (
+            self.lift_lateral_direction_sign not in (-1, 1)
+        ):
+            raise ValueError("lift_lateral_direction_sign must be -1 or +1")
         if (
             type(self.fixed_orientation) is not bool
             or type(self.rotation_action_variation) is not bool
@@ -355,9 +366,11 @@ class StrategyParameters:
             "interception_lead_seconds": self.interception_lead_seconds,
             "pregrasp_height_m": self.pregrasp_height_m,
             "lateral_offset_m": self.lateral_offset_m,
+            "lateral_direction_sign": self.lateral_direction_sign,
             "tracking_error_clip_m": self.tracking_error_clip_m,
             "close_dwell_ticks": self.close_dwell_ticks,
             "lift_lateral_offset_m": self.lift_lateral_offset_m,
+            "lift_lateral_direction_sign": self.lift_lateral_direction_sign,
             "lift_vertical_offset_m": self.lift_vertical_offset_m,
             "fixed_orientation": self.fixed_orientation,
             "rotation_action_variation": self.rotation_action_variation,
@@ -372,11 +385,22 @@ def sample_strategy_parameters(
         raise TypeError("config must be a StructuredExpertConfig")
     family_value = StrategyFamily(family)
     strategy_seed = derive_subseed(realization_seed, "strategy")
+    keypose_seed = derive_subseed(realization_seed, "keypose")
     timing_seed = derive_subseed(realization_seed, "timing")
     lateral_offset = (
         _draw_uniform(strategy_seed, field="lateral_offset_m", bounds=config.lateral_offset_m)
         if family_value is StrategyFamily.LATERAL_ARC
         else None
+    )
+    lateral_direction_sign = (
+        -1
+        if _seed({"field": "lateral_direction_sign", "seed": keypose_seed}) % 2 == 0
+        else 1
+    )
+    lift_lateral_direction_sign = (
+        -1
+        if _seed({"field": "lift_lateral_direction_sign", "seed": keypose_seed}) % 2 == 0
+        else 1
     )
     return StrategyParameters(
         family=family_value,
@@ -394,6 +418,9 @@ def sample_strategy_parameters(
             strategy_seed, field="pregrasp_height_m", bounds=config.pregrasp_height_m
         ),
         lateral_offset_m=lateral_offset,
+        lateral_direction_sign=(
+            lateral_direction_sign if family_value is StrategyFamily.LATERAL_ARC else None
+        ),
         tracking_error_clip_m=_draw_uniform(
             strategy_seed,
             field="tracking_error_clip_m",
@@ -408,6 +435,7 @@ def sample_strategy_parameters(
             field="lift_lateral_offset_m",
             bounds=config.lift_lateral_offset_m,
         ),
+        lift_lateral_direction_sign=lift_lateral_direction_sign,
         lift_vertical_offset_m=_draw_uniform(
             strategy_seed,
             field="lift_vertical_offset_m",
