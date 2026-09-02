@@ -15,7 +15,7 @@ CANONICAL_FAMILIES = (
     "lateral_arc",
     "time_shifted_smooth",
 )
-SUBSEED_TAGS = ("strategy", "keypose", "planner", "timing")
+SUBSEED_TAGS = ("strategy", "trajectory_intent", "planner", "timing")
 
 
 def _strict_mapping(raw: Any, fields: set[str], *, name: str) -> dict[str, Any]:
@@ -96,15 +96,20 @@ class StructuredExpertConfig:
     decision_source_tick: int
     shared_prefix_policy: str
     families: tuple[str, ...]
-    samples_per_family: int
-    interception_lead_seconds: tuple[float, float]
-    pregrasp_height_m: tuple[float, float]
+    prediction_lead_seconds: tuple[float, float]
+    funnel_entry_height_m: float
+    high_arc_extra_height_m: tuple[float, float]
     lateral_offset_m: tuple[float, float]
+    soft_guide_radius_m: float
     tracking_error_clip_m: tuple[float, float]
-    close_dwell_ticks: tuple[int, ...]
-    lift_lateral_offset_m: tuple[float, float]
-    lift_vertical_offset_m: tuple[float, float]
-    interception_tick_ranges: dict[str, tuple[int, int]]
+    funnel_descent_ticks: int
+    funnel_entry_deadline_slack_ticks: int
+    close_window_half_width_ticks: int
+    handoff_window_ticks: int
+    close_dwell_ticks: int
+    bilateral_contact_acquisition_ticks: int
+    lift_vertical_displacement_m: float
+    close_target_tick_ranges: dict[str, tuple[int, int]]
     fixed_orientation: bool
     rotation_action_variation: bool
     iid_per_tick_action_noise: bool
@@ -118,25 +123,32 @@ class StructuredExpertConfig:
         _tuple_of(
             self.families, name="families", check=lambda item: _require_str(item, name="family")
         )
-        _require_int(self.samples_per_family, name="samples_per_family")
         for field in (
-            "interception_lead_seconds",
-            "pregrasp_height_m",
+            "prediction_lead_seconds",
+            "high_arc_extra_height_m",
             "lateral_offset_m",
             "tracking_error_clip_m",
-            "lift_lateral_offset_m",
-            "lift_vertical_offset_m",
         ):
             _float_pair(getattr(self, field), name=field)
-        _tuple_of(
-            self.close_dwell_ticks,
-            name="close_dwell_ticks",
-            check=lambda item: _require_int(item, name="close_dwell_ticks item"),
-        )
-        if type(self.interception_tick_ranges) is not dict:
-            raise TypeError("interception_tick_ranges must be a mapping")
-        for family, bounds in self.interception_tick_ranges.items():
-            _require_str(family, name="interception_tick_ranges key")
+        for field in (
+            "funnel_entry_height_m",
+            "soft_guide_radius_m",
+            "lift_vertical_displacement_m",
+        ):
+            _require_float(getattr(self, field), name=field)
+        for field in (
+            "funnel_descent_ticks",
+            "funnel_entry_deadline_slack_ticks",
+            "close_window_half_width_ticks",
+            "handoff_window_ticks",
+            "close_dwell_ticks",
+            "bilateral_contact_acquisition_ticks",
+        ):
+            _require_int(getattr(self, field), name=field)
+        if type(self.close_target_tick_ranges) is not dict:
+            raise TypeError("close_target_tick_ranges must be a mapping")
+        for family, bounds in self.close_target_tick_ranges.items():
+            _require_str(family, name="close_target_tick_ranges key")
             values = _tuple_of(
                 bounds,
                 name="interception tick range",
@@ -155,33 +167,39 @@ class StructuredExpertConfig:
             name="subseed_tags",
             check=lambda item: _require_str(item, name="subseed tag"),
         )
-        if self.schema_version != 1:
-            raise ValueError("structured expert schema_version must be 1")
+        if self.schema_version != 2:
+            raise ValueError("structured expert schema_version must be 2")
         if (
-            self.expert_id != "panda_ball_structured_v1"
+            self.expert_id != "panda_ball_smooth_approach_funnel_v1"
             or self.action_contract_id != "panda_osc_pose_delta_v1"
             or self.decision_source_tick != 5
             or self.shared_prefix_policy != "settle_open_hold_v1"
         ):
             raise ValueError("unsupported structured expert semantic identity")
-        if self.families != CANONICAL_FAMILIES or self.samples_per_family != 2:
+        if self.families != CANONICAL_FAMILIES:
             raise ValueError("structured expert family layout is invalid")
         expected_ranges = {
-            "canonical_direct": (75, 105),
-            "early_high_arc": (60, 85),
-            "lateral_arc": (75, 110),
-            "time_shifted_smooth": (100, 125),
+            "canonical_direct": (86, 100),
+            "early_high_arc": (80, 94),
+            "lateral_arc": (90, 104),
+            "time_shifted_smooth": (100, 112),
         }
-        if self.interception_tick_ranges != expected_ranges:
-            raise ValueError("structured expert interception ranges are invalid")
+        if self.close_target_tick_ranges != expected_ranges:
+            raise ValueError("structured expert close-target ranges are invalid")
         if (
-            self.interception_lead_seconds != (0.14, 0.26)
-            or self.pregrasp_height_m != (0.08, 0.13)
-            or self.lateral_offset_m != (0.015, 0.04)
+            self.prediction_lead_seconds != (0.14, 0.26)
+            or self.funnel_entry_height_m != 0.10
+            or self.high_arc_extra_height_m != (0.025, 0.065)
+            or self.lateral_offset_m != (0.02, 0.06)
+            or self.soft_guide_radius_m != 0.02
             or self.tracking_error_clip_m != (0.022, 0.038)
-            or self.close_dwell_ticks != (0, 1, 2, 3, 4)
-            or self.lift_lateral_offset_m != (0.0, 0.02)
-            or self.lift_vertical_offset_m != (0.14, 0.19)
+            or self.funnel_descent_ticks != 30
+            or self.funnel_entry_deadline_slack_ticks != 25
+            or self.close_window_half_width_ticks != 18
+            or self.handoff_window_ticks != 50
+            or self.close_dwell_ticks != 2
+            or self.bilateral_contact_acquisition_ticks != 4
+            or self.lift_vertical_displacement_m != 0.16
         ):
             raise ValueError("structured expert proposal bounds are invalid")
         if (
@@ -200,16 +218,21 @@ class StructuredExpertConfig:
             "decision_source_tick": self.decision_source_tick,
             "shared_prefix_policy": self.shared_prefix_policy,
             "families": list(self.families),
-            "samples_per_family": self.samples_per_family,
-            "interception_lead_seconds": list(self.interception_lead_seconds),
-            "pregrasp_height_m": list(self.pregrasp_height_m),
+            "prediction_lead_seconds": list(self.prediction_lead_seconds),
+            "funnel_entry_height_m": self.funnel_entry_height_m,
+            "high_arc_extra_height_m": list(self.high_arc_extra_height_m),
             "lateral_offset_m": list(self.lateral_offset_m),
+            "soft_guide_radius_m": self.soft_guide_radius_m,
             "tracking_error_clip_m": list(self.tracking_error_clip_m),
-            "close_dwell_ticks": list(self.close_dwell_ticks),
-            "lift_lateral_offset_m": list(self.lift_lateral_offset_m),
-            "lift_vertical_offset_m": list(self.lift_vertical_offset_m),
-            "interception_tick_ranges": {
-                family: list(bounds) for family, bounds in self.interception_tick_ranges.items()
+            "funnel_descent_ticks": self.funnel_descent_ticks,
+            "funnel_entry_deadline_slack_ticks": self.funnel_entry_deadline_slack_ticks,
+            "close_window_half_width_ticks": self.close_window_half_width_ticks,
+            "handoff_window_ticks": self.handoff_window_ticks,
+            "close_dwell_ticks": self.close_dwell_ticks,
+            "bilateral_contact_acquisition_ticks": self.bilateral_contact_acquisition_ticks,
+            "lift_vertical_displacement_m": self.lift_vertical_displacement_m,
+            "close_target_tick_ranges": {
+                family: list(bounds) for family, bounds in self.close_target_tick_ranges.items()
             },
             "fixed_orientation": self.fixed_orientation,
             "rotation_action_variation": self.rotation_action_variation,
@@ -222,18 +245,18 @@ def load_structured_expert_config(path: Path) -> StructuredExpertConfig:
     raw = _load_mapping(
         path, set(StructuredExpertConfig.__dataclass_fields__), name="structured expert"
     )
-    ranges = raw["interception_tick_ranges"]
+    ranges = raw["close_target_tick_ranges"]
     if type(ranges) is not dict or set(ranges) != set(CANONICAL_FAMILIES):
-        raise ValueError("interception_tick_ranges must cover the canonical families")
+        raise ValueError("close_target_tick_ranges must cover the canonical families")
     parsed_ranges: dict[str, tuple[int, int]] = {}
     for family in CANONICAL_FAMILIES:
         parsed = _yaml_tuple(
             ranges[family],
-            name=f"interception tick range for {family}",
-            check=lambda item: _require_int(item, name="interception tick range item"),
+            name=f"close target tick range for {family}",
+            check=lambda item: _require_int(item, name="close target tick range item"),
         )
         if len(parsed) != 2:
-            raise ValueError(f"interception tick range for {family} is invalid")
+            raise ValueError(f"close target tick range for {family} is invalid")
         parsed_ranges[family] = parsed  # type: ignore[assignment]
     return StructuredExpertConfig(
         schema_version=raw["schema_version"],
@@ -244,21 +267,42 @@ def load_structured_expert_config(path: Path) -> StructuredExpertConfig:
         families=_yaml_tuple(
             raw["families"], name="families", check=lambda item: _require_str(item, name="family")
         ),
-        samples_per_family=raw["samples_per_family"],
-        interception_lead_seconds=_pair(
-            raw["interception_lead_seconds"], name="interception_lead_seconds"
+        prediction_lead_seconds=_pair(
+            raw["prediction_lead_seconds"], name="prediction_lead_seconds"
         ),
-        pregrasp_height_m=_pair(raw["pregrasp_height_m"], name="pregrasp_height_m"),
+        funnel_entry_height_m=_require_float(
+            raw["funnel_entry_height_m"], name="funnel_entry_height_m"
+        ),
+        high_arc_extra_height_m=_pair(
+            raw["high_arc_extra_height_m"], name="high_arc_extra_height_m"
+        ),
         lateral_offset_m=_pair(raw["lateral_offset_m"], name="lateral_offset_m"),
-        tracking_error_clip_m=_pair(raw["tracking_error_clip_m"], name="tracking_error_clip_m"),
-        close_dwell_ticks=_yaml_tuple(
-            raw["close_dwell_ticks"],
-            name="close_dwell_ticks",
-            check=lambda item: _require_int(item, name="close_dwell_ticks item"),
+        soft_guide_radius_m=_require_float(
+            raw["soft_guide_radius_m"], name="soft_guide_radius_m"
         ),
-        lift_lateral_offset_m=_pair(raw["lift_lateral_offset_m"], name="lift_lateral_offset_m"),
-        lift_vertical_offset_m=_pair(raw["lift_vertical_offset_m"], name="lift_vertical_offset_m"),
-        interception_tick_ranges=parsed_ranges,
+        tracking_error_clip_m=_pair(raw["tracking_error_clip_m"], name="tracking_error_clip_m"),
+        funnel_descent_ticks=_require_int(
+            raw["funnel_descent_ticks"], name="funnel_descent_ticks"
+        ),
+        funnel_entry_deadline_slack_ticks=_require_int(
+            raw["funnel_entry_deadline_slack_ticks"],
+            name="funnel_entry_deadline_slack_ticks",
+        ),
+        close_window_half_width_ticks=_require_int(
+            raw["close_window_half_width_ticks"], name="close_window_half_width_ticks"
+        ),
+        handoff_window_ticks=_require_int(
+            raw["handoff_window_ticks"], name="handoff_window_ticks"
+        ),
+        close_dwell_ticks=_require_int(raw["close_dwell_ticks"], name="close_dwell_ticks"),
+        bilateral_contact_acquisition_ticks=_require_int(
+            raw["bilateral_contact_acquisition_ticks"],
+            name="bilateral_contact_acquisition_ticks",
+        ),
+        lift_vertical_displacement_m=_require_float(
+            raw["lift_vertical_displacement_m"], name="lift_vertical_displacement_m"
+        ),
+        close_target_tick_ranges=parsed_ranges,
         fixed_orientation=raw["fixed_orientation"],
         rotation_action_variation=raw["rotation_action_variation"],
         iid_per_tick_action_noise=raw["iid_per_tick_action_noise"],
@@ -451,7 +495,7 @@ class FormalCorpusConfig:
     families: tuple[str, ...]
     family_allocation: str
     reserve_task_instance_count: int
-    require_complete_family_block: bool
+    require_complete_realization_block: bool
     split_unit: str
 
     def __post_init__(self) -> None:
@@ -466,8 +510,8 @@ class FormalCorpusConfig:
         for name in ("corpus_id", "family_allocation", "split_unit"):
             _require_str(getattr(self, name), name=name)
         _require_bool(
-            self.require_complete_family_block,
-            name="require_complete_family_block",
+            self.require_complete_realization_block,
+            name="require_complete_realization_block",
         )
         _tuple_of(
             self.levels,
@@ -497,12 +541,12 @@ class FormalCorpusConfig:
             raise ValueError("levels must be a non-empty unique subset of L1/L2/L3")
         if self.families != CANONICAL_FAMILIES:
             raise ValueError("families must equal the canonical structured family order")
-        if self.realizations_per_task < len(self.families):
-            raise ValueError("realizations_per_task must cover every formal family")
-        if self.family_allocation != "balanced_seeded":
-            raise ValueError("family_allocation must equal balanced_seeded")
-        if self.require_complete_family_block is not True:
-            raise ValueError("require_complete_family_block must be true")
+        if self.realizations_per_task <= 0:
+            raise ValueError("realizations_per_task must be positive")
+        if self.family_allocation != "iid_uniform_seeded":
+            raise ValueError("family_allocation must equal iid_uniform_seeded")
+        if self.require_complete_realization_block is not True:
+            raise ValueError("require_complete_realization_block must be true")
         if self.split_unit != "master_task_index":
             raise ValueError("split_unit must equal master_task_index")
 
@@ -539,7 +583,7 @@ class FormalCorpusConfig:
             "families": list(self.families),
             "family_allocation": self.family_allocation,
             "reserve_task_instance_count": self.reserve_task_instance_count,
-            "require_complete_family_block": self.require_complete_family_block,
+            "require_complete_realization_block": self.require_complete_realization_block,
             "split_unit": self.split_unit,
         }
 

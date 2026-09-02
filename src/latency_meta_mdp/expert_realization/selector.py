@@ -110,10 +110,12 @@ class FrozenTaskInstancePlanSet:
             raise TypeError("task_instance_id must be a TaskInstanceId")
         if type(self.candidate_set_sha256) is not str or len(self.candidate_set_sha256) != 64:
             raise ValueError("candidate_set_sha256 must be a SHA-256 digest")
-        fingerprints_are_complete = set(self.selected_candidate_fingerprints) == set(range(8))
-        references_are_complete = set(self.references) == set(range(8))
+        count = len(self.references)
+        expected_slots = set(range(count))
+        fingerprints_are_complete = set(self.selected_candidate_fingerprints) == expected_slots
+        references_are_complete = count > 0 and set(self.references) == expected_slots
         if not fingerprints_are_complete or not references_are_complete:
-            raise ValueError("frozen plan set must cover realization indices 0..7")
+            raise ValueError("frozen plan set must cover a positive contiguous realization range")
         object.__setattr__(
             self,
             "selected_candidate_fingerprints",
@@ -122,33 +124,21 @@ class FrozenTaskInstancePlanSet:
         object.__setattr__(self, "references", MappingProxyType(dict(self.references)))
 
 
-def _resample_reference(
+def _freeze_reference(
     candidate: PlannerCandidate,
     *,
     fixed_orientation_world: np.ndarray,
 ) -> SelectedReference:
-    end_time = float(candidate.timestamps_seconds[-1])
-    target_times = np.arange(0.0, end_time + 1.0e-12, 0.02, dtype=np.float64)
-    if target_times[-1] < end_time - 1.0e-12:
-        target_times = np.concatenate([target_times, np.array([end_time])])
-    qpos = np.stack(
-        [
-            np.interp(target_times, candidate.timestamps_seconds, candidate.qpos_path[:, index])
-            for index in range(7)
-        ],
-        axis=1,
-    )
-    eef = np.stack(
-        [
-            np.interp(
-                target_times,
-                candidate.timestamps_seconds,
-                candidate.eef_positions_world[:, index],
-            )
-            for index in range(3)
-        ],
-        axis=1,
-    )
+    if candidate.timestamps_seconds[0] != 0.0 or not np.allclose(
+        np.diff(candidate.timestamps_seconds),
+        0.02,
+        atol=1.0e-12,
+        rtol=0.0,
+    ):
+        raise ValueError("selected candidate must already be a strict 50 Hz smooth reference")
+    target_times = candidate.timestamps_seconds
+    qpos = candidate.qpos_path
+    eef = candidate.eef_positions_world
     digest = hashlib.sha256()
     digest.update(candidate.fingerprint.encode())
     for value in (target_times, qpos, eef, fixed_orientation_world):
@@ -176,8 +166,8 @@ def select_task_instance_plan_set(
         sorted(candidates_by_key, key=lambda item: item.realization_index)
     )
     if (
-        len(expected_keys) != 8
-        or [key.realization_index for key in expected_keys] != list(range(8))
+        not expected_keys
+        or [key.realization_index for key in expected_keys] != list(range(len(expected_keys)))
         or any(key.task_instance_id != task_instance.task_instance_id for key in expected_keys)
     ):
         raise ValueError("candidate map must cover the complete task-instance realization set")
@@ -227,7 +217,7 @@ def select_task_instance_plan_set(
         selected_paths.append(choice.eef_positions_world)
     orientation = task_instance.expected_anchor.anchor_eef_orientation_matrix_world
     references = {
-        index: _resample_reference(candidate, fixed_orientation_world=orientation)
+        index: _freeze_reference(candidate, fixed_orientation_world=orientation)
         for index, candidate in selected.items()
     }
     return FrozenTaskInstancePlanSet(

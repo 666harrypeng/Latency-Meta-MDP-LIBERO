@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -19,7 +21,7 @@ def _candidate(index: int = 0, *, key_index: int = 0, offset: float = 0.0):
     )
 
     key = _key(key_index)
-    timestamps = np.array([0.0, 0.1, 0.2], dtype=np.float64)
+    timestamps = np.array([0.0, 0.02, 0.04], dtype=np.float64)
     qpos = np.tile(np.arange(7, dtype=np.float64), (3, 1)) + offset
     eef = np.array([[0.0, 0.0, 1.0], [0.05, 0.0, 1.0], [0.1, 0.0, 1.0]]) + offset
     seed = planner_candidate_seed(key, index)
@@ -29,6 +31,7 @@ def _candidate(index: int = 0, *, key_index: int = 0, offset: float = 0.0):
         requested_seed=seed,
         effective_seed=seed,
         status=PlannerCandidateStatus.SUCCESS,
+        geometric_seed_qpos_path=np.array(qpos, copy=True),
         qpos_path=qpos,
         timestamps_seconds=timestamps,
         eef_positions_world=eef,
@@ -56,6 +59,7 @@ def test_candidate_seed_set_and_numeric_records_are_complete() -> None:
     for index, candidate in enumerate(candidates):
         assert candidate.candidate_index == index
         assert candidate.qpos_path.shape == (3, 7)
+        assert candidate.geometric_seed_qpos_path.shape == (3, 7)
         assert candidate.timestamps_seconds.shape == (3,)
         assert candidate.eef_positions_world.shape == (3, 3)
         assert len(candidate.fingerprint) == 64
@@ -228,3 +232,86 @@ def test_retimed_joint_path_must_still_respect_planning_limits() -> None:
             joint_velocity=velocity,
             joint_acceleration=acceleration,
         )
+
+
+def test_planner_request_serializes_curve_and_funnel_intent_not_hard_segments(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Break caught: the planner protocol still exposes an ordered stop-and-go plan."""
+    from expert_realization_test_support import (
+        make_detached_task_instance,
+        make_shared_prefix_anchor,
+        strategy_config_and_keys,
+    )
+    from test_expert_realization_robot_bridge import _bridge
+
+    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
+    from latency_meta_mdp.expert_realization.planner import write_planner_request
+    from latency_meta_mdp.expert_realization.strategy import sample_strategy
+    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+
+    monkeypatch.setattr(
+        MaterializedTaskInstance,
+        "validate_publication_consistency",
+        lambda self: None,
+    )
+    instance = make_detached_task_instance()
+    config, keys = strategy_config_and_keys(instance)
+    intent = build_trajectory_intent(
+        instance,
+        make_shared_prefix_anchor(),
+        sample_strategy(
+            instance,
+            keys[4],
+            config,
+            assigned_family=StrategyFamily.LATERAL_ARC,
+        ),
+    )
+    path = tmp_path / "request.json"
+    write_planner_request(
+        expert_realization_key=keys[4],
+        structured_expert_config_sha256=config.source_sha256,
+        candidate_index=0,
+        bridge=_bridge(),
+        intent=intent,
+        start_qpos=np.zeros(7, dtype=np.float64),
+        timeout_seconds=5.0,
+        path=path,
+    )
+    payload = json.loads(path.read_text())
+
+    assert "plan" not in payload
+    assert set(payload["intent"]) == {
+        "task_instance_id",
+        "family",
+        "reference_start_tick",
+        "funnel_entry_target_tick",
+        "funnel_entry_deadline_tick",
+        "time_scaling_profile",
+        "soft_guide_regions_world",
+        "soft_guide_radius_m",
+        "funnel_entry_position_world",
+        "funnel_entry_tangent_world",
+        "fixed_orientation_world",
+    }
+
+
+def test_worker_parser_preserves_empty_soft_guide_matrix_shape() -> None:
+    """Break caught: JSON [] is interpreted as shape [0] instead of an empty [0,3] matrix."""
+    from latency_meta_mdp.expert_realization.curobo_worker import _parse_approach_geometry
+
+    guides, radii, entry, tangent = _parse_approach_geometry(
+        {
+            "soft_guide_regions_world": [],
+            "soft_guide_radius_m": [],
+            "funnel_entry_position_world": [0.1, 0.2, 1.0],
+            "funnel_entry_tangent_world": [0.0, 0.0, -1.0],
+        }
+    )
+
+    assert guides.shape == (0, 3)
+    assert radii.shape == (0,)
+    assert entry.shape == (3,)
+    assert tangent.shape == (3,)

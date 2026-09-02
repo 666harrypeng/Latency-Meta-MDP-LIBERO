@@ -10,8 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def _structured_mapping() -> dict[str, object]:
     return {
-        "schema_version": 1,
-        "expert_id": "panda_ball_structured_v1",
+        "schema_version": 2,
+        "expert_id": "panda_ball_smooth_approach_funnel_v1",
         "action_contract_id": "panda_osc_pose_delta_v1",
         "decision_source_tick": 5,
         "shared_prefix_policy": "settle_open_hold_v1",
@@ -21,24 +21,29 @@ def _structured_mapping() -> dict[str, object]:
             "lateral_arc",
             "time_shifted_smooth",
         ],
-        "samples_per_family": 2,
-        "interception_lead_seconds": [0.14, 0.26],
-        "pregrasp_height_m": [0.08, 0.13],
-        "lateral_offset_m": [0.015, 0.04],
+        "prediction_lead_seconds": [0.14, 0.26],
+        "funnel_entry_height_m": 0.10,
+        "high_arc_extra_height_m": [0.025, 0.065],
+        "lateral_offset_m": [0.020, 0.060],
+        "soft_guide_radius_m": 0.020,
         "tracking_error_clip_m": [0.022, 0.038],
-        "close_dwell_ticks": [0, 1, 2, 3, 4],
-        "lift_lateral_offset_m": [0.0, 0.02],
-        "lift_vertical_offset_m": [0.14, 0.19],
-        "interception_tick_ranges": {
-            "canonical_direct": [75, 105],
-            "early_high_arc": [60, 85],
-            "lateral_arc": [75, 110],
-            "time_shifted_smooth": [100, 125],
+        "funnel_descent_ticks": 30,
+        "funnel_entry_deadline_slack_ticks": 25,
+        "close_window_half_width_ticks": 18,
+        "handoff_window_ticks": 50,
+        "close_dwell_ticks": 2,
+        "bilateral_contact_acquisition_ticks": 4,
+        "lift_vertical_displacement_m": 0.16,
+        "close_target_tick_ranges": {
+            "canonical_direct": [86, 100],
+            "early_high_arc": [80, 94],
+            "lateral_arc": [90, 104],
+            "time_shifted_smooth": [100, 112],
         },
         "fixed_orientation": True,
         "rotation_action_variation": False,
         "iid_per_tick_action_noise": False,
-        "subseed_tags": ["strategy", "keypose", "planner", "timing"],
+        "subseed_tags": ["strategy", "trajectory_intent", "planner", "timing"],
     }
 
 
@@ -131,19 +136,25 @@ def test_checked_in_configs_preserve_paired_pilot_and_exact_bounds() -> None:
         "lateral_arc",
         "time_shifted_smooth",
     )
-    assert structured.interception_tick_ranges == {
-        "canonical_direct": (75, 105),
-        "early_high_arc": (60, 85),
-        "lateral_arc": (75, 110),
-        "time_shifted_smooth": (100, 125),
+    assert structured.close_target_tick_ranges == {
+        "canonical_direct": (86, 100),
+        "early_high_arc": (80, 94),
+        "lateral_arc": (90, 104),
+        "time_shifted_smooth": (100, 112),
     }
-    assert structured.interception_lead_seconds == (0.14, 0.26)
-    assert structured.pregrasp_height_m == (0.08, 0.13)
-    assert structured.lateral_offset_m == (0.015, 0.04)
+    assert structured.prediction_lead_seconds == (0.14, 0.26)
+    assert structured.funnel_entry_height_m == 0.10
+    assert structured.high_arc_extra_height_m == (0.025, 0.065)
+    assert structured.lateral_offset_m == (0.02, 0.06)
+    assert structured.soft_guide_radius_m == 0.02
     assert structured.tracking_error_clip_m == (0.022, 0.038)
-    assert structured.close_dwell_ticks == (0, 1, 2, 3, 4)
-    assert structured.lift_lateral_offset_m == (0.0, 0.02)
-    assert structured.lift_vertical_offset_m == (0.14, 0.19)
+    assert structured.funnel_descent_ticks == 30
+    assert structured.funnel_entry_deadline_slack_ticks == 25
+    assert structured.close_window_half_width_ticks == 18
+    assert structured.handoff_window_ticks == 50
+    assert structured.close_dwell_ticks == 2
+    assert structured.bilateral_contact_acquisition_ticks == 4
+    assert structured.lift_vertical_displacement_m == 0.16
     assert curobo.planner_candidate_count == 8
     assert curobo.planner_invocation_timeout_seconds == 5.0
     assert pilot.seeds == tuple(range(4000, 4020))

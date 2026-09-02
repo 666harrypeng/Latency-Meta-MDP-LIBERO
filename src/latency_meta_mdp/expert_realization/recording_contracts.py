@@ -179,7 +179,10 @@ class StructuredEpisodeMetadata:
             or self.actuator_dim != 9
         ):
             raise ValueError("unsupported Panda action contract")
-        if self.expert_id != "panda_ball_structured_v1" or self.record_profile != "pilot_debug":
+        if (
+            self.expert_id != "panda_ball_smooth_approach_funnel_v1"
+            or self.record_profile != "pilot_debug"
+        ):
             raise ValueError("unsupported structured expert recording profile")
         _integer(self.camera_height, name="camera_height", minimum=1)
         _integer(self.camera_width, name="camera_width", minimum=1)

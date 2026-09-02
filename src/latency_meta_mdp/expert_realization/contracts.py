@@ -6,7 +6,6 @@ import hashlib
 import json
 import math
 import re
-from collections import Counter
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass
 from dataclasses import field as dataclass_field
@@ -190,48 +189,22 @@ def _family_assignments(
     structured_expert_config_sha256: str,
 ) -> tuple[FamilySlotAssignment, ...]:
     families = tuple(StrategyFamily(value) for value in config.families)
-    base_count, remainder = divmod(config.realizations_per_task, len(families))
-    extra_order = sorted(
-        families,
-        key=lambda family: (
-            _seed(
-                {
-                    "master_task_seed": task.master_task_seed,
-                    "structured_expert_config_sha256": structured_expert_config_sha256,
-                    "kind": "family_extra",
-                    "family": family.value,
-                }
-            ),
-            family.value,
-        ),
-    )
-    counts = {family: base_count for family in families}
-    for family in extra_order[:remainder]:
-        counts[family] += 1
-    pool = [
-        (family, occurrence)
-        for family in families
-        for occurrence in range(counts[family])
-    ]
-    ordered = sorted(
-        pool,
-        key=lambda item: (
-            _seed(
-                {
-                    "master_task_seed": task.master_task_seed,
-                    "structured_expert_config_sha256": structured_expert_config_sha256,
-                    "kind": "family_slot",
-                    "family": item[0].value,
-                    "occurrence": item[1],
-                }
-            ),
-            item[0].value,
-            item[1],
-        ),
-    )
     return tuple(
-        FamilySlotAssignment(realization_slot=slot, family=family)
-        for slot, (family, _occurrence) in enumerate(ordered)
+        FamilySlotAssignment(
+            realization_slot=slot,
+            family=families[
+                _seed(
+                    {
+                        "master_task_seed": task.master_task_seed,
+                        "structured_expert_config_sha256": structured_expert_config_sha256,
+                        "kind": "iid_uniform_family_slot",
+                        "realization_slot": slot,
+                    }
+                )
+                % len(families)
+            ],
+        )
+        for slot in range(config.realizations_per_task)
     )
 
 
@@ -281,7 +254,6 @@ class FormalRequestUniverse:
             raise ValueError("family assignment inventory does not match task universe")
         frozen_assignments: dict[int, tuple[FamilySlotAssignment, ...]] = {}
         expected_families = {StrategyFamily(value) for value in self.config.families}
-        base_count = self.config.realizations_per_task // len(expected_families)
         for task_index in sorted(expected_indices):
             rows = self.family_assignments[task_index]
             if type(rows) is not tuple or any(
@@ -292,11 +264,8 @@ class FormalRequestUniverse:
                 range(self.config.realizations_per_task)
             ):
                 raise ValueError("family assignment slots are incomplete or out of order")
-            counts = Counter(row.family for row in rows)
-            if set(counts) != expected_families or any(
-                count not in (base_count, base_count + 1) for count in counts.values()
-            ):
-                raise ValueError("family assignments are not balanced")
+            if any(row.family not in expected_families for row in rows):
+                raise ValueError("family assignment contains an unknown strategy family")
             frozen_assignments[task_index] = rows
         object.__setattr__(
             self,
@@ -843,16 +812,21 @@ def _draw_int(seed: int, *, field: str, bounds: tuple[int, int]) -> int:
 @dataclass(frozen=True)
 class StrategyParameters:
     family: StrategyFamily
-    interception_tick: int
-    interception_lead_seconds: float
-    pregrasp_height_m: float
+    close_target_tick: int
+    prediction_lead_seconds: float
+    funnel_entry_height_m: float
+    high_arc_extra_height_m: float | None
     lateral_offset_m: float | None
     lateral_direction_sign: int | None
+    soft_guide_radius_m: float
     tracking_error_clip_m: float
+    funnel_descent_ticks: int
+    funnel_entry_deadline_slack_ticks: int
+    close_window_half_width_ticks: int
+    handoff_window_ticks: int
     close_dwell_ticks: int
-    lift_lateral_offset_m: float
-    lift_lateral_direction_sign: int
-    lift_vertical_offset_m: float
+    bilateral_contact_acquisition_ticks: int
+    lift_vertical_displacement_m: float
     fixed_orientation: bool
     rotation_action_variation: bool
     iid_per_tick_action_noise: bool
@@ -863,23 +837,20 @@ class StrategyParameters:
             raise TypeError("config must be a StructuredExpertConfig")
         if not isinstance(self.family, StrategyFamily):
             raise TypeError("family must be a StrategyFamily")
-        if type(self.interception_tick) is not int:
-            raise ValueError("interception_tick must be an integer")
+        if type(self.close_target_tick) is not int:
+            raise ValueError("close_target_tick must be an integer")
         if (
-            not config.interception_tick_ranges[self.family.value][0]
-            <= self.interception_tick
-            <= config.interception_tick_ranges[self.family.value][1]
+            not config.close_target_tick_ranges[self.family.value][0]
+            <= self.close_target_tick
+            <= config.close_target_tick_ranges[self.family.value][1]
         ):
-            raise ValueError("interception_tick is outside the family-specific range")
+            raise ValueError("close_target_tick is outside the family-specific range")
         values = {
-            "interception_lead_seconds": (
-                self.interception_lead_seconds,
-                config.interception_lead_seconds,
+            "prediction_lead_seconds": (
+                self.prediction_lead_seconds,
+                config.prediction_lead_seconds,
             ),
-            "pregrasp_height_m": (self.pregrasp_height_m, config.pregrasp_height_m),
             "tracking_error_clip_m": (self.tracking_error_clip_m, config.tracking_error_clip_m),
-            "lift_lateral_offset_m": (self.lift_lateral_offset_m, config.lift_lateral_offset_m),
-            "lift_vertical_offset_m": (self.lift_vertical_offset_m, config.lift_vertical_offset_m),
         }
         for name, (value, bounds) in values.items():
             if (
@@ -888,6 +859,16 @@ class StrategyParameters:
                 or not bounds[0] <= value <= bounds[1]
             ):
                 raise ValueError(f"{name} is outside the structured expert bounds")
+        if self.family is StrategyFamily.EARLY_HIGH_ARC:
+            if (
+                type(self.high_arc_extra_height_m) is not float
+                or not config.high_arc_extra_height_m[0]
+                <= self.high_arc_extra_height_m
+                <= config.high_arc_extra_height_m[1]
+            ):
+                raise ValueError("early_high_arc requires a bounded extra height")
+        elif self.high_arc_extra_height_m is not None:
+            raise ValueError("only early_high_arc may have an extra height")
         if self.family is StrategyFamily.LATERAL_ARC and self.lateral_offset_m is None:
             raise ValueError("lateral_arc requires a lateral offset")
         if self.family is not StrategyFamily.LATERAL_ARC and self.lateral_offset_m is not None:
@@ -903,15 +884,20 @@ class StrategyParameters:
                 raise ValueError("lateral_arc requires a signed lateral direction")
         elif self.lateral_direction_sign is not None:
             raise ValueError("only lateral_arc may have a lateral direction sign")
-        if (
-            type(self.close_dwell_ticks) is not int
-            or self.close_dwell_ticks not in config.close_dwell_ticks
-        ):
-            raise ValueError("close_dwell_ticks is outside the structured expert choices")
-        if type(self.lift_lateral_direction_sign) is not int or (
-            self.lift_lateral_direction_sign not in (-1, 1)
-        ):
-            raise ValueError("lift_lateral_direction_sign must be -1 or +1")
+        canonical_values = {
+            "funnel_entry_height_m": config.funnel_entry_height_m,
+            "soft_guide_radius_m": config.soft_guide_radius_m,
+            "funnel_descent_ticks": config.funnel_descent_ticks,
+            "funnel_entry_deadline_slack_ticks": config.funnel_entry_deadline_slack_ticks,
+            "close_window_half_width_ticks": config.close_window_half_width_ticks,
+            "handoff_window_ticks": config.handoff_window_ticks,
+            "close_dwell_ticks": config.close_dwell_ticks,
+            "bilateral_contact_acquisition_ticks": config.bilateral_contact_acquisition_ticks,
+            "lift_vertical_displacement_m": config.lift_vertical_displacement_m,
+        }
+        for name, expected in canonical_values.items():
+            if getattr(self, name) != expected:
+                raise ValueError(f"{name} must equal the canonical grasp-funnel config")
         if (
             type(self.fixed_orientation) is not bool
             or type(self.rotation_action_variation) is not bool
@@ -925,16 +911,21 @@ class StrategyParameters:
     def to_mapping(self) -> dict[str, Any]:
         return {
             "family": self.family.value,
-            "interception_tick": self.interception_tick,
-            "interception_lead_seconds": self.interception_lead_seconds,
-            "pregrasp_height_m": self.pregrasp_height_m,
+            "close_target_tick": self.close_target_tick,
+            "prediction_lead_seconds": self.prediction_lead_seconds,
+            "funnel_entry_height_m": self.funnel_entry_height_m,
+            "high_arc_extra_height_m": self.high_arc_extra_height_m,
             "lateral_offset_m": self.lateral_offset_m,
             "lateral_direction_sign": self.lateral_direction_sign,
+            "soft_guide_radius_m": self.soft_guide_radius_m,
             "tracking_error_clip_m": self.tracking_error_clip_m,
+            "funnel_descent_ticks": self.funnel_descent_ticks,
+            "funnel_entry_deadline_slack_ticks": self.funnel_entry_deadline_slack_ticks,
+            "close_window_half_width_ticks": self.close_window_half_width_ticks,
+            "handoff_window_ticks": self.handoff_window_ticks,
             "close_dwell_ticks": self.close_dwell_ticks,
-            "lift_lateral_offset_m": self.lift_lateral_offset_m,
-            "lift_lateral_direction_sign": self.lift_lateral_direction_sign,
-            "lift_vertical_offset_m": self.lift_vertical_offset_m,
+            "bilateral_contact_acquisition_ticks": self.bilateral_contact_acquisition_ticks,
+            "lift_vertical_displacement_m": self.lift_vertical_displacement_m,
             "fixed_orientation": self.fixed_orientation,
             "rotation_action_variation": self.rotation_action_variation,
             "iid_per_tick_action_noise": self.iid_per_tick_action_noise,
@@ -948,7 +939,7 @@ def sample_strategy_parameters(
         raise TypeError("config must be a StructuredExpertConfig")
     family_value = StrategyFamily(family)
     strategy_seed = derive_subseed(realization_seed, "strategy")
-    keypose_seed = derive_subseed(realization_seed, "keypose")
+    trajectory_intent_seed = derive_subseed(realization_seed, "trajectory_intent")
     timing_seed = derive_subseed(realization_seed, "timing")
     lateral_offset = (
         _draw_uniform(strategy_seed, field="lateral_offset_m", bounds=config.lateral_offset_m)
@@ -957,53 +948,49 @@ def sample_strategy_parameters(
     )
     lateral_direction_sign = (
         -1
-        if _seed({"field": "lateral_direction_sign", "seed": keypose_seed}) % 2 == 0
+        if _seed({"field": "lateral_direction_sign", "seed": trajectory_intent_seed}) % 2 == 0
         else 1
     )
-    lift_lateral_direction_sign = (
-        -1
-        if _seed({"field": "lift_lateral_direction_sign", "seed": keypose_seed}) % 2 == 0
-        else 1
+    high_arc_extra_height = (
+        _draw_uniform(
+            trajectory_intent_seed,
+            field="high_arc_extra_height_m",
+            bounds=config.high_arc_extra_height_m,
+        )
+        if family_value is StrategyFamily.EARLY_HIGH_ARC
+        else None
     )
     return StrategyParameters(
         family=family_value,
-        interception_tick=_draw_int(
+        close_target_tick=_draw_int(
+            timing_seed,
+            field="close_target_tick",
+            bounds=config.close_target_tick_ranges[family_value.value],
+        ),
+        prediction_lead_seconds=_draw_uniform(
             strategy_seed,
-            field="interception_tick",
-            bounds=config.interception_tick_ranges[family_value.value],
+            field="prediction_lead_seconds",
+            bounds=config.prediction_lead_seconds,
         ),
-        interception_lead_seconds=_draw_uniform(
-            strategy_seed,
-            field="interception_lead_seconds",
-            bounds=config.interception_lead_seconds,
-        ),
-        pregrasp_height_m=_draw_uniform(
-            strategy_seed, field="pregrasp_height_m", bounds=config.pregrasp_height_m
-        ),
+        funnel_entry_height_m=config.funnel_entry_height_m,
+        high_arc_extra_height_m=high_arc_extra_height,
         lateral_offset_m=lateral_offset,
         lateral_direction_sign=(
             lateral_direction_sign if family_value is StrategyFamily.LATERAL_ARC else None
         ),
+        soft_guide_radius_m=config.soft_guide_radius_m,
         tracking_error_clip_m=_draw_uniform(
             strategy_seed,
             field="tracking_error_clip_m",
             bounds=config.tracking_error_clip_m,
         ),
-        close_dwell_ticks=config.close_dwell_ticks[
-            _seed({"field": "close_dwell_ticks", "seed": timing_seed})
-            % len(config.close_dwell_ticks)
-        ],
-        lift_lateral_offset_m=_draw_uniform(
-            strategy_seed,
-            field="lift_lateral_offset_m",
-            bounds=config.lift_lateral_offset_m,
-        ),
-        lift_lateral_direction_sign=lift_lateral_direction_sign,
-        lift_vertical_offset_m=_draw_uniform(
-            strategy_seed,
-            field="lift_vertical_offset_m",
-            bounds=config.lift_vertical_offset_m,
-        ),
+        funnel_descent_ticks=config.funnel_descent_ticks,
+        funnel_entry_deadline_slack_ticks=config.funnel_entry_deadline_slack_ticks,
+        close_window_half_width_ticks=config.close_window_half_width_ticks,
+        handoff_window_ticks=config.handoff_window_ticks,
+        close_dwell_ticks=config.close_dwell_ticks,
+        bilateral_contact_acquisition_ticks=config.bilateral_contact_acquisition_ticks,
+        lift_vertical_displacement_m=config.lift_vertical_displacement_m,
         fixed_orientation=config.fixed_orientation,
         rotation_action_variation=config.rotation_action_variation,
         iid_per_tick_action_noise=config.iid_per_tick_action_noise,

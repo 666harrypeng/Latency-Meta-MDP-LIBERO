@@ -65,7 +65,7 @@ def test_seed_derivation_has_hand_checked_stable_tagged_values() -> None:
 
     assert seed == 13654647031461270349
     assert derive_subseed(seed, "strategy") == 5825351470875554942
-    assert derive_subseed(seed, "keypose") == 8183826265360930875
+    assert derive_subseed(seed, "trajectory_intent") == 5583200187228458480
     assert derive_subseed(seed, "planner") == 13716612849502852106
     assert derive_subseed(seed, "timing") == 12676960786737496095
 
@@ -80,7 +80,7 @@ def test_subseeds_are_tag_independent_and_worker_order_independent() -> None:
     first = ExpertRealizationKey(task, 0, SHA_C)
     second = ExpertRealizationKey(task, 1, SHA_C)
 
-    assert first.subseeds()["strategy"] != first.subseeds()["keypose"]
+    assert first.subseeds()["strategy"] != first.subseeds()["trajectory_intent"]
     assert [key.subseeds() for key in (first, second)] == [
         key.subseeds() for key in (second, first)
     ][::-1]
@@ -103,11 +103,10 @@ def test_strategy_sampling_is_not_affected_by_process_global_rng_state() -> None
     )
 
     assert after == before
-    assert 75 <= before.interception_tick <= 110
-    assert 0.14 <= before.interception_lead_seconds <= 0.26
-    assert 0.08 <= before.pregrasp_height_m <= 0.13
+    assert 90 <= before.close_target_tick <= 104
+    assert 0.14 <= before.prediction_lead_seconds <= 0.26
     assert before.lateral_offset_m is not None
-    assert 0.015 <= before.lateral_offset_m <= 0.04
+    assert 0.02 <= before.lateral_offset_m <= 0.06
     assert before.to_mapping()["family"] == "lateral_arc"
 
 
@@ -325,20 +324,17 @@ def _hand_dwell_choice(realization_seed: int, tag: str) -> int:
     return int.from_bytes(hashlib.sha256(dwell_payload).digest()[:8], "big") % 5
 
 
-def test_close_dwell_uses_the_hand_derived_timing_subseed() -> None:
-    """Break caught: a timing-owned dwell choice is coupled to the strategy random stream."""
+def test_close_target_uses_the_timing_subseed_while_close_dwell_is_canonical() -> None:
+    """Break caught: capture timing and canonical grasp semantics share one random variable."""
     from latency_meta_mdp.expert_realization.contracts import sample_strategy_parameters
 
-    strategy_dwell = _hand_dwell_choice(0, "strategy")
-    timing_dwell = _hand_dwell_choice(0, "timing")
     parameters = sample_strategy_parameters(
         _structured_config(), family="canonical_direct", realization_seed=0
     )
 
-    assert strategy_dwell == 2
-    assert timing_dwell == 1
-    assert parameters.close_dwell_ticks == timing_dwell
-    assert parameters.close_dwell_ticks != strategy_dwell
+    assert parameters.close_target_tick == 91
+    assert parameters.close_dwell_ticks == 2
+    assert parameters.bilateral_contact_acquisition_ticks == 4
 
 
 def test_direct_strategy_parameters_must_obey_the_bound_config() -> None:
@@ -349,16 +345,21 @@ def test_direct_strategy_parameters_must_obey_the_bound_config() -> None:
     with pytest.raises(ValueError):
         StrategyParameters(
             family=StrategyFamily.CANONICAL_DIRECT,
-            interception_tick=-999,
-            interception_lead_seconds=-1.0,
-            pregrasp_height_m=9.0,
+            close_target_tick=-999,
+            prediction_lead_seconds=-1.0,
+            funnel_entry_height_m=9.0,
+            high_arc_extra_height_m=9.0,
             lateral_offset_m=None,
             lateral_direction_sign=None,
+            soft_guide_radius_m=9.0,
             tracking_error_clip_m=9.0,
+            funnel_descent_ticks=999,
+            funnel_entry_deadline_slack_ticks=999,
+            close_window_half_width_ticks=999,
+            handoff_window_ticks=999,
             close_dwell_ticks=999,
-            lift_lateral_offset_m=9.0,
-            lift_lateral_direction_sign=0,
-            lift_vertical_offset_m=9.0,
+            bilateral_contact_acquisition_ticks=999,
+            lift_vertical_displacement_m=9.0,
             fixed_orientation=False,
             rotation_action_variation=True,
             iid_per_tick_action_noise=True,

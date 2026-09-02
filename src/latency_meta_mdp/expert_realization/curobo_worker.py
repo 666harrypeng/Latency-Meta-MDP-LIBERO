@@ -110,6 +110,36 @@ def _eef_positions_world(robot: object, bridge: object, qpos_path: np.ndarray) -
     return np.stack([(base_world @ matrix @ hand_tcp)[:3, 3] for matrix in matrices])
 
 
+def _parse_approach_geometry(
+    intent: dict[str, object],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    raw_guides = intent["soft_guide_regions_world"]
+    if type(raw_guides) is not list:
+        raise ValueError("soft approach guides must be a JSON list")
+    guides = np.asarray(raw_guides, dtype=np.float64)
+    if not raw_guides:
+        guides = np.empty((0, 3), dtype=np.float64)
+    guide_radii = np.asarray(intent["soft_guide_radius_m"], dtype=np.float64)
+    entry = np.asarray(intent["funnel_entry_position_world"], dtype=np.float64)
+    entry_tangent = np.asarray(intent["funnel_entry_tangent_world"], dtype=np.float64)
+    if (
+        guides.ndim != 2
+        or guides.shape[1:] != (3,)
+        or guide_radii.shape != (len(guides),)
+        or len(guides) > 2
+        or entry.shape != (3,)
+        or entry_tangent.shape != (3,)
+        or not np.all(np.isfinite(guides))
+        or not np.all(np.isfinite(guide_radii))
+        or not np.all(np.isfinite(entry))
+        or not np.all(np.isfinite(entry_tangent))
+        or np.any(guide_radii <= 0.0)
+        or not np.isclose(np.linalg.norm(entry_tangent), 1.0, atol=1.0e-9)
+    ):
+        raise ValueError("planner request approach geometry is invalid")
+    return guides, guide_radii, entry, entry_tangent
+
+
 def run_planner_request(request_path: Path, result_root: Path) -> None:
     import torch
     from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
@@ -120,11 +150,10 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
     from latency_meta_mdp.expert_realization.planner import (
         PlannerCandidate,
         PlannerCandidateStatus,
-        schedule_candidate_timestamps,
-        validate_scheduled_joint_path,
         write_single_candidate_result,
     )
     from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
+    from latency_meta_mdp.expert_realization.trajectory_smoothing import smooth_joint_approach
 
     raw = json.loads(Path(request_path).read_text())
     expected_fields = {
@@ -135,14 +164,14 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
         "candidate_index",
         "requested_seed",
         "bridge",
-        "plan",
+        "intent",
         "start_qpos",
         "timeout_seconds",
     }
     if type(raw) is not dict or set(raw) != expected_fields:
         raise ValueError("planner request fields are invalid")
     if type(raw["schema_version"]) is not int or raw["schema_version"] != 1 or (
-        raw["format_id"] != "structured_expert_planner_request_v1"
+        raw["format_id"] != "smooth_approach_planner_request_v1"
     ):
         raise ValueError("planner request format is invalid")
     bridge = PandaPlanningBridge.from_mapping(raw["bridge"])
@@ -162,29 +191,35 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
     torch.manual_seed(effective_seed)
     timeout_seconds = raw["timeout_seconds"]
     start_qpos = np.asarray(raw["start_qpos"], dtype=np.float64)
-    plan = raw["plan"]
-    expected_plan_fields = {
+    intent = raw["intent"]
+    expected_intent_fields = {
         "task_instance_id",
         "family",
-        "interception_tick",
-        "pregrasp_arrival_tick",
         "reference_start_tick",
+        "funnel_entry_target_tick",
+        "funnel_entry_deadline_tick",
         "time_scaling_profile",
-        "guide_positions_world",
-        "pregrasp_position_world",
+        "soft_guide_regions_world",
+        "soft_guide_radius_m",
+        "funnel_entry_position_world",
+        "funnel_entry_tangent_world",
         "fixed_orientation_world",
     }
-    if type(plan) is not dict or set(plan) != expected_plan_fields:
-        raise ValueError("planner request plan fields are invalid")
+    if type(intent) is not dict or set(intent) != expected_intent_fields:
+        raise ValueError("planner request intent fields are invalid")
     if (
-        type(plan["reference_start_tick"]) is not int
-        or plan["reference_start_tick"] != 5
-        or type(plan["pregrasp_arrival_tick"]) is not int
-        or plan["pregrasp_arrival_tick"] <= plan["reference_start_tick"]
+        type(intent["reference_start_tick"]) is not int
+        or intent["reference_start_tick"] != 5
+        or type(intent["funnel_entry_target_tick"]) is not int
+        or intent["funnel_entry_target_tick"] <= intent["reference_start_tick"]
+        or type(intent["funnel_entry_deadline_tick"]) is not int
+        or intent["funnel_entry_deadline_tick"] < intent["funnel_entry_target_tick"]
     ):
         raise ValueError("planner request arrival schedule is invalid")
-    targets = [*plan["guide_positions_world"], plan["pregrasp_position_world"]]
-    fixed_rotation = np.asarray(plan["fixed_orientation_world"], dtype=np.float64)
+    guides, guide_radii, entry, entry_tangent = _parse_approach_geometry(intent)
+    terminal_tangent_guide = entry - 0.04 * entry_tangent
+    targets = [*guides, terminal_tangent_guide, entry]
+    fixed_rotation = np.asarray(intent["fixed_orientation_world"], dtype=np.float64)
     scene = {
         "cuboid": {
             "table": {
@@ -210,8 +245,6 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
     )
     planner.warmup(enable_graph=False, num_warmup_iterations=1)
     all_qpos: list[np.ndarray] = []
-    all_timestamps: list[np.ndarray] = []
-    elapsed_offset = 0.0
     costs, position_errors, rotation_errors = [], [], []
     current = start_qpos
     failure_reason = None
@@ -242,14 +275,9 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
             break
         interpolated = result.get_interpolated_plan()
         segment = interpolated.position[0, 0, :, :7].detach().cpu().numpy().astype(np.float64)
-        dt = float(interpolated.dt.reshape(-1)[0].detach().cpu())
-        timestamps = elapsed_offset + np.arange(len(segment), dtype=np.float64) * dt
         if all_qpos:
             segment = segment[1:]
-            timestamps = timestamps[1:]
         all_qpos.append(segment)
-        all_timestamps.append(timestamps)
-        elapsed_offset = float(timestamps[-1])
         current = segment[-1]
         costs.append(float(result.seed_cost.reshape(-1)[0].detach().cpu()))
         position_errors.append(float(result.position_error.reshape(-1)[0].detach().cpu()))
@@ -257,28 +285,36 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
             float(np.degrees(result.rotation_error.reshape(-1)[0].detach().cpu()))
         )
     planning_time = time.perf_counter() - started
-    qpos_path = None
-    scheduled_timestamps = None
+    geometric_seed_qpos_path = None
+    smoothed = None
+    eef = None
     if failure_reason is None:
-        qpos_path = np.concatenate(all_qpos, axis=0)
-        raw_timestamps = np.concatenate(all_timestamps, axis=0)
+        geometric_seed_qpos_path = np.concatenate(all_qpos, axis=0)
         arrival_duration = (
-            plan["pregrasp_arrival_tick"] - plan["reference_start_tick"]
+            intent["funnel_entry_target_tick"] - intent["reference_start_tick"]
         ) * 0.02
         try:
-            scheduled_timestamps = schedule_candidate_timestamps(
-                raw_timestamps,
-                arrival_duration_seconds=float(arrival_duration),
-                time_scaling_profile=plan["time_scaling_profile"],
-            )
-            validate_scheduled_joint_path(
-                qpos_path,
-                scheduled_timestamps,
+            smoothed = smooth_joint_approach(
+                geometric_seed_qpos_path,
+                duration_seconds=float(arrival_duration),
+                sample_period_seconds=0.02,
                 joint_lower=bridge.joint_lower,
                 joint_upper=bridge.joint_upper,
                 joint_velocity=bridge.joint_velocity,
                 joint_acceleration=bridge.joint_acceleration,
             )
+            eef = _eef_positions_world(planner, bridge, smoothed.qpos)
+            for guide, radius in zip(guides, guide_radii, strict=True):
+                if float(np.linalg.norm(eef - guide, axis=1).min()) > float(radius):
+                    raise ValueError("smoothed path misses a soft approach guide")
+            if float(np.linalg.norm(eef[-1] - entry)) > 0.005:
+                raise ValueError("smoothed path misses the funnel entry")
+            terminal_delta = eef[-1] - eef[-2]
+            terminal_norm = float(np.linalg.norm(terminal_delta))
+            if terminal_norm <= 1.0e-9 or float(
+                np.dot(terminal_delta / terminal_norm, entry_tangent)
+            ) < 0.75:
+                raise ValueError("smoothed path misses the funnel-entry tangent")
         except ValueError as error:
             failure_reason = str(error)
     if failure_reason is not None:
@@ -302,16 +338,16 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
             planning_time_seconds=planning_time,
         )
     else:
-        assert qpos_path is not None and scheduled_timestamps is not None
-        eef = _eef_positions_world(planner, bridge, qpos_path)
+        assert geometric_seed_qpos_path is not None and smoothed is not None and eef is not None
         candidate = PlannerCandidate(
             expert_realization_key=key,
             candidate_index=index,
             requested_seed=requested_seed,
             effective_seed=effective_seed,
             status=PlannerCandidateStatus.SUCCESS,
-            qpos_path=qpos_path,
-            timestamps_seconds=scheduled_timestamps,
+            geometric_seed_qpos_path=geometric_seed_qpos_path,
+            qpos_path=smoothed.qpos,
+            timestamps_seconds=smoothed.timestamps_seconds,
             eef_positions_world=eef,
             eef_path_length_m=float(np.linalg.norm(np.diff(eef, axis=0), axis=1).sum()),
             certified_clearance_lower_bound_m=0.0,

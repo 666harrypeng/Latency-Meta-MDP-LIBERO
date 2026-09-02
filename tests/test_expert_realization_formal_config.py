@@ -22,9 +22,9 @@ def _valid_mapping() -> dict[str, object]:
             "lateral_arc",
             "time_shifted_smooth",
         ],
-        "family_allocation": "balanced_seeded",
+        "family_allocation": "iid_uniform_seeded",
         "reserve_task_instance_count": 20,
-        "require_complete_family_block": True,
+        "require_complete_realization_block": True,
         "split_unit": "master_task_index",
     }
 
@@ -69,6 +69,18 @@ def test_formal_scale_dimensions_are_independent_and_zero_reserve_is_valid(
     assert config.primary_trajectory_count == 600
 
 
+def test_three_realizations_per_task_is_a_valid_general_request(tmp_path: Path) -> None:
+    """Break caught: collection cardinality is incorrectly tied to strategy-family count."""
+    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+
+    mapping = _valid_mapping()
+    mapping.update(task_instance_count=3, realizations_per_task=3, reserve_task_instance_count=0)
+    config = load_formal_corpus_config(_write(tmp_path, mapping))
+
+    assert config.trajectories_per_level == 9
+    assert config.primary_trajectory_count == 27
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -92,9 +104,12 @@ def test_formal_scale_dimensions_are_independent_and_zero_reserve_is_valid(
             ),
             "families",
         ),
-        (lambda row: row.update(realizations_per_task=3), "realizations_per_task"),
-        (lambda row: row.update(family_allocation="iid"), "family_allocation"),
-        (lambda row: row.update(require_complete_family_block=False), "complete_family"),
+        (lambda row: row.update(realizations_per_task=0), "realizations_per_task"),
+        (lambda row: row.update(family_allocation="balanced_seeded"), "family_allocation"),
+        (
+            lambda row: row.update(require_complete_realization_block=False),
+            "complete_realization",
+        ),
         (lambda row: row.update(split_unit="trajectory"), "split_unit"),
     ],
 )

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -67,8 +66,8 @@ def test_formal_request_universe_round_trip_rejects_mapping_corruption() -> None
         FormalRequestUniverse.from_mapping(missing)
 
 
-def test_hidden_family_allocation_is_balanced_and_task_permuted() -> None:
-    """Break caught: all tasks expose one fixed family-to-slot order or omit a mode."""
+def test_hidden_family_allocation_is_independent_uniform_and_allows_repeated_modes() -> None:
+    """Break caught: each task is forced into a family quota, not sampled behavior."""
     from latency_meta_mdp.expert_realization.contracts import StrategyFamily
 
     universe = _build()
@@ -76,27 +75,23 @@ def test_hidden_family_allocation_is_balanced_and_task_permuted() -> None:
     assignments1 = universe.family_assignments[1]
 
     assert [row.realization_slot for row in assignments0] == list(range(4))
-    assert Counter(row.family for row in assignments0) == Counter(StrategyFamily)
-    assert Counter(row.family for row in assignments1) == Counter(StrategyFamily)
-    observed_orders = {
-        tuple(row.family for row in universe.family_assignments[index])
-        for index in range(10)
-    }
-    assert len(observed_orders) > 1
+    assert tuple(row.family for row in assignments1) != tuple(row.family for row in assignments0)
+    assert any(
+        len({row.family for row in rows}) < len(rows)
+        for rows in universe.family_assignments.values()
+    )
+    assert {row.family for rows in universe.family_assignments.values() for row in rows} == set(
+        StrategyFamily
+    )
 
-    six = replace(
+    three = replace(
         load_formal_corpus_config(FORMAL_CONFIG),
         task_instance_count=2,
-        realizations_per_task=6,
+        realizations_per_task=3,
         reserve_task_instance_count=0,
     )
-    six_universe = _build(six)
-    assert sorted(Counter(row.family for row in six_universe.family_assignments[0]).values()) == [
-        1,
-        1,
-        2,
-        2,
-    ]
+    three_universe = _build(three)
+    assert all(len(rows) == 3 for rows in three_universe.family_assignments.values())
 
 
 def test_formal_realization_requests_bind_task_family_namespace_and_unique_seed() -> None:

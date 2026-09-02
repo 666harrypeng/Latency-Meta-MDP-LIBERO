@@ -18,8 +18,8 @@ from latency_meta_mdp.expert_realization.contracts import (
     ExpertRealizationKey,
     derive_subseed,
 )
-from latency_meta_mdp.expert_realization.keyposes import InterceptionPlan
 from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
+from latency_meta_mdp.expert_realization.trajectory_intent import PlannedMotionIntent
 
 
 class PlannerCandidateStatus(str, Enum):
@@ -194,6 +194,7 @@ class PlannerCandidate:
     requested_seed: int
     effective_seed: int
     status: PlannerCandidateStatus
+    geometric_seed_qpos_path: np.ndarray
     qpos_path: np.ndarray
     timestamps_seconds: np.ndarray
     eef_positions_world: np.ndarray
@@ -225,6 +226,11 @@ class PlannerCandidate:
         except ValueError as error:
             raise ValueError("unknown planner candidate status") from error
         object.__setattr__(self, "status", status)
+        geometric_seed = _array(
+            self.geometric_seed_qpos_path,
+            shape_tail=(7,),
+            name="geometric_seed_qpos_path",
+        )
         qpos = _array(self.qpos_path, shape_tail=(7,), name="qpos_path")
         eef = _array(self.eef_positions_world, shape_tail=(3,), name="eef_positions_world")
         timestamps = np.asarray(self.timestamps_seconds)
@@ -236,6 +242,7 @@ class PlannerCandidate:
             raise ValueError("timestamps_seconds must be finite float64[N]")
         timestamps = np.array(timestamps, copy=True)
         timestamps.setflags(write=False)
+        object.__setattr__(self, "geometric_seed_qpos_path", geometric_seed)
         object.__setattr__(self, "qpos_path", qpos)
         object.__setattr__(self, "eef_positions_world", eef)
         object.__setattr__(self, "timestamps_seconds", timestamps)
@@ -255,7 +262,12 @@ class PlannerCandidate:
         if self.deterministic_replay_verified not in (None, True, False):
             raise TypeError("deterministic_replay_verified must be bool or None")
         if status is PlannerCandidateStatus.SUCCESS:
-            if len(qpos) < 2 or len(qpos) != len(eef) or len(qpos) != len(timestamps):
+            if (
+                len(geometric_seed) < 2
+                or len(qpos) < 2
+                or len(qpos) != len(eef)
+                or len(qpos) != len(timestamps)
+            ):
                 raise ValueError("successful candidate arrays must be aligned and nonempty")
             if timestamps[0] != 0.0 or np.any(np.diff(timestamps) <= 0):
                 raise ValueError("candidate timestamps must start at zero and increase")
@@ -265,20 +277,23 @@ class PlannerCandidate:
             if not np.isclose(measured_length, self.eef_path_length_m, atol=1e-9, rtol=0.0):
                 raise ValueError("eef_path_length_m does not match numerical path")
         else:
-            if len(qpos) or len(eef) or len(timestamps):
+            if len(geometric_seed) or len(qpos) or len(eef) or len(timestamps):
                 raise ValueError("failed candidate cannot carry numerical path arrays")
             if type(self.failure_reason) is not str or not self.failure_reason:
                 raise ValueError("failed candidate requires failure_reason")
         trajectory_values = self.trajectory_mapping()
         trajectory_fingerprint = _candidate_fingerprint(
             trajectory_values,
-            (qpos, timestamps, eef),
+            (geometric_seed, qpos, timestamps, eef),
         )
         object.__setattr__(self, "trajectory_fingerprint", trajectory_fingerprint)
         object.__setattr__(
             self,
             "fingerprint",
-            _candidate_fingerprint(self.metadata_mapping(), (qpos, timestamps, eef)),
+            _candidate_fingerprint(
+                self.metadata_mapping(),
+                (geometric_seed, qpos, timestamps, eef),
+            ),
         )
 
     def trajectory_mapping(self) -> dict[str, Any]:
@@ -310,6 +325,7 @@ class PlannerCandidate:
             **self.metadata_mapping(),
             "expert_realization_key": self.expert_realization_key,
             "status": self.status,
+            "geometric_seed_qpos_path": self.geometric_seed_qpos_path,
             "qpos_path": self.qpos_path,
             "timestamps_seconds": self.timestamps_seconds,
             "eef_positions_world": self.eef_positions_world,
@@ -322,7 +338,12 @@ class PlannerCandidate:
             return False
         return self.metadata_mapping() == other.metadata_mapping() and all(
             np.array_equal(getattr(self, name), getattr(other, name))
-            for name in ("qpos_path", "timestamps_seconds", "eef_positions_world")
+            for name in (
+                "geometric_seed_qpos_path",
+                "qpos_path",
+                "timestamps_seconds",
+                "eef_positions_world",
+            )
         )
 
     @classmethod
@@ -343,6 +364,7 @@ class PlannerCandidate:
             requested_seed=requested_seed,
             effective_seed=effective_seed,
             status=status,
+            geometric_seed_qpos_path=np.empty((0, 7), dtype=np.float64),
             qpos_path=np.empty((0, 7), dtype=np.float64),
             timestamps_seconds=np.empty((0,), dtype=np.float64),
             eef_positions_world=np.empty((0, 3), dtype=np.float64),
@@ -361,6 +383,7 @@ def _npz_bytes(candidate: PlannerCandidate) -> bytes:
     output = io.BytesIO()
     np.savez(
         output,
+        geometric_seed_qpos_path=candidate.geometric_seed_qpos_path,
         qpos_path=candidate.qpos_path,
         timestamps_seconds=candidate.timestamps_seconds,
         eef_positions_world=candidate.eef_positions_world,
@@ -419,7 +442,12 @@ def load_planner_candidates(
         if hashlib.sha256(payload).hexdigest() != expected_hash:
             raise ValueError("candidate array hash mismatch")
         with np.load(io.BytesIO(payload), allow_pickle=False) as source:
-            if set(source.files) != {"qpos_path", "timestamps_seconds", "eef_positions_world"}:
+            if set(source.files) != {
+                "geometric_seed_qpos_path",
+                "qpos_path",
+                "timestamps_seconds",
+                "eef_positions_world",
+            }:
                 raise ValueError("candidate NPZ fields are invalid")
             arrays = {name: np.array(source[name], copy=True) for name in source.files}
         key = ExpertRealizationKey.from_mapping(
@@ -429,6 +457,7 @@ def load_planner_candidates(
         candidate = PlannerCandidate(
             expert_realization_key=key,
             status=status,
+            geometric_seed_qpos_path=arrays["geometric_seed_qpos_path"],
             qpos_path=arrays["qpos_path"],
             timestamps_seconds=arrays["timestamps_seconds"],
             eef_positions_world=arrays["eef_positions_world"],
@@ -442,17 +471,20 @@ def load_planner_candidates(
     return tuple(candidates)
 
 
-def _plan_mapping(plan: InterceptionPlan) -> dict[str, Any]:
+def _intent_mapping(intent: PlannedMotionIntent) -> dict[str, Any]:
+    approach = intent.approach
     return {
-        "task_instance_id": plan.task_instance_id.to_mapping(),
-        "family": plan.family.value,
-        "interception_tick": plan.interception_tick,
-        "pregrasp_arrival_tick": plan.pregrasp_arrival_tick,
+        "task_instance_id": intent.task_instance_id.to_mapping(),
+        "family": intent.family.value,
         "reference_start_tick": 5,
-        "time_scaling_profile": plan.time_scaling_profile,
-        "guide_positions_world": plan.guide_positions_world.tolist(),
-        "pregrasp_position_world": plan.pregrasp_position_world.tolist(),
-        "fixed_orientation_world": plan.fixed_orientation_world.tolist(),
+        "funnel_entry_target_tick": approach.funnel_entry_target_tick,
+        "funnel_entry_deadline_tick": approach.funnel_entry_deadline_tick,
+        "time_scaling_profile": approach.time_scaling_profile,
+        "soft_guide_regions_world": approach.soft_guide_regions_world.tolist(),
+        "soft_guide_radius_m": approach.soft_guide_radius_m.tolist(),
+        "funnel_entry_position_world": approach.funnel_entry_position_world.tolist(),
+        "funnel_entry_tangent_world": approach.funnel_entry_tangent_world.tolist(),
+        "fixed_orientation_world": approach.fixed_orientation_world.tolist(),
     }
 
 
@@ -462,13 +494,13 @@ def write_planner_request(
     structured_expert_config_sha256: str,
     candidate_index: int,
     bridge: PandaPlanningBridge,
-    plan: InterceptionPlan,
+    intent: PlannedMotionIntent,
     start_qpos: np.ndarray,
     timeout_seconds: float,
     path: Path,
 ) -> None:
-    if plan.task_instance_id != expert_realization_key.task_instance_id:
-        raise ValueError("planner request plan/key task identity mismatch")
+    if intent.task_instance_id != expert_realization_key.task_instance_id:
+        raise ValueError("planner request intent/key task identity mismatch")
     seed = planner_candidate_seed(expert_realization_key, candidate_index)
     qpos = np.asarray(start_qpos)
     if qpos.dtype != np.float64 or qpos.shape != (7,) or not np.all(np.isfinite(qpos)):
@@ -477,13 +509,13 @@ def write_planner_request(
         raise ValueError("planner request timeout must equal 5.0 seconds")
     payload = {
         "schema_version": 1,
-        "format_id": "structured_expert_planner_request_v1",
+        "format_id": "smooth_approach_planner_request_v1",
         "expert_realization_key": expert_realization_key.to_mapping(),
         "structured_expert_config_sha256": structured_expert_config_sha256,
         "candidate_index": candidate_index,
         "requested_seed": seed,
         "bridge": bridge.to_mapping(),
-        "plan": _plan_mapping(plan),
+        "intent": _intent_mapping(intent),
         "start_qpos": qpos.tolist(),
         "timeout_seconds": timeout_seconds,
     }
@@ -529,6 +561,7 @@ def load_single_candidate_result(
     candidate = PlannerCandidate(
         expert_realization_key=key,
         status=PlannerCandidateStatus(metadata.pop("status")),
+        geometric_seed_qpos_path=arrays["geometric_seed_qpos_path"],
         qpos_path=arrays["qpos_path"],
         timestamps_seconds=arrays["timestamps_seconds"],
         eef_positions_world=arrays["eef_positions_world"],
@@ -596,7 +629,7 @@ def generate_planner_candidates(
     expert_realization_key: ExpertRealizationKey,
     structured_expert_config_sha256: str,
     bridge: PandaPlanningBridge,
-    plan: InterceptionPlan,
+    intent: PlannedMotionIntent,
     start_qpos: np.ndarray,
     worker_python: Path = Path(".venv-expert-realization/bin/python"),
 ) -> tuple[PlannerCandidate, ...]:
@@ -611,7 +644,7 @@ def generate_planner_candidates(
                 structured_expert_config_sha256=structured_expert_config_sha256,
                 candidate_index=index,
                 bridge=bridge,
-                plan=plan,
+                intent=intent,
                 start_qpos=start_qpos,
                 timeout_seconds=5.0,
                 path=request,

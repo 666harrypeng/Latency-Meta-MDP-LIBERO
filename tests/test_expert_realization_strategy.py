@@ -53,13 +53,18 @@ def _validated_task_instance(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_strategy_sampling_has_two_realizations_per_family_and_exact_bounds() -> None:
-    """Break caught: canonical index mapping or bounded episode-level diversity drifts."""
+def test_strategy_sampling_has_bounded_approach_diversity_and_canonical_grasp() -> None:
+    """Break caught: randomness leaks out of approach intent into grasp or lift."""
+    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
     from latency_meta_mdp.expert_realization.strategy import sample_strategy
 
     instance = _task_instance()
     config = _strategy_config()
-    strategies = [sample_strategy(instance, key, config) for key in _keys(instance, config)]
+    families = tuple(family for family in StrategyFamily for _ in range(2))
+    strategies = [
+        sample_strategy(instance, key, config, assigned_family=family)
+        for key, family in zip(_keys(instance, config), families, strict=True)
+    ]
 
     assert [item.family.value for item in strategies] == [
         "canonical_direct",
@@ -72,15 +77,20 @@ def test_strategy_sampling_has_two_realizations_per_family_and_exact_bounds() ->
         "time_shifted_smooth",
     ]
     for strategy in strategies:
-        bounds = config.expert.interception_tick_ranges[strategy.family.value]
-        assert bounds[0] <= strategy.interception_tick <= bounds[1]
-        assert 0.14 <= strategy.interception_lead_seconds <= 0.26
-        assert 0.08 <= strategy.pregrasp_height_m <= 0.13
+        bounds = config.expert.close_target_tick_ranges[strategy.family.value]
+        assert bounds[0] <= strategy.close_target_tick <= bounds[1]
+        assert 0.14 <= strategy.prediction_lead_seconds <= 0.26
         assert 0.022 <= strategy.tracking_error_clip_m <= 0.038
-        assert strategy.close_dwell_ticks in (0, 1, 2, 3, 4)
-        assert 0.0 <= strategy.lift_lateral_offset_m <= 0.02
-        assert 0.14 <= strategy.lift_vertical_offset_m <= 0.19
-        assert strategy.lift_lateral_direction_sign in (-1, 1)
+        assert strategy.funnel_entry_height_m == 0.10
+        assert strategy.funnel_descent_ticks == 30
+        assert strategy.close_dwell_ticks == 2
+        assert strategy.bilateral_contact_acquisition_ticks == 4
+        assert strategy.lift_vertical_displacement_m == 0.16
+        if strategy.family.value == "early_high_arc":
+            assert strategy.high_arc_extra_height_m is not None
+            assert 0.025 <= strategy.high_arc_extra_height_m <= 0.065
+        else:
+            assert strategy.high_arc_extra_height_m is None
         if strategy.family.value == "lateral_arc":
             assert strategy.lateral_offset_m is not None
             assert strategy.lateral_direction_sign in (-1, 1)
@@ -99,23 +109,36 @@ def test_strategy_sampling_is_replayable_and_independent_of_global_rng() -> None
     instance = _task_instance()
     config = _strategy_config()
     key = _keys(instance, config)[5]
-    expected = sample_strategy(instance, key, config)
+    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
+
+    expected = sample_strategy(instance, key, config, assigned_family=StrategyFamily.LATERAL_ARC)
 
     random.seed(91)
     _ = [random.random() for _ in range(100)]
     np.random.seed(91)
     _ = np.random.random(100)
 
-    assert sample_strategy(instance, key, config) == expected
+    assert (
+        sample_strategy(
+            instance,
+            key,
+            config,
+            assigned_family=StrategyFamily.LATERAL_ARC,
+        )
+        == expected
+    )
     mapping = expected.to_mapping()
     assert mapping["lateral_direction_sign"] in (-1, 1)
-    assert mapping["lift_lateral_direction_sign"] in (-1, 1)
+    assert "lift_lateral_direction_sign" not in mapping
     assert mapping["iid_per_tick_action_noise"] is False
 
 
 def test_strategy_rejects_key_from_another_task_or_config() -> None:
     """Break caught: a realization key can be reinterpreted under another task/config."""
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey
+    from latency_meta_mdp.expert_realization.contracts import (
+        ExpertRealizationKey,
+        StrategyFamily,
+    )
     from latency_meta_mdp.expert_realization.strategy import (
         StructuredStrategyConfig,
         sample_strategy,
@@ -130,7 +153,12 @@ def test_strategy_rejects_key_from_another_task_or_config() -> None:
         config.source_sha256,
     )
     with pytest.raises(ValueError, match="task instance"):
-        sample_strategy(instance, wrong_task_key, config)
+        sample_strategy(
+            instance,
+            wrong_task_key,
+            config,
+            assigned_family=StrategyFamily.CANONICAL_DIRECT,
+        )
 
     raw = Path.cwd() / "configs/expert_realization/panda_ball_structured.yaml"
     assert hashlib.sha256(raw.read_bytes()).hexdigest() == config.source_sha256
@@ -142,4 +170,9 @@ def test_strategy_rejects_key_from_another_task_or_config() -> None:
         "c" * 64,
     )
     with pytest.raises(ValueError, match="config"):
-        sample_strategy(instance, wrong_key, config)
+        sample_strategy(
+            instance,
+            wrong_key,
+            config,
+            assigned_family=StrategyFamily.CANONICAL_DIRECT,
+        )
