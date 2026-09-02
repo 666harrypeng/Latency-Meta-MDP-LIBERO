@@ -231,14 +231,23 @@ def make_formal_source_records(metadata):
         action_mask=np.ones(7, dtype=np.bool_),
         expert_audit=audit,
     )
-    event = StructuredPhysicalEventRecord(
-        kind="success",
-        physics_step_index=10,
-        time_us=20_000,
-        payload={"lift_height_m": 0.1},
-        terminal_reason="lift_succeeded",
+    events = tuple(
+        StructuredPhysicalEventRecord(
+            kind=kind,
+            physics_step_index=time_us // 2_000,
+            time_us=time_us,
+            payload={"lift_height_m": 0.1},
+            terminal_reason="lift_succeeded" if kind == "success" else None,
+        )
+        for kind, time_us in (
+            ("first_contact", 0),
+            ("stable_grasp", 0),
+            ("handoff", 0),
+            ("lift_threshold", 0),
+            ("success", 20_000),
+        )
     )
-    return tuple(boundaries), (transition,), (event,)
+    return tuple(boundaries), (transition,), events
 
 
 def make_formal_source_episode(*, camera_height: int = 2, camera_width: int = 3):
