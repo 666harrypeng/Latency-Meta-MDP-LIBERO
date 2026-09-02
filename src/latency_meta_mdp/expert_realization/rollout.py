@@ -106,13 +106,14 @@ def _append_boundary(
     wrist_frames.append(np.asarray(snapshot.cameras["robot0_eye_in_hand"].rgb, dtype=np.uint8))
 
 
-def execute_structured_realization(
+def _execute_structured_realization(
     *,
     task_instance: MaterializedTaskInstance,
     intent: PlannedMotionIntent,
     reference: SelectedReference,
     maximum_formal_ticks: int,
-) -> StructuredRealizationRollout:
+    source_metadata: object | None = None,
+) -> tuple[StructuredRealizationRollout, object | None]:
     """Replay the exact K6 prefix, then execute the frozen realization in real physics."""
     if not isinstance(task_instance, MaterializedTaskInstance):
         raise TypeError("task_instance must be a MaterializedTaskInstance")
@@ -137,9 +138,23 @@ def execute_structured_realization(
     terminal_status = "budget_exhausted"
     terminal_reason = "maximum_formal_ticks_exhausted"
     snapshot = None
+    source_recorder = None
+    if source_metadata is not None:
+        from latency_meta_mdp.expert_realization.source_corpus.recording import (
+            SourceEpisodeRecorder,
+        )
+
+        source_recorder = SourceEpisodeRecorder(source_metadata)
     try:
         snapshot = runtime.executor.initialize()
         boundaries = [snapshot]
+        if source_recorder is not None:
+            source_recorder.append_boundary(
+                snapshot,
+                runtime=runtime,
+                previous_action=None,
+                outcome_status=runtime.tracker.status.value,
+            )
         _append_boundary(
             snapshot,
             eef_positions=eef_positions,
@@ -148,8 +163,17 @@ def execute_structured_realization(
             wrist_frames=wrist_frames,
         )
         for action in task_instance.expected_anchor.shared_actions:
+            if source_recorder is not None:
+                source_recorder.append_shared_transition(snapshot, action)
             actions.append(np.asarray(action, dtype=np.float64))
             snapshot = runtime.executor.step_formal(action)
+            if source_recorder is not None:
+                source_recorder.append_boundary(
+                    snapshot,
+                    runtime=runtime,
+                    previous_action=action,
+                    outcome_status=runtime.tracker.status.value,
+                )
             boundaries.append(snapshot)
             _append_boundary(
                 snapshot,
@@ -187,8 +211,17 @@ def execute_structured_realization(
                     right_pad_contact=False if contact is None else contact.right_pad_contact,
                 )
                 decisions.append(decision)
+                if source_recorder is not None:
+                    source_recorder.append_decision_transition(decision)
                 actions.append(np.asarray(decision.action, dtype=np.float64))
                 snapshot = runtime.executor.step_formal(decision.action)
+                if source_recorder is not None:
+                    source_recorder.append_boundary(
+                        snapshot,
+                        runtime=runtime,
+                        previous_action=decision.action,
+                        outcome_status=runtime.tracker.status.value,
+                    )
                 _append_boundary(
                     snapshot,
                     eef_positions=eef_positions,
@@ -206,7 +239,7 @@ def execute_structured_realization(
             elif runtime.tracker.status is OutcomeStatus.FAILURE:
                 terminal_status = "failure"
                 terminal_reason = runtime.tracker.terminal_reason.value
-        return StructuredRealizationRollout(
+        rollout = StructuredRealizationRollout(
             terminal_status=terminal_status,
             terminal_reason=terminal_reason,
             terminal_tick=snapshot.formal_tick_index,
@@ -221,5 +254,31 @@ def execute_structured_realization(
             agentview_rgb=np.asarray(agentview_frames, dtype=np.uint8),
             wrist_rgb=np.asarray(wrist_frames, dtype=np.uint8),
         )
+        source_episode = None
+        if source_recorder is not None and terminal_status == "success":
+            source_episode = source_recorder.build_success(
+                terminal_reason=terminal_reason,
+                outcome_events=runtime.tracker.events,
+                handoff_release_qpos=runtime.handoff.release_qpos,
+                handoff_release_qvel=runtime.handoff.release_qvel,
+            )
+        return rollout, source_episode
     finally:
         runtime.close()
+
+
+def execute_structured_realization(
+    *,
+    task_instance: MaterializedTaskInstance,
+    intent: PlannedMotionIntent,
+    reference: SelectedReference,
+    maximum_formal_ticks: int,
+) -> StructuredRealizationRollout:
+    """Replay one frozen realization for bounded visual review."""
+    rollout, _source_episode = _execute_structured_realization(
+        task_instance=task_instance,
+        intent=intent,
+        reference=reference,
+        maximum_formal_ticks=maximum_formal_ticks,
+    )
+    return rollout
