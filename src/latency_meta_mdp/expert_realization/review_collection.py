@@ -27,6 +27,7 @@ class BehaviorReviewRequest:
     corpus_id: str
     logical_task_index_start: int
     task_instance_count: int
+    reserve_task_instance_count: int
     levels: tuple[int, ...]
     realizations_per_task: int
     families: tuple[str, ...]
@@ -42,6 +43,7 @@ class BehaviorReviewRequest:
             "schema_version",
             "logical_task_index_start",
             "task_instance_count",
+            "reserve_task_instance_count",
             "realizations_per_task",
             "planner_candidate_count",
             "maximum_formal_ticks",
@@ -58,7 +60,11 @@ class BehaviorReviewRequest:
             raise ValueError("unsupported behavior-review identity")
         if self.logical_task_index_start < 0:
             raise ValueError("logical_task_index_start must be non-negative")
-        if self.task_instance_count != 3 or self.realizations_per_task != 3:
+        if (
+            self.task_instance_count != 3
+            or self.reserve_task_instance_count != 3
+            or self.realizations_per_task != 3
+        ):
             raise ValueError(
                 "this bounded review must be exactly 3 task instances x 3 realizations"
             )
@@ -89,7 +95,7 @@ class BehaviorReviewRequest:
             realizations_per_task=self.realizations_per_task,
             families=self.families,
             family_allocation=self.family_allocation,
-            reserve_task_instance_count=0,
+            reserve_task_instance_count=self.reserve_task_instance_count,
             require_complete_realization_block=True,
             split_unit="master_task_index",
         )
@@ -340,10 +346,13 @@ def collect_behavior_review(
     bridge = build_panda_planning_bridge(root)
     rows: list[dict[str, Any]] = []
     group_failures: list[dict[str, Any]] = []
+    admitted_group_counts = {level: 0 for level in request.levels}
     processed_groups = 0
     stop = False
-    for master in universe.primary_tasks:
+    for master in universe.primary_tasks + universe.reserve_tasks:
         for level in request.levels:
+            if admitted_group_counts[level] >= request.task_instance_count:
+                continue
             if maximum_task_level_groups is not None and (
                 processed_groups >= maximum_task_level_groups
             ):
@@ -366,6 +375,7 @@ def collect_behavior_review(
             group_root.mkdir(parents=True, exist_ok=True)
             candidates_by_key = {}
             intents_by_slot = {}
+            group_rows = []
             for realization_request in realization_requests:
                 key = realization_request.to_expert_realization_key()
                 strategy = sample_requested_strategy(
@@ -474,17 +484,55 @@ def collect_behavior_review(
                         "intent": _intent_summary(intents_by_slot[slot]),
                     }
                     _write_json(summary_path, row)
-                rows.append(row)
+                group_rows.append(row)
                 if on_progress is not None:
                     on_progress(
                         f"executed L{level} task={master.logical_task_index} "
                         f"realization={slot} status={row['terminal_status']}"
                     )
+            group_admitted = bool(
+                len(group_rows) == request.realizations_per_task
+                and all(row["terminal_status"] == "success" for row in group_rows)
+            )
+            if group_admitted:
+                admitted_group_counts[level] += 1
+            else:
+                group_failures.append(
+                    {
+                        "level": level,
+                        "logical_task_index": master.logical_task_index,
+                        "master_task_seed": master.master_task_seed,
+                        "reason": "one or more realization executions were not successful",
+                    }
+                )
+            tagged_rows = [{**row, "admitted": group_admitted} for row in group_rows]
+            rows.extend(tagged_rows)
+            _write_json(
+                group_root / "group_result.json",
+                {
+                    "admitted": group_admitted,
+                    "trajectory_statuses": [
+                        {
+                            "realization_slot": row["realization_slot"],
+                            "terminal_status": row["terminal_status"],
+                            "terminal_reason": row["terminal_reason"],
+                        }
+                        for row in group_rows
+                    ],
+                },
+            )
             processed_groups += 1
         if stop:
             break
+        if all(
+            count >= request.task_instance_count for count in admitted_group_counts.values()
+        ):
+            break
 
-    complete = processed_groups == request.task_instance_count * len(request.levels)
+    complete = all(
+        count == request.task_instance_count for count in admitted_group_counts.values()
+    )
+    admitted_rows = [row for row in rows if row["admitted"]]
     manifest = {
         "schema_version": 1,
         "format_id": "smooth_expert_behavior_review_v1",
@@ -494,9 +542,12 @@ def collect_behavior_review(
         "complete": complete,
         "requested_trajectory_count": request.requested_trajectory_count,
         "materialized_video_count": len(rows),
+        "admitted_video_count": len(admitted_rows),
+        "admitted_task_instance_count_by_level": admitted_group_counts,
         "successful_trajectory_count": sum(row["terminal_status"] == "success" for row in rows),
         "group_failures": group_failures,
-        "trajectories": rows,
+        "trajectories": admitted_rows,
+        "audit_trajectories": rows,
     }
     manifest_path = target / ("manifest.json" if complete else "partial_manifest.json")
     if manifest_path.exists():

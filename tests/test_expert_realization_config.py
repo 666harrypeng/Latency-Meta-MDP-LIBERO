@@ -28,7 +28,7 @@ def _structured_mapping() -> dict[str, object]:
         "soft_guide_radius_m": 0.020,
         "tracking_error_clip_m": [0.022, 0.038],
         "funnel_descent_ticks": 30,
-        "funnel_entry_deadline_slack_ticks": 25,
+        "funnel_entry_deadline_slack_ticks": 35,
         "close_window_half_width_ticks": 18,
         "handoff_window_ticks": 50,
         "close_dwell_ticks": 2,
@@ -152,7 +152,7 @@ def test_checked_in_configs_preserve_paired_pilot_and_exact_bounds() -> None:
     assert structured.soft_guide_radius_m == 0.02
     assert structured.tracking_error_clip_m == (0.022, 0.038)
     assert structured.funnel_descent_ticks == 30
-    assert structured.funnel_entry_deadline_slack_ticks == 25
+    assert structured.funnel_entry_deadline_slack_ticks == 35
     assert structured.close_window_half_width_ticks == 18
     assert structured.handoff_window_ticks == 50
     assert structured.close_dwell_ticks == 2

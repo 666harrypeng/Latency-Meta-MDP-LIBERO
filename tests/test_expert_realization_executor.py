@@ -450,3 +450,38 @@ def test_funnel_centers_xy_at_safe_height_before_final_descent(structured_case) 
     target_object = _object_at(intent, midpoint_tick + 1)
     assert np.linalg.norm(target[:2] - target_object[:2]) < 0.025
     assert target[2] - target_object[2] > 0.045
+
+
+def test_k6_motion_fit_predicts_a_quadratic_object_path_without_future_input() -> None:
+    """Break caught: curved L2 motion is forced through a constant-velocity extrapolator."""
+    from latency_meta_mdp.expert_realization.executor import fit_causal_object_motion
+
+    times = np.arange(6, dtype=np.float64) * 0.02
+    velocity0 = np.array([0.04, -0.03, 0.0], dtype=np.float64)
+    acceleration = np.array([0.30, 0.20, 0.0], dtype=np.float64)
+    positions = (
+        np.array([0.1, -0.2, 0.833], dtype=np.float64)
+        + times[:, None] * velocity0
+        + 0.5 * times[:, None] ** 2 * acceleration
+    )
+    estimate = fit_causal_object_motion(times, positions, prediction_horizon_seconds=0.20)
+    current_time = times[-1]
+    expected_velocity = velocity0 + acceleration * current_time
+    expected_position = (
+        positions[-1]
+        + expected_velocity * 0.20
+        + 0.5 * acceleration * 0.20**2
+    )
+
+    np.testing.assert_allclose(estimate.velocity_world, expected_velocity, atol=1.0e-12)
+    np.testing.assert_allclose(estimate.acceleration_world, acceleration, atol=1.0e-12)
+    np.testing.assert_allclose(estimate.predicted_position_world, expected_position, atol=1.0e-12)
+
+
+def test_expert_lookahead_stops_at_the_known_driven_motion_boundary() -> None:
+    """Break caught: late close targets extrapolate the ball beyond its tick-150 hold state."""
+    from latency_meta_mdp.expert_realization.executor import bounded_prediction_horizon
+
+    assert bounded_prediction_horizon(source_tick=100, requested_seconds=0.20) == 0.20
+    assert bounded_prediction_horizon(source_tick=146, requested_seconds=0.20) == 0.08
+    assert bounded_prediction_horizon(source_tick=150, requested_seconds=0.20) == 0.0

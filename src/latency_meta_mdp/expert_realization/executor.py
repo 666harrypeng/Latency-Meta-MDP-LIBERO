@@ -16,6 +16,21 @@ from latency_meta_mdp.expert_realization.trajectory_intent import PlannedMotionI
 from latency_meta_mdp.handoff import HandoffState
 from latency_meta_mdp.snapshots import BoundarySnapshot
 
+_OBJECT_MOTION_ANCHOR_TICK = 150
+
+
+def bounded_prediction_horizon(*, source_tick: int, requested_seconds: float) -> float:
+    if type(source_tick) is not int or source_tick < 0:
+        raise ValueError("source_tick must be a non-negative integer")
+    if (
+        type(requested_seconds) is not float
+        or not np.isfinite(requested_seconds)
+        or requested_seconds < 0.0
+    ):
+        raise ValueError("requested_seconds must be a non-negative finite float")
+    remaining = max(0, _OBJECT_MOTION_ANCHOR_TICK - source_tick) * 0.02
+    return min(requested_seconds, remaining)
+
 
 def _vector(value: Any, *, name: str) -> np.ndarray:
     array = np.asarray(value)
@@ -58,6 +73,74 @@ class OscActionResult:
             object.__setattr__(self, name, result)
         if type(self.saturated) is not bool:
             raise TypeError("saturated must be boolean")
+
+
+@dataclass(frozen=True)
+class CausalObjectMotionEstimate:
+    velocity_world: np.ndarray
+    acceleration_world: np.ndarray
+    predicted_position_world: np.ndarray
+
+    def __post_init__(self) -> None:
+        for name in ("velocity_world", "acceleration_world", "predicted_position_world"):
+            value = _vector(getattr(self, name), name=name)
+            copied = np.array(value, copy=True)
+            copied.setflags(write=False)
+            object.__setattr__(self, name, copied)
+
+
+def fit_causal_object_motion(
+    sample_times_seconds: np.ndarray,
+    positions_world: np.ndarray,
+    *,
+    prediction_horizon_seconds: float,
+) -> CausalObjectMotionEstimate:
+    times = np.asarray(sample_times_seconds)
+    positions = np.asarray(positions_world)
+    if (
+        times.dtype != np.float64
+        or times.ndim != 1
+        or positions.dtype != np.float64
+        or positions.shape != (len(times), 3)
+        or not 1 <= len(times) <= 6
+        or not np.all(np.isfinite(times))
+        or not np.all(np.isfinite(positions))
+        or (len(times) > 1 and np.any(np.diff(times) <= 0.0))
+    ):
+        raise ValueError("causal motion samples must be aligned finite float64 K<=6 history")
+    if (
+        type(prediction_horizon_seconds) is not float
+        or not np.isfinite(prediction_horizon_seconds)
+        or prediction_horizon_seconds < 0.0
+    ):
+        raise ValueError("prediction_horizon_seconds must be a non-negative finite float")
+    relative_times = times - times[-1]
+    degree = min(2, len(times) - 1)
+    coefficients = np.polynomial.polynomial.polyfit(
+        relative_times,
+        positions,
+        deg=degree,
+    )
+    velocity = (
+        np.zeros(3, dtype=np.float64)
+        if degree < 1
+        else np.asarray(coefficients[1], dtype=np.float64)
+    )
+    acceleration = (
+        np.zeros(3, dtype=np.float64)
+        if degree < 2
+        else np.asarray(2.0 * coefficients[2], dtype=np.float64)
+    )
+    predicted = (
+        np.asarray(positions[-1], dtype=np.float64)
+        + velocity * prediction_horizon_seconds
+        + 0.5 * acceleration * prediction_horizon_seconds**2
+    )
+    return CausalObjectMotionEstimate(
+        velocity_world=velocity,
+        acceleration_world=acceleration,
+        predicted_position_world=predicted,
+    )
 
 
 def osc_action_from_reference(
@@ -263,11 +346,16 @@ class StructuredExpertExecutor:
     def _dynamic_entry_target(
         self,
         snapshot: BoundarySnapshot,
-        estimated_object_velocity: np.ndarray,
+        motion: CausalObjectMotionEstimate,
     ) -> np.ndarray:
+        horizon = bounded_prediction_horizon(
+            source_tick=snapshot.formal_tick_index,
+            requested_seconds=self.intent.strategy.prediction_lead_seconds,
+        )
         return (
             np.asarray(snapshot.object_body_pos, dtype=np.float64)
-            + estimated_object_velocity * self.intent.strategy.prediction_lead_seconds
+            + motion.velocity_world * horizon
+            + 0.5 * motion.acceleration_world * horizon**2
             + np.array(
                 [0.0, 0.0, self.intent.strategy.funnel_entry_height_m],
                 dtype=np.float64,
@@ -277,7 +365,7 @@ class StructuredExpertExecutor:
     def _funnel_target(
         self,
         snapshot: BoundarySnapshot,
-        estimated_object_velocity: np.ndarray,
+        motion: CausalObjectMotionEstimate,
     ) -> np.ndarray:
         if self._funnel_start_tick is None or self._effective_close_target_tick is None:
             raise RuntimeError("canonical funnel has not been initialized")
@@ -297,9 +385,14 @@ class StructuredExpertExecutor:
             + 6.0 * descent_progress**5
         )
         height = self.intent.strategy.funnel_entry_height_m * (1.0 - descent)
+        horizon = bounded_prediction_horizon(
+            source_tick=snapshot.formal_tick_index,
+            requested_seconds=self.intent.strategy.prediction_lead_seconds,
+        )
         return (
             np.asarray(snapshot.object_body_pos, dtype=np.float64)
-            + estimated_object_velocity * self.intent.strategy.prediction_lead_seconds
+            + motion.velocity_world * horizon
+            + 0.5 * motion.acceleration_world * horizon**2
             + np.array([0.0, 0.0, height], dtype=np.float64)
         )
 
@@ -318,7 +411,7 @@ class StructuredExpertExecutor:
         error = np.asarray(snapshot.eef_pos, dtype=np.float64) - current_entry
         return bool(np.linalg.norm(error) <= 0.015)
 
-    def _estimated_object_velocity(self, snapshot: BoundarySnapshot) -> np.ndarray:
+    def _estimated_object_motion(self, snapshot: BoundarySnapshot) -> CausalObjectMotionEstimate:
         tick = snapshot.formal_tick_index
         if self._last_tick is None:
             if tick != self.decision_source_tick:
@@ -329,11 +422,22 @@ class StructuredExpertExecutor:
         self._history.append(
             (tick, np.array(snapshot.object_body_pos, dtype=np.float64, copy=True))
         )
-        if len(self._history) < 2:
-            return np.zeros(3, dtype=np.float64)
-        start_tick, start_position = self._history[0]
-        end_tick, end_position = self._history[-1]
-        return (end_position - start_position) / ((end_tick - start_tick) * 0.02)
+        times = np.asarray([row[0] * 0.02 for row in self._history], dtype=np.float64)
+        positions = np.asarray([row[1] for row in self._history], dtype=np.float64)
+        estimate = fit_causal_object_motion(
+            times,
+            positions,
+            prediction_horizon_seconds=0.0,
+        )
+        acceleration = np.array(estimate.acceleration_world, copy=True)
+        acceleration_norm = float(np.linalg.norm(acceleration))
+        if acceleration_norm > 1.0:
+            acceleration /= acceleration_norm
+        return CausalObjectMotionEstimate(
+            velocity_world=estimate.velocity_world,
+            acceleration_world=acceleration,
+            predicted_position_world=np.asarray(snapshot.object_body_pos, dtype=np.float64),
+        )
 
     def _close_geometry_is_ready(
         self,
@@ -392,7 +496,8 @@ class StructuredExpertExecutor:
             raise RuntimeError("structured expert cannot act after handoff failure")
         if type(left_pad_contact) is not bool or type(right_pad_contact) is not bool:
             raise TypeError("pad-contact flags must be boolean")
-        estimated_velocity = self._estimated_object_velocity(snapshot)
+        motion = self._estimated_object_motion(snapshot)
+        estimated_velocity = motion.velocity_world
         source_tick = snapshot.formal_tick_index
         last_reference_index = len(self.reference.timestamps_seconds) - 1
         funnel = self.intent.grasp_funnel
@@ -419,7 +524,7 @@ class StructuredExpertExecutor:
                 raise SemanticExecutionFailure("smooth approach missed the funnel entry deadline")
             phase = StructuredExpertPhase.SMOOTH_APPROACH
             reference_index = last_reference_index
-            target = self._dynamic_entry_target(snapshot, estimated_velocity)
+            target = self._dynamic_entry_target(snapshot, motion)
             gripper_command = self.action_contract.gripper_open_command
         elif self._close_started_tick is None:
             if self._funnel_start_tick is None:
@@ -447,10 +552,16 @@ class StructuredExpertExecutor:
             else:
                 phase = StructuredExpertPhase.GRASP_FUNNEL
                 if source_tick < self._effective_close_target_tick:
-                    target = self._funnel_target(snapshot, estimated_velocity)
+                    target = self._funnel_target(snapshot, motion)
                 else:
-                    target = np.asarray(snapshot.object_body_pos, dtype=np.float64) + (
-                        estimated_velocity * self.intent.strategy.prediction_lead_seconds
+                    horizon = bounded_prediction_horizon(
+                        source_tick=source_tick,
+                        requested_seconds=self.intent.strategy.prediction_lead_seconds,
+                    )
+                    target = (
+                        np.asarray(snapshot.object_body_pos, dtype=np.float64)
+                        + estimated_velocity * horizon
+                        + 0.5 * motion.acceleration_world * horizon**2
                     )
                 gripper_command = self.action_contract.gripper_open_command
         else:
@@ -477,8 +588,14 @@ class StructuredExpertExecutor:
                 )
             else:
                 phase = StructuredExpertPhase.CLOSE_STABILIZE
-                target = np.asarray(snapshot.object_body_pos, dtype=np.float64) + (
-                    estimated_velocity * self.intent.strategy.prediction_lead_seconds
+                horizon = bounded_prediction_horizon(
+                    source_tick=source_tick,
+                    requested_seconds=self.intent.strategy.prediction_lead_seconds,
+                )
+                target = (
+                    np.asarray(snapshot.object_body_pos, dtype=np.float64)
+                    + estimated_velocity * horizon
+                    + 0.5 * motion.acceleration_world * horizon**2
                 )
             gripper_command = self.action_contract.gripper_close_command
 

@@ -3,6 +3,7 @@ review_id: panda-ball-smooth-random-review-3x3x3-v1
 corpus_id: panda-ball-smooth-random-review-v1
 logical_task_index_start: 0
 task_instance_count: 3
+reserve_task_instance_count: 3
 levels: [1, 2, 3]
 realizations_per_task: 3
 families:

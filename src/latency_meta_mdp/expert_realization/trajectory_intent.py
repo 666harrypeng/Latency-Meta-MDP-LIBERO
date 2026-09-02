@@ -340,7 +340,20 @@ def build_trajectory_intent(
     lateral_direction = _unit_perpendicular_xy(task_instance, capture_velocity)
     entry_offset = np.array([0.0, 0.0, strategy.funnel_entry_height_m], dtype=np.float64)
     entry_target_tick = strategy.close_target_tick - strategy.funnel_descent_ticks
-    entry_deadline_tick = entry_target_tick + strategy.funnel_entry_deadline_slack_ticks
+    handoff_deadline_tick = min(
+        strategy.close_target_tick + strategy.handoff_window_ticks,
+        _OBJECT_MOTION_ANCHOR_TICK - 1,
+    )
+    latest_safe_entry_tick = (
+        handoff_deadline_tick
+        - strategy.funnel_descent_ticks
+        - strategy.close_dwell_ticks
+        - 1
+    )
+    entry_deadline_tick = min(
+        entry_target_tick + strategy.funnel_entry_deadline_slack_ticks,
+        latest_safe_entry_tick,
+    )
     entry_sample = _sample_profile_at_tick(task_instance, entry_target_tick)
     if entry_sample.terminal:
         raise ValueError("funnel-entry target lies at or beyond terminal object motion")
@@ -396,10 +409,7 @@ def build_trajectory_intent(
         close_target_tick=close_target,
         close_deadline_tick=close_target + half_width,
         handoff_earliest_tick=close_target + half_width,
-        handoff_deadline_tick=min(
-            close_target + strategy.handoff_window_ticks,
-            _OBJECT_MOTION_ANCHOR_TICK - 1,
-        ),
+        handoff_deadline_tick=handoff_deadline_tick,
         close_dwell_ticks=strategy.close_dwell_ticks,
         bilateral_contact_acquisition_ticks=strategy.bilateral_contact_acquisition_ticks,
         centering_tolerance_m=strategy.close_centering_tolerance_m,

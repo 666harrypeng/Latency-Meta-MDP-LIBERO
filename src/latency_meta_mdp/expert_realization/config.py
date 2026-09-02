@@ -200,7 +200,7 @@ class StructuredExpertConfig:
             or self.soft_guide_radius_m != 0.02
             or self.tracking_error_clip_m != (0.022, 0.038)
             or self.funnel_descent_ticks != 30
-            or self.funnel_entry_deadline_slack_ticks != 25
+            or self.funnel_entry_deadline_slack_ticks != 35
             or self.close_window_half_width_ticks != 18
             or self.handoff_window_ticks != 50
             or self.close_dwell_ticks != 2
