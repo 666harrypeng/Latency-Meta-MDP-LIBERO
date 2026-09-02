@@ -111,6 +111,7 @@ def test_shard_writer_places_each_episode_in_one_row_group_and_publishes_once(
     second_location = writer.add_episode(second)
 
     assert not target.exists()
+    assert writer.current_byte_count > 0
     published = writer.close()
     parquet = pq.ParquetFile(target)
 

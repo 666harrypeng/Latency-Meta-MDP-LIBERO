@@ -49,6 +49,7 @@ def test_source_config_loads_the_canonical_lossless_parquet_contract() -> None:
 
     assert config.to_mapping() == _valid_source_mapping()
     assert config.target_shard_bytes == 256 * 1024 * 1024
+    assert config.sha256 == "29cdad2739059d24d9ab978dfa6a20430265baaf0dfd9a23ab046ea1651a8e38"
 
 
 @pytest.mark.parametrize(

@@ -219,6 +219,12 @@ class SourceParquetShardWriter:
         self._row_count = 0
         self._closed = False
 
+    @property
+    def current_byte_count(self) -> int:
+        if self._closed:
+            return self.target.stat().st_size
+        return self._building.stat().st_size
+
     def add_episode(self, episode: FormalSourceSynchronizedEpisode) -> EpisodeLocation:
         if self._closed:
             raise RuntimeError("source shard writer is closed")

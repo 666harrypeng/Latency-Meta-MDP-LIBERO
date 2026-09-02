@@ -158,7 +158,7 @@ class SourceEpisodeMetadataEntry:
             "lift_threshold",
             "success",
         }
-        if set(events) != required:
+        if len(self.episode.physical_events) != len(required) or set(events) != required:
             raise ValueError("successful source episode has an invalid physical-event inventory")
         key = metadata.expert_realization_id.expert_realization_key
         return {

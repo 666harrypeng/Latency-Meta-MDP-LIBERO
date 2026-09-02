@@ -97,6 +97,13 @@ class SourceCorpusConfig:
     def to_mapping(self) -> dict[str, Any]:
         return {item.name: getattr(self, item.name) for item in fields(self)}
 
+    @property
+    def sha256(self) -> str:
+        payload = json.dumps(
+            self.to_mapping(), sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
     @classmethod
     def from_mapping(cls, mapping: Any) -> SourceCorpusConfig:
         raw = _strict_mapping(
