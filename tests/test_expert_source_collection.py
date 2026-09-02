@@ -10,7 +10,7 @@ import pytest
 from expert_realization_test_support import make_formal_source_episode
 
 
-def _publication_fixture():
+def _publication_fixture(*, boundary_count: int = 2):
     from latency_meta_mdp.expert_realization.config import FormalCorpusConfig
     from latency_meta_mdp.expert_realization.contracts import (
         ExpertRealizationId,
@@ -67,7 +67,11 @@ def _publication_fixture():
         motion_profile_sha256=hashlib.sha256(motion).hexdigest(),
         initial_state_sha256=hashlib.sha256(initial).hexdigest(),
     )
-    source = make_formal_source_episode(camera_height=256, camera_width=256)
+    source = make_formal_source_episode(
+        camera_height=256,
+        camera_width=256,
+        boundary_count=boundary_count,
+    )
     formal_realization = build_formal_realization_requests(request, task_id)[0]
     key = formal_realization.to_expert_realization_key()
     metadata = replace(

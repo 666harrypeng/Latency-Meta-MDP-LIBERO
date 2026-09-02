@@ -81,7 +81,7 @@ def _vector(
 ) -> SourceFieldSpec:
     return SourceFieldSpec(
         name=name,
-        arrow_type=pa.list_(dtype, length),
+        arrow_type=pa.list_(dtype) if nullable else pa.list_(dtype, length),
         dtype=dtype_name,
         shape=(length,) if shape is None else shape,
         unit=unit,

@@ -146,7 +146,7 @@ def make_formal_source_metadata(*, camera_height: int = 2, camera_width: int = 3
     )
 
 
-def make_formal_source_records(metadata):
+def make_formal_source_records(metadata, *, boundary_count: int = 2):
     from latency_meta_mdp.expert_realization.recording_contracts import (
         StructuredBoundaryRecord,
         StructuredDeploymentRecord,
@@ -156,9 +156,19 @@ def make_formal_source_records(metadata):
         StructuredTransitionRecord,
     )
 
+    if type(boundary_count) is not int or boundary_count < 2:
+        raise ValueError("boundary_count must be at least two")
+    terminal_tick = boundary_count - 1
+    first_contact_tick = max(0, terminal_tick - 4)
+    stable_grasp_tick = max(first_contact_tick, terminal_tick - 3)
+    handoff_tick = stable_grasp_tick
+    lift_tick = max(handoff_tick, terminal_tick - 1)
     boundaries = []
-    for tick in range(2):
-        valid = tick == 1
+    for tick in range(boundary_count):
+        has_previous = tick > 0
+        terminal = tick == terminal_tick
+        contact = tick >= first_contact_tick
+        physical = tick >= handoff_tick
         boundaries.append(
             StructuredBoundaryRecord(
                 formal_tick_index=tick,
@@ -178,58 +188,84 @@ def make_formal_source_records(metadata):
                         tick + 1,
                         dtype=np.uint8,
                     ),
-                    robot_qpos=np.arange(7, dtype=np.float64) + tick,
-                    robot_qvel=np.zeros(7, dtype=np.float64),
+                    robot_qpos=np.arange(7, dtype=np.float64) + tick * 0.01,
+                    robot_qvel=np.full(7, 0.5, dtype=np.float64),
                     gripper_qpos=np.zeros(2, dtype=np.float64),
                     gripper_qvel=np.zeros(2, dtype=np.float64),
-                    eef_position_world=np.array([0.4, 0.0, 0.3], dtype=np.float64),
+                    eef_position_world=np.array(
+                        [0.4 + tick * 0.001, 0.0, 0.3], dtype=np.float64
+                    ),
                     eef_orientation_matrix_world=np.eye(3, dtype=np.float64),
                 ),
                 qualification=StructuredQualificationRecord(
                     object_pose=np.array(
-                        [0.5, 0.0, 0.2, 1.0, 0.0, 0.0, 0.0], dtype=np.float64
+                        [0.5 + tick * 0.002, 0.0, 0.2, 1.0, 0.0, 0.0, 0.0],
+                        dtype=np.float64,
                     ),
-                    object_velocity=np.zeros(6, dtype=np.float64),
-                    commanded_motion_position=np.zeros(3, dtype=np.float64),
-                    commanded_motion_velocity=np.zeros(3, dtype=np.float64),
+                    object_velocity=np.array(
+                        [0.1, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float64
+                    ),
+                    commanded_motion_position=np.array(
+                        [0.5 + tick * 0.002, 0.0, 0.2], dtype=np.float64
+                    ),
+                    commanded_motion_velocity=np.array(
+                        [0.1, 0.0, 0.0], dtype=np.float64
+                    ),
                     commanded_motion_acceleration=np.zeros(3, dtype=np.float64),
                     commanded_motion_segment_index=0,
-                    left_pad_contact=valid,
-                    right_pad_contact=valid,
-                    handoff_state="physical" if valid else "driven",
+                    left_pad_contact=contact,
+                    right_pad_contact=contact,
+                    handoff_state="physical" if physical else "driven",
                     relative_geometry=np.zeros(3, dtype=np.float64),
                     actuator_ctrl=np.zeros(9, dtype=np.float64),
-                    applied_reference=np.zeros(7, dtype=np.float64) if valid else None,
-                    applied_reference_source_tick=0 if valid else None,
-                    nullspace_joint_position_error=(
-                        np.zeros(7, dtype=np.float64) if valid else None
+                    applied_reference=(
+                        np.array(
+                            [(tick - 1) * 0.01, 0, 0, 0, 0, 0, -1],
+                            dtype=np.float64,
+                        )
+                        if has_previous
+                        else None
                     ),
-                    eef_position_error=np.zeros(3, dtype=np.float64) if valid else None,
+                    applied_reference_source_tick=tick - 1 if has_previous else None,
+                    nullspace_joint_position_error=(
+                        np.zeros(7, dtype=np.float64) if has_previous else None
+                    ),
+                    eef_position_error=(
+                        np.zeros(3, dtype=np.float64) if has_previous else None
+                    ),
                     eef_orientation_error_rotvec=(
-                        np.zeros(3, dtype=np.float64) if valid else None
+                        np.zeros(3, dtype=np.float64) if has_previous else None
                     ),
                 ),
-                outcome_status="success" if valid else "running",
+                outcome_status="success" if terminal else "running",
             )
         )
-    audit = StructuredExpertAuditRecord(
-        expert_realization_id=metadata.expert_realization_id,
-        source_physics_step=0,
-        source_formal_tick=0,
-        source_time_us=0,
-        phase_id="shared_prefix",
-        reference_kind="shared_prefix",
-        selected_reference_index=None,
-        target_eef_position_world=np.array([0.4, 0.0, 0.3], dtype=np.float64),
-        target_eef_orientation_matrix_world=np.eye(3, dtype=np.float64),
-        estimated_object_velocity_world=np.zeros(3, dtype=np.float64),
-    )
-    transition = StructuredTransitionRecord(
-        source_formal_tick=0,
-        target_formal_tick=1,
-        expert_action=np.array([0, 0, 0, 0, 0, 0, -1], dtype=np.float64),
-        action_mask=np.ones(7, dtype=np.bool_),
-        expert_audit=audit,
+    transitions = tuple(
+        StructuredTransitionRecord(
+            source_formal_tick=tick,
+            target_formal_tick=tick + 1,
+            expert_action=np.array(
+                [tick * 0.01, 0, 0, 0, 0, 0, -1], dtype=np.float64
+            ),
+            action_mask=np.ones(7, dtype=np.bool_),
+            expert_audit=StructuredExpertAuditRecord(
+                expert_realization_id=metadata.expert_realization_id,
+                source_physics_step=tick * 10,
+                source_formal_tick=tick,
+                source_time_us=tick * 20_000,
+                phase_id="shared_prefix" if tick < 5 else "smooth_approach",
+                reference_kind="shared_prefix" if tick < 5 else "selected_reference",
+                selected_reference_index=None if tick < 5 else tick - 4,
+                target_eef_position_world=np.array(
+                    [0.4 + (tick + 1) * 0.001, 0.0, 0.3], dtype=np.float64
+                ),
+                target_eef_orientation_matrix_world=np.eye(3, dtype=np.float64),
+                estimated_object_velocity_world=np.array(
+                    [0.1, 0.0, 0.0], dtype=np.float64
+                ),
+            ),
+        )
+        for tick in range(terminal_tick)
     )
     events = tuple(
         StructuredPhysicalEventRecord(
@@ -240,17 +276,19 @@ def make_formal_source_records(metadata):
             terminal_reason="lift_succeeded" if kind == "success" else None,
         )
         for kind, time_us in (
-            ("first_contact", 0),
-            ("stable_grasp", 0),
-            ("handoff", 0),
-            ("lift_threshold", 0),
-            ("success", 20_000),
+            ("first_contact", first_contact_tick * 20_000),
+            ("stable_grasp", stable_grasp_tick * 20_000),
+            ("handoff", handoff_tick * 20_000),
+            ("lift_threshold", lift_tick * 20_000),
+            ("success", terminal_tick * 20_000),
         )
     )
-    return tuple(boundaries), (transition,), events
+    return tuple(boundaries), transitions, events
 
 
-def make_formal_source_episode(*, camera_height: int = 2, camera_width: int = 3):
+def make_formal_source_episode(
+    *, camera_height: int = 2, camera_width: int = 3, boundary_count: int = 2
+):
     from latency_meta_mdp.expert_realization.source_corpus.contracts import (
         FormalSourceSynchronizedEpisode,
     )
@@ -259,7 +297,10 @@ def make_formal_source_episode(*, camera_height: int = 2, camera_width: int = 3)
         camera_height=camera_height,
         camera_width=camera_width,
     )
-    boundaries, transitions, events = make_formal_source_records(metadata)
+    boundaries, transitions, events = make_formal_source_records(
+        metadata,
+        boundary_count=boundary_count,
+    )
     return FormalSourceSynchronizedEpisode(
         metadata=metadata,
         boundaries=boundaries,

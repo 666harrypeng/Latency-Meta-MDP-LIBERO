@@ -54,8 +54,9 @@ def test_source_frame_schema_preserves_the_complete_recording_contract() -> None
     assert SOURCE_FRAME_SCHEMA.field("eef_orientation_matrix_world").type == pa.list_(
         pa.float64(), 9
     )
-    assert SOURCE_FRAME_SCHEMA.field("expert_action").type == pa.list_(pa.float64(), 7)
-    assert SOURCE_FRAME_SCHEMA.field("action_mask").type == pa.list_(pa.bool_(), 7)
+    assert SOURCE_FRAME_SCHEMA.field("expert_action").type == pa.list_(pa.float64())
+    assert SOURCE_FRAME_SCHEMA.field("action_mask").type == pa.list_(pa.bool_())
+    assert SOURCE_FRAME_SCHEMA.field("applied_reference").type == pa.list_(pa.float64())
 
 
 def test_source_images_use_embedded_bytes_and_descriptive_paths() -> None:
