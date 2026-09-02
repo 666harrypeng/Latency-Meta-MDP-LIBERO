@@ -152,6 +152,7 @@ class StructuredEpisodeMetadata:
     pilot_gate_config_sha256: str
     task_instance_manifest_sha256: str
     frozen_plan_set_manifest_sha256: str
+    realization_universe_sha256: str
     strategy_sha256: str
     planner_candidates_sha256: str
     selected_reference_sha256: str
@@ -224,15 +225,15 @@ class StructuredEpisodeMetadata:
         raw = _strict_mapping(
             mapping, {item.name for item in fields(cls)}, name=cls.__name__
         ).copy()
-        config_sha = raw.get("structured_expert_config_sha256")
-        _sha(config_sha, name="structured_expert_config_sha256")
+        _sha(
+            raw.get("structured_expert_config_sha256"),
+            name="structured_expert_config_sha256",
+        )
         raw["task_instance_id"] = TaskInstanceId.from_mapping(raw["task_instance_id"])
         raw["expert_realization_id"] = ExpertRealizationId.from_mapping(
-            raw["expert_realization_id"], structured_expert_config_sha256=config_sha
+            raw["expert_realization_id"]
         )
-        raw["attempt_id"] = AttemptId.from_mapping(
-            raw["attempt_id"], structured_expert_config_sha256=config_sha
-        )
+        raw["attempt_id"] = AttemptId.from_mapping(raw["attempt_id"])
         raw["strategy_family"] = StrategyFamily(raw["strategy_family"])
         raw["implementation"] = ImplementationIdentity.from_mapping(raw["implementation"])
         return cls(**raw)

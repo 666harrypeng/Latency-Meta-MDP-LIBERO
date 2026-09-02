@@ -148,8 +148,7 @@ def run_planner_request(request_path: Path, result_root: Path) -> None:
     bridge = PandaPlanningBridge.from_mapping(raw["bridge"])
     _verify_curobo_assets(bridge)
     key = ExpertRealizationKey.from_mapping(
-        raw["expert_realization_key"],
-        structured_expert_config_sha256=raw["structured_expert_config_sha256"],
+        raw["expert_realization_key"]
     )
     index = raw["candidate_index"]
     requested_seed = raw["requested_seed"]

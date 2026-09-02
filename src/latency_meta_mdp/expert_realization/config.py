@@ -439,6 +439,140 @@ def load_pilot_config(path: Path) -> PilotConfig:
 
 
 @dataclass(frozen=True)
+class FormalCorpusConfig:
+    """Scalable formal request dimensions; presence does not authorize collection."""
+
+    schema_version: int
+    corpus_id: str
+    logical_task_index_start: int
+    task_instance_count: int
+    levels: tuple[int, ...]
+    realizations_per_task: int
+    families: tuple[str, ...]
+    family_allocation: str
+    reserve_task_instance_count: int
+    require_complete_family_block: bool
+    split_unit: str
+
+    def __post_init__(self) -> None:
+        for name in (
+            "schema_version",
+            "logical_task_index_start",
+            "task_instance_count",
+            "realizations_per_task",
+            "reserve_task_instance_count",
+        ):
+            _require_int(getattr(self, name), name=name)
+        for name in ("corpus_id", "family_allocation", "split_unit"):
+            _require_str(getattr(self, name), name=name)
+        _require_bool(
+            self.require_complete_family_block,
+            name="require_complete_family_block",
+        )
+        _tuple_of(
+            self.levels,
+            name="levels",
+            check=lambda item: _require_int(item, name="level"),
+        )
+        _tuple_of(
+            self.families,
+            name="families",
+            check=lambda item: _require_str(item, name="family"),
+        )
+        if self.schema_version != 1:
+            raise ValueError("formal schema_version must equal 1")
+        if not self.corpus_id or self.corpus_id.strip() != self.corpus_id:
+            raise ValueError("corpus_id must be a non-empty normalized string")
+        if self.logical_task_index_start < 0:
+            raise ValueError("logical_task_index_start must be non-negative")
+        if self.task_instance_count <= 0:
+            raise ValueError("task_instance_count must be positive")
+        if self.reserve_task_instance_count < 0:
+            raise ValueError("reserve_task_instance_count must be non-negative")
+        if (
+            not self.levels
+            or len(set(self.levels)) != len(self.levels)
+            or any(level not in (1, 2, 3) for level in self.levels)
+        ):
+            raise ValueError("levels must be a non-empty unique subset of L1/L2/L3")
+        if self.families != CANONICAL_FAMILIES:
+            raise ValueError("families must equal the canonical structured family order")
+        if self.realizations_per_task < len(self.families):
+            raise ValueError("realizations_per_task must cover every formal family")
+        if self.family_allocation != "balanced_seeded":
+            raise ValueError("family_allocation must equal balanced_seeded")
+        if self.require_complete_family_block is not True:
+            raise ValueError("require_complete_family_block must be true")
+        if self.split_unit != "master_task_index":
+            raise ValueError("split_unit must equal master_task_index")
+
+    @property
+    def primary_task_indices(self) -> tuple[int, ...]:
+        return tuple(
+            range(
+                self.logical_task_index_start,
+                self.logical_task_index_start + self.task_instance_count,
+            )
+        )
+
+    @property
+    def reserve_task_indices(self) -> tuple[int, ...]:
+        start = self.logical_task_index_start + self.task_instance_count
+        return tuple(range(start, start + self.reserve_task_instance_count))
+
+    @property
+    def trajectories_per_level(self) -> int:
+        return self.task_instance_count * self.realizations_per_task
+
+    @property
+    def primary_trajectory_count(self) -> int:
+        return self.trajectories_per_level * len(self.levels)
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "corpus_id": self.corpus_id,
+            "logical_task_index_start": self.logical_task_index_start,
+            "task_instance_count": self.task_instance_count,
+            "levels": list(self.levels),
+            "realizations_per_task": self.realizations_per_task,
+            "families": list(self.families),
+            "family_allocation": self.family_allocation,
+            "reserve_task_instance_count": self.reserve_task_instance_count,
+            "require_complete_family_block": self.require_complete_family_block,
+            "split_unit": self.split_unit,
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Any) -> FormalCorpusConfig:
+        raw = _strict_mapping(
+            mapping,
+            set(cls.__dataclass_fields__),
+            name="formal corpus",
+        ).copy()
+        if type(raw["levels"]) is not list or type(raw["families"]) is not list:
+            raise TypeError("formal corpus levels/families must be JSON lists")
+        raw["levels"] = tuple(raw["levels"])
+        raw["families"] = tuple(raw["families"])
+        return cls(**raw)
+
+
+def load_formal_corpus_config(path: Path) -> FormalCorpusConfig:
+    raw = _load_mapping(path, set(FormalCorpusConfig.__dataclass_fields__), name="formal corpus")
+    _yaml_tuple(
+        raw["levels"],
+        name="levels",
+        check=lambda item: _require_int(item, name="level"),
+    )
+    _yaml_tuple(
+        raw["families"],
+        name="families",
+        check=lambda item: _require_str(item, name="family"),
+    )
+    return FormalCorpusConfig.from_mapping(raw)
+
+
+@dataclass(frozen=True)
 class PilotGateConfig:
     schema_version: int
     pregrasp_tracking_translation_m: float

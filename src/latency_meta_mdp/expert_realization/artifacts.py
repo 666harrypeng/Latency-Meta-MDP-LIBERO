@@ -54,7 +54,7 @@ _TASK_REF = re.compile(r"^task_instances/L([123])/seed-([0-9]+)/task_instance/ma
 _PLAN_REF = re.compile(r"^task_instances/L([123])/seed-([0-9]+)/plan_set/manifest[.]json$")
 _ATTEMPT_REF = re.compile(
     r"^task_instances/L([123])/seed-([0-9]+)/attempts/"
-    r"realization-([0-9]{3})/attempt-([0-9]{3})/manifest[.]json$"
+    r"realization-((?:[0-9]{3}|[1-9][0-9]{3,}))/attempt-([0-9]{3})/manifest[.]json$"
 )
 
 
@@ -344,11 +344,10 @@ class FrozenPlanRow:
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Any, *, structured_expert_config_sha256: str) -> FrozenPlanRow:
+    def from_mapping(cls, mapping: Any) -> FrozenPlanRow:
         raw = _strict(mapping, {item.name for item in fields(cls)}, name=cls.__name__).copy()
         raw["expert_realization_key"] = ExpertRealizationKey.from_mapping(
-            raw["expert_realization_key"],
-            structured_expert_config_sha256=structured_expert_config_sha256,
+            raw["expert_realization_key"]
         )
         raw["strategy"] = ArtifactRef.from_mapping(raw["strategy"])
         raw["planner_candidates"] = ArtifactRef.from_mapping(raw["planner_candidates"])
@@ -365,6 +364,8 @@ class FrozenPlanSetManifest:
     task_instance_manifest: ArtifactRef
     structured_expert_config_sha256: str
     curobo_planner_config_sha256: str
+    realization_universe_sha256: str
+    realization_slots: tuple[int, ...]
     implementation: ImplementationIdentity
     realizations: tuple[FrozenPlanRow, ...]
 
@@ -383,6 +384,13 @@ class FrozenPlanSetManifest:
             raise ValueError("task-instance manifest path does not use the locked layout")
         _sha(self.structured_expert_config_sha256, name="structured_expert_config_sha256")
         _sha(self.curobo_planner_config_sha256, name="curobo_planner_config_sha256")
+        _sha(self.realization_universe_sha256, name="realization_universe_sha256")
+        if (
+            type(self.realization_slots) is not tuple
+            or not self.realization_slots
+            or self.realization_slots != tuple(range(len(self.realization_slots)))
+        ):
+            raise ValueError("realization universe slots must be contiguous from zero")
         if not isinstance(self.implementation, ImplementationIdentity):
             raise TypeError("implementation must be an ImplementationIdentity")
         if type(self.realizations) is not tuple or not self.realizations:
@@ -395,8 +403,8 @@ class FrozenPlanSetManifest:
         ):
             raise ValueError("plan rows must share the manifest task identity")
         indexes = [row.expert_realization_key.realization_index for row in self.realizations]
-        if indexes != list(range(8)):
-            raise ValueError("plan rows must cover the complete canonical realization set 0..7")
+        if tuple(indexes) != self.realization_slots:
+            raise ValueError("plan rows do not match the declared realization universe")
 
     def to_mapping(self) -> dict[str, Any]:
         return {
@@ -406,6 +414,8 @@ class FrozenPlanSetManifest:
             "task_instance_manifest": self.task_instance_manifest.to_mapping(),
             "structured_expert_config_sha256": self.structured_expert_config_sha256,
             "curobo_planner_config_sha256": self.curobo_planner_config_sha256,
+            "realization_universe_sha256": self.realization_universe_sha256,
+            "realization_slots": list(self.realization_slots),
             "implementation": self.implementation.to_mapping(),
             "realizations": [row.to_mapping() for row in self.realizations],
         }
@@ -413,16 +423,17 @@ class FrozenPlanSetManifest:
     @classmethod
     def from_mapping(cls, mapping: Any) -> FrozenPlanSetManifest:
         raw = _strict(mapping, {item.name for item in fields(cls)}, name=cls.__name__).copy()
-        config_sha = raw["structured_expert_config_sha256"]
-        _sha(config_sha, name="structured_expert_config_sha256")
+        _sha(raw["structured_expert_config_sha256"], name="structured_expert_config_sha256")
         raw["task_instance_id"] = TaskInstanceId.from_mapping(raw["task_instance_id"])
         raw["task_instance_manifest"] = ArtifactRef.from_mapping(raw["task_instance_manifest"])
         raw["implementation"] = ImplementationIdentity.from_mapping(raw["implementation"])
         if type(raw["realizations"]) is not list:
             raise TypeError("realizations must be a JSON list")
+        if type(raw["realization_slots"]) is not list:
+            raise TypeError("realization_slots must be a JSON list")
+        raw["realization_slots"] = tuple(raw["realization_slots"])
         raw["realizations"] = tuple(
-            FrozenPlanRow.from_mapping(item, structured_expert_config_sha256=config_sha)
-            for item in raw["realizations"]
+            FrozenPlanRow.from_mapping(item) for item in raw["realizations"]
         )
         return cls(**raw)
 
@@ -991,6 +1002,7 @@ def _validate_episode_provenance(
         "instruction": task.instruction,
         "task_instance_manifest_sha256": manifest.task_instance_manifest.sha256,
         "frozen_plan_set_manifest_sha256": manifest.frozen_plan_set_manifest.sha256,
+        "realization_universe_sha256": plan.realization_universe_sha256,
         "task_config_sha256": task.task_config_sha256,
         "motion_config_sha256": task.motion_config_sha256,
         "runtime_config_sha256": task.runtime_config_sha256,

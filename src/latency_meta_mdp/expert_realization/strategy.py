@@ -74,8 +74,10 @@ def sample_strategy(
     expected_key = ExpertRealizationKey(
         task_instance.task_instance_id,
         realization_key.realization_index,
-        config.source_sha256,
+        realization_key.realization_namespace_sha256,
     )
+    if realization_key.realization_namespace_sha256 != config.source_sha256:
+        raise ValueError("realization key does not match the structured strategy config")
     if realization_key != expected_key:
         raise ValueError("realization key does not match the structured strategy config")
     family_index = realization_key.realization_index // config.expert.samples_per_family

@@ -1,0 +1,15 @@
+schema_version: 1
+corpus_id: panda-ball-structured-formal-v1
+logical_task_index_start: 0
+task_instance_count: 100
+levels: [1, 2, 3]
+realizations_per_task: 4
+families:
+  - canonical_direct
+  - early_high_arc
+  - lateral_arc
+  - time_shifted_smooth
+family_allocation: balanced_seeded
+reserve_task_instance_count: 20
+require_complete_family_block: true
+split_unit: master_task_index

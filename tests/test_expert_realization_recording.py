@@ -74,6 +74,7 @@ def make_episode(*, boundary_count: int = 2):
         pilot_gate_config_sha256="0" * 64,
         task_instance_manifest_sha256="1" * 64,
         frozen_plan_set_manifest_sha256=SHA_D,
+        realization_universe_sha256="5" * 64,
         strategy_sha256="2" * 64,
         planner_candidates_sha256="3" * 64,
         selected_reference_sha256="4" * 64,

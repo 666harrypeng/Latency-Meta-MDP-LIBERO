@@ -60,14 +60,14 @@ def test_seed_derivation_has_hand_checked_stable_tagged_values() -> None:
     )
 
     seed = derive_realization_seed(
-        _task_instance(), realization_index=0, structured_expert_config_sha256=SHA_C
+        _task_instance(), realization_index=0, realization_namespace_sha256=SHA_C
     )
 
-    assert seed == 6702884092325032541
-    assert derive_subseed(seed, "strategy") == 18418280019241175324
-    assert derive_subseed(seed, "keypose") == 16610081985804171270
-    assert derive_subseed(seed, "planner") == 1030862726513003040
-    assert derive_subseed(seed, "timing") == 460512453168853313
+    assert seed == 13654647031461270349
+    assert derive_subseed(seed, "strategy") == 5825351470875554942
+    assert derive_subseed(seed, "keypose") == 8183826265360930875
+    assert derive_subseed(seed, "planner") == 13716612849502852106
+    assert derive_subseed(seed, "timing") == 12676960786737496095
 
 
 def test_subseeds_are_tag_independent_and_worker_order_independent() -> None:
@@ -250,7 +250,7 @@ def test_pilot_request_rejects_permuted_task_instances_and_serializes_parent_ord
         )
 
 
-def test_realization_key_recomputes_a_bounded_uint64_seed() -> None:
+def test_realization_key_recomputes_a_request_bound_uint64_seed() -> None:
     """Break caught: caller-supplied key fields no longer describe the deterministic realization."""
     from latency_meta_mdp.expert_realization.contracts import (
         ExpertRealizationKey,
@@ -266,10 +266,8 @@ def test_realization_key_recomputes_a_bounded_uint64_seed() -> None:
         TaskInstanceId(1, -1, SHA_A, SHA_B)
     with pytest.raises(ValueError):
         ExpertRealizationKey(task, -1, SHA_C)
-    with pytest.raises(ValueError):
-        ExpertRealizationKey(task, 8, SHA_C)
-    with pytest.raises(ValueError):
-        derive_realization_seed(task, 8, SHA_C)
+    assert ExpertRealizationKey(task, 12, SHA_C).realization_index == 12
+    assert derive_realization_seed(task, 12, SHA_C) >= 0
     with pytest.raises(TypeError):
         ExpertRealizationKey(task, 0, SHA_C, realization_seed=0)
 
@@ -286,7 +284,7 @@ def test_task_instance_and_realization_key_round_trip_through_strict_mappings() 
 
     assert TaskInstanceId.from_mapping(task.to_mapping()) == task
     assert (
-        ExpertRealizationKey.from_mapping(key.to_mapping(), structured_expert_config_sha256=SHA_C)
+        ExpertRealizationKey.from_mapping(key.to_mapping())
         == key
     )
 
@@ -299,15 +297,13 @@ def test_realization_key_mapping_rejects_corruption_and_noncanonical_shapes() ->
     corrupted = key.to_mapping()
     corrupted["realization_seed"] ^= 1
     with pytest.raises(ValueError):
-        ExpertRealizationKey.from_mapping(corrupted, structured_expert_config_sha256=SHA_C)
+        ExpertRealizationKey.from_mapping(corrupted)
     with pytest.raises(ValueError):
-        ExpertRealizationKey.from_mapping(
-            {**key.to_mapping(), "unknown": "field"}, structured_expert_config_sha256=SHA_C
-        )
+        ExpertRealizationKey.from_mapping({**key.to_mapping(), "unknown": "field"})
     missing = key.to_mapping()
     del missing["realization_seed"]
     with pytest.raises(ValueError):
-        ExpertRealizationKey.from_mapping(missing, structured_expert_config_sha256=SHA_C)
+        ExpertRealizationKey.from_mapping(missing)
     malformed = _task_instance().to_mapping()
     malformed["task_instance_seed"] = "4000"
     with pytest.raises(ValueError):

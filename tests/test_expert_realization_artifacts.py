@@ -98,7 +98,10 @@ def _plan_manifest(*, task_manifest_sha: str, task_manifest_path: str):
         FrozenPlanRow,
         FrozenPlanSetManifest,
     )
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey
+    from latency_meta_mdp.expert_realization.contracts import (
+        ExpertRealizationKey,
+        build_realization_universe_identity,
+    )
 
     task = _task_manifest().task_instance_id
     payloads = _plan_payloads()
@@ -150,6 +153,12 @@ def _plan_manifest(*, task_manifest_sha: str, task_manifest_path: str):
                 selected_reference=None,
             )
         )
+    slots = tuple(range(8))
+    universe = build_realization_universe_identity(
+        request_sha256=SHA_E,
+        task_instance_id=task,
+        realization_slots=slots,
+    )
     return FrozenPlanSetManifest(
         schema_version=1,
         format_id="structured_expert_plan_set_v1",
@@ -157,6 +166,8 @@ def _plan_manifest(*, task_manifest_sha: str, task_manifest_path: str):
         task_instance_manifest=ArtifactRef(task_manifest_path, task_manifest_sha),
         structured_expert_config_sha256=SHA_C,
         curobo_planner_config_sha256=SHA_D,
+        realization_universe_sha256=universe.universe_sha256,
+        realization_slots=slots,
         implementation=_implementation(),
         realizations=tuple(rows),
     )
@@ -261,6 +272,7 @@ def _episode_for_attempt(pilot: Path, plan_root: Path):
         curobo_planner_config_sha256=plan.curobo_planner_config_sha256,
         task_instance_manifest_sha256=plan.task_instance_manifest.sha256,
         frozen_plan_set_manifest_sha256=plan_sha,
+        realization_universe_sha256=plan.realization_universe_sha256,
         strategy_sha256=row.strategy.sha256,
         planner_candidates_sha256=row.planner_candidates.sha256,
         selected_reference_sha256=row.selected_reference.sha256,
@@ -338,7 +350,7 @@ def test_frozen_plan_rejects_any_subset_of_the_eight_requested_keys() -> None:
         task_manifest_sha=SHA_A,
         task_manifest_path="task_instances/L1/seed-4000/task_instance/manifest.json",
     )
-    with pytest.raises(ValueError, match="0..7|complete"):
+    with pytest.raises(ValueError, match="universe"):
         replace(plan, realizations=plan.realizations[:1])
 
 
@@ -486,7 +498,10 @@ def test_attempt_publication_rejects_each_false_episode_provenance_fact(
         ),
     )
     target = pilot / "task_instances/L1/seed-4000/attempts/realization-000/attempt-000"
-    with pytest.raises(ValueError, match="provenance|metadata|hash|realization_seed"):
+    with pytest.raises(
+        ValueError,
+        match="provenance|metadata|hash|realization_seed|namespace",
+    ):
         publish_attempt(
             manifest,
             target,

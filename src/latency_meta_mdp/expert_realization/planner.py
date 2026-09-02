@@ -423,8 +423,7 @@ def load_planner_candidates(
                 raise ValueError("candidate NPZ fields are invalid")
             arrays = {name: np.array(source[name], copy=True) for name in source.files}
         key = ExpertRealizationKey.from_mapping(
-            row.pop("expert_realization_key"),
-            structured_expert_config_sha256=structured_expert_config_sha256,
+            row.pop("expert_realization_key")
         )
         status = PlannerCandidateStatus(row.pop("status"))
         candidate = PlannerCandidate(
@@ -525,8 +524,7 @@ def load_single_candidate_result(
     with np.load(io.BytesIO(array_payload), allow_pickle=False) as source:
         arrays = {name: np.array(source[name], copy=True) for name in source.files}
     key = ExpertRealizationKey.from_mapping(
-        metadata.pop("expert_realization_key"),
-        structured_expert_config_sha256=structured_expert_config_sha256,
+        metadata.pop("expert_realization_key")
     )
     candidate = PlannerCandidate(
         expert_realization_key=key,
@@ -568,10 +566,8 @@ def run_curobo_candidate_process(
         )
     except subprocess.TimeoutExpired:
         request = json.loads(Path(request_path).read_text(encoding="utf-8"))
-        config_sha256 = request["structured_expert_config_sha256"]
         key = ExpertRealizationKey.from_mapping(
-            request["expert_realization_key"],
-            structured_expert_config_sha256=config_sha256,
+            request["expert_realization_key"]
         )
         candidate_index = request["candidate_index"]
         requested_seed = request["requested_seed"]
