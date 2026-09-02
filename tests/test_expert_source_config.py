@@ -7,6 +7,9 @@ import pytest
 import yaml
 
 SOURCE_CONFIG = Path("configs/source_corpus/panda_ball_source_parquet.yaml")
+FORMAL_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_pilot.yaml")
+EXECUTION_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_execution.yaml")
+FORMAL_SPLIT_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_pilot_split.yaml")
 
 
 def _valid_source_mapping() -> dict[str, object]:
@@ -30,6 +33,19 @@ def _valid_split_mapping() -> dict[str, object]:
         "corpus_id": "panda-ball-structured-source-pilot",
         "train_master_task_indices": [0, 1, 3, 4],
         "validation_master_task_indices": [2, 5],
+    }
+
+
+def _valid_execution_mapping() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "execution_id": "panda-ball-formal-source-sequential-first-qualified-v1",
+        "candidate_policy": "sequential_first_qualified",
+        "maximum_candidate_attempts_per_realization": 8,
+        "infrastructure_retry_limit": 2,
+        "determinism_canaries_per_level": 1,
+        "maximum_formal_ticks": 220,
+        "admission_unit": "paired_master_block",
     }
 
 
@@ -174,3 +190,72 @@ def test_master_task_split_plan_rejects_missing_or_extra_universe_indices(
         plan.require_exact_indices((0, 1, 2, 3, 4))
     with pytest.raises(ValueError, match="exact requested master-task universe"):
         plan.require_exact_indices(tuple(range(7)))
+
+
+def test_formal_collection_configs_lock_36_successes_and_sequential_planning() -> None:
+    """Break caught: pilot size, retry policy, or paired admission silently drifts."""
+    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+    from latency_meta_mdp.expert_realization.source_corpus.config import (
+        load_master_task_split_plan,
+        load_source_execution_config,
+    )
+
+    formal = load_formal_corpus_config(FORMAL_CONFIG)
+    execution = load_source_execution_config(EXECUTION_CONFIG)
+    split = load_master_task_split_plan(FORMAL_SPLIT_CONFIG)
+
+    assert formal.task_instance_count == 3
+    assert formal.reserve_task_instance_count == 3
+    assert formal.levels == (1, 2, 3)
+    assert formal.realizations_per_task == 4
+    assert formal.primary_trajectory_count == 36
+    assert execution.to_mapping() == _valid_execution_mapping()
+    assert split.train_master_task_indices == (0, 1, 3, 4)
+    assert split.validation_master_task_indices == (2, 5)
+    assert split.corpus_id == formal.corpus_id
+    split.require_exact_indices(formal.primary_task_indices + formal.reserve_task_indices)
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("schema_version", True),
+        ("candidate_policy", "best_of_eight"),
+        ("maximum_candidate_attempts_per_realization", 0),
+        ("maximum_candidate_attempts_per_realization", 8.0),
+        ("infrastructure_retry_limit", -1),
+        ("determinism_canaries_per_level", 0),
+        ("maximum_formal_ticks", 5),
+        ("admission_unit", "level"),
+    ],
+)
+def test_source_execution_config_rejects_semantic_or_type_drift(
+    tmp_path: Path, field: str, bad_value: object
+) -> None:
+    """Break caught: invalid retry or admission semantics enter a formal collection identity."""
+    from latency_meta_mdp.expert_realization.source_corpus.config import (
+        load_source_execution_config,
+    )
+
+    mapping = _valid_execution_mapping()
+    mapping[field] = bad_value
+    with pytest.raises((TypeError, ValueError), match=field):
+        load_source_execution_config(_write(tmp_path, "execution.yaml", mapping))
+
+
+@pytest.mark.parametrize("mutation", ["missing", "unknown"])
+def test_source_execution_config_rejects_missing_or_unknown_fields(
+    tmp_path: Path, mutation: str
+) -> None:
+    """Break caught: an execution default changes without changing serialized identity."""
+    from latency_meta_mdp.expert_realization.source_corpus.config import (
+        load_source_execution_config,
+    )
+
+    mapping = _valid_execution_mapping()
+    if mutation == "missing":
+        mapping.pop("candidate_policy")
+    else:
+        mapping["candidate_count"] = 8
+    with pytest.raises(ValueError, match="source execution"):
+        load_source_execution_config(_write(tmp_path, "execution.yaml", mapping))

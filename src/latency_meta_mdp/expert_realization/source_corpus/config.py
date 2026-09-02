@@ -190,6 +190,65 @@ class MasterTaskSplitPlan:
         return cls(**raw)
 
 
+@dataclass(frozen=True)
+class SourceExecutionConfig:
+    schema_version: int
+    execution_id: str
+    candidate_policy: str
+    maximum_candidate_attempts_per_realization: int
+    infrastructure_retry_limit: int
+    determinism_canaries_per_level: int
+    maximum_formal_ticks: int
+    admission_unit: str
+
+    def __post_init__(self) -> None:
+        for name in (
+            "schema_version",
+            "maximum_candidate_attempts_per_realization",
+            "infrastructure_retry_limit",
+            "determinism_canaries_per_level",
+            "maximum_formal_ticks",
+        ):
+            _integer(getattr(self, name), name=name)
+        for name in ("execution_id", "candidate_policy", "admission_unit"):
+            _normalized_text(getattr(self, name), name=name)
+        if self.schema_version != 1:
+            raise ValueError("schema_version must equal 1")
+        if self.execution_id != "panda-ball-formal-source-sequential-first-qualified-v1":
+            raise ValueError("execution_id is not the reviewed formal source execution")
+        if self.candidate_policy != "sequential_first_qualified":
+            raise ValueError("candidate_policy must equal sequential_first_qualified")
+        if self.maximum_candidate_attempts_per_realization != 8:
+            raise ValueError("maximum_candidate_attempts_per_realization must equal 8")
+        if self.infrastructure_retry_limit != 2:
+            raise ValueError("infrastructure_retry_limit must equal 2")
+        if self.determinism_canaries_per_level != 1:
+            raise ValueError("determinism_canaries_per_level must equal 1")
+        if self.maximum_formal_ticks != 220:
+            raise ValueError("maximum_formal_ticks must equal 220")
+        if self.admission_unit != "paired_master_block":
+            raise ValueError("admission_unit must equal paired_master_block")
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {item.name: getattr(self, item.name) for item in fields(self)}
+
+    @property
+    def sha256(self) -> str:
+        payload = json.dumps(
+            self.to_mapping(), sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    @classmethod
+    def from_mapping(cls, mapping: Any) -> SourceExecutionConfig:
+        raw = _strict_mapping(
+            mapping,
+            {item.name for item in fields(cls)},
+            name="source execution",
+        )
+        return cls(**raw)
+
+
 def load_source_corpus_config(path: Path) -> SourceCorpusConfig:
     expected = {item.name for item in fields(SourceCorpusConfig)}
     return SourceCorpusConfig.from_mapping(_load_yaml(path, expected, name="source corpus"))
@@ -199,4 +258,11 @@ def load_master_task_split_plan(path: Path) -> MasterTaskSplitPlan:
     expected = {item.name for item in fields(MasterTaskSplitPlan)}
     return MasterTaskSplitPlan.from_mapping(
         _load_yaml(path, expected, name="master task split")
+    )
+
+
+def load_source_execution_config(path: Path) -> SourceExecutionConfig:
+    expected = {item.name for item in fields(SourceExecutionConfig)}
+    return SourceExecutionConfig.from_mapping(
+        _load_yaml(path, expected, name="source execution")
     )
