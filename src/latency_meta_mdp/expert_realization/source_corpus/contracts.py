@@ -118,7 +118,7 @@ class FormalSourceEpisodeMetadata:
             or self.actuator_dim != 9
         ):
             raise ValueError("source action contract is invalid")
-        if self.expert_id != "panda_ball_smooth_approach_funnel_v1":
+        if self.expert_id != "panda_ball_smooth_approach_canonical_grasp_v2":
             raise ValueError("source expert_id is invalid")
         if not isinstance(self.strategy_family, StrategyFamily):
             raise TypeError("strategy_family must be a StrategyFamily")
