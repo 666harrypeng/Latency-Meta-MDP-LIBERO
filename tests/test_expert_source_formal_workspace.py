@@ -242,6 +242,18 @@ def test_semantic_execution_failure_rejects_the_parent_block(tmp_path: Path) -> 
     assert workspace.formal_block_status(0).status == "rejected"
 
 
+def test_explicit_planning_rejection_is_terminal_and_reasoned(tmp_path: Path) -> None:
+    """Break caught: group diversity failure is forged as one child's rollout failure."""
+    workspace = _workspace(tmp_path)
+    workspace.begin_formal_block(0)
+    workspace.reject_formal_block(0, reason="L3 four-plan diversity failed")
+    block = workspace.formal_block_status(0)
+    assert block.status == "rejected"
+    assert block.terminal_reason == "L3 four-plan diversity failed"
+    with pytest.raises(ValueError, match="planning or executing"):
+        workspace.reject_formal_block(0, reason="second rejection")
+
+
 def test_formal_resume_requires_exact_collection_identity(tmp_path: Path) -> None:
     """Break caught: a split/gate/implementation change resumes old successful payloads."""
     from latency_meta_mdp.expert_realization.source_corpus.workspace import (

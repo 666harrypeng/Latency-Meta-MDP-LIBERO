@@ -645,6 +645,21 @@ class CollectionWorkspace:
                     (status.terminal_reason, status.logical_master_task_index),
                 )
 
+    def reject_formal_block(self, logical_master_task_index: int, *, reason: str) -> None:
+        if type(reason) is not str or not reason:
+            raise ValueError("formal block rejection reason must be non-empty")
+        with self._connect(self.database_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                UPDATE formal_block_status SET status='rejected', terminal_reason=?
+                WHERE logical_master_task_index=? AND status IN ('planning', 'executing')
+                """,
+                (reason, logical_master_task_index),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("formal block rejection requires planning or executing state")
+
     def admit_formal_block(self, logical_master_task_index: int) -> None:
         with self._connect(self.database_path) as connection:
             connection.execute("BEGIN IMMEDIATE")

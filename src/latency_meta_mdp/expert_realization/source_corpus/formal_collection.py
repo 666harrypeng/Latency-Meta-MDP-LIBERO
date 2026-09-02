@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -31,6 +32,46 @@ class PlanningAttemptsExhausted(RuntimeError):
 
 class PlannerDeterminismError(RuntimeError):
     """An exact replay changed the selected planner result."""
+
+
+class BlockPlanningFailure(RuntimeError):
+    """A master block cannot produce all twelve frozen plans."""
+
+
+class BlockExecutionFailure(RuntimeError):
+    """A master block failed after producing zero or more scratch successes."""
+
+    def __init__(self, message: str, *, partial_successes: tuple[object, ...]) -> None:
+        self.partial_successes = partial_successes
+        super().__init__(message)
+
+
+@dataclass(frozen=True)
+class PlannedMasterBlock:
+    logical_master_task_index: int
+    plan_identities: tuple[object, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.logical_master_task_index) is not int or (
+            self.logical_master_task_index < 0
+        ):
+            raise ValueError("logical master task index must be non-negative")
+        if type(self.plan_identities) is not tuple or len(self.plan_identities) != 12:
+            raise ValueError("planned master block requires exactly twelve plans")
+
+
+@dataclass(frozen=True)
+class CompletedMasterBlock:
+    logical_master_task_index: int
+    successes: tuple[object, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.logical_master_task_index) is not int or (
+            self.logical_master_task_index < 0
+        ):
+            raise ValueError("logical master task index must be non-negative")
+        if type(self.successes) is not tuple or len(self.successes) != 12:
+            raise ValueError("completed master block requires exactly twelve successes")
 
 
 @dataclass(frozen=True)
@@ -205,3 +246,56 @@ def verify_level_planner_canary(
         requested_seed=expected.requested_seed,
         passed=True,
     )
+
+
+def schedule_paired_master_blocks(
+    *,
+    master_task_indices: tuple[int, ...],
+    target_block_count: int,
+    plan_block: Callable[[int], PlannedMasterBlock],
+    execute_block: Callable[[PlannedMasterBlock], CompletedMasterBlock],
+    publish_blocks: Callable[[tuple[CompletedMasterBlock, ...]], Path],
+) -> Path:
+    """Admit complete blocks in declared primary/reserve order."""
+    if (
+        type(master_task_indices) is not tuple
+        or not master_task_indices
+        or any(type(value) is not int or value < 0 for value in master_task_indices)
+        or tuple(sorted(set(master_task_indices))) != master_task_indices
+    ):
+        raise ValueError("master_task_indices must be a sorted unique non-empty tuple")
+    if (
+        type(target_block_count) is not int
+        or target_block_count <= 0
+        or target_block_count > len(master_task_indices)
+    ):
+        raise ValueError("target_block_count is outside the declared master-task universe")
+    if not callable(plan_block) or not callable(execute_block) or not callable(publish_blocks):
+        raise TypeError("block planner, executor, and publisher must be callable")
+    admitted = []
+    for logical_master_task_index in master_task_indices:
+        if len(admitted) == target_block_count:
+            break
+        try:
+            planned = plan_block(logical_master_task_index)
+        except BlockPlanningFailure:
+            continue
+        if not isinstance(planned, PlannedMasterBlock) or (
+            planned.logical_master_task_index != logical_master_task_index
+        ):
+            raise ValueError("block planner returned a mismatched planned block")
+        try:
+            completed = execute_block(planned)
+        except BlockExecutionFailure:
+            continue
+        if not isinstance(completed, CompletedMasterBlock) or (
+            completed.logical_master_task_index != logical_master_task_index
+        ):
+            raise ValueError("block executor returned a mismatched completed block")
+        admitted.append(completed)
+    if len(admitted) != target_block_count:
+        raise RuntimeError("formal source reserve blocks were exhausted before target admission")
+    result = publish_blocks(tuple(admitted))
+    if not isinstance(result, Path):
+        raise TypeError("block publisher must return a manifest Path")
+    return result
