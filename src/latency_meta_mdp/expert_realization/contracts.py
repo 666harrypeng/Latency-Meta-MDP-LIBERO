@@ -182,27 +182,52 @@ def _mapping_sha256(value: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def sample_uniform_family_for_slot(
+    *,
+    families: tuple[str, ...],
+    master_task_seed: int,
+    structured_expert_config_sha256: str,
+    realization_slot: int,
+) -> StrategyFamily:
+    if families != tuple(family.value for family in StrategyFamily):
+        raise ValueError("families must contain the canonical strategy-family order")
+    if type(master_task_seed) is not int or not 0 <= master_task_seed < 2**64:
+        raise ValueError("master_task_seed must be uint64")
+    _require_sha256(
+        structured_expert_config_sha256,
+        name="structured_expert_config_sha256",
+    )
+    if type(realization_slot) is not int or realization_slot < 0:
+        raise ValueError("realization_slot must be a non-negative integer")
+    typed_families = tuple(StrategyFamily(value) for value in families)
+    return typed_families[
+        _seed(
+            {
+                "master_task_seed": master_task_seed,
+                "structured_expert_config_sha256": structured_expert_config_sha256,
+                "kind": "iid_uniform_family_slot",
+                "realization_slot": realization_slot,
+            }
+        )
+        % len(typed_families)
+    ]
+
+
 def _family_assignments(
     config: FormalCorpusConfig,
     task: MasterTaskRequest,
     *,
     structured_expert_config_sha256: str,
 ) -> tuple[FamilySlotAssignment, ...]:
-    families = tuple(StrategyFamily(value) for value in config.families)
     return tuple(
         FamilySlotAssignment(
             realization_slot=slot,
-            family=families[
-                _seed(
-                    {
-                        "master_task_seed": task.master_task_seed,
-                        "structured_expert_config_sha256": structured_expert_config_sha256,
-                        "kind": "iid_uniform_family_slot",
-                        "realization_slot": slot,
-                    }
-                )
-                % len(families)
-            ],
+            family=sample_uniform_family_for_slot(
+                families=config.families,
+                master_task_seed=task.master_task_seed,
+                structured_expert_config_sha256=structured_expert_config_sha256,
+                realization_slot=slot,
+            ),
         )
         for slot in range(config.realizations_per_task)
     )

@@ -68,7 +68,10 @@ def test_formal_request_universe_round_trip_rejects_mapping_corruption() -> None
 
 def test_hidden_family_allocation_is_independent_uniform_and_allows_repeated_modes() -> None:
     """Break caught: each task is forced into a family quota, not sampled behavior."""
-    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
+    from latency_meta_mdp.expert_realization.contracts import (
+        StrategyFamily,
+        sample_uniform_family_for_slot,
+    )
 
     universe = _build()
     assignments0 = universe.family_assignments[0]
@@ -83,6 +86,16 @@ def test_hidden_family_allocation_is_independent_uniform_and_allows_repeated_mod
     assert {row.family for rows in universe.family_assignments.values() for row in rows} == set(
         StrategyFamily
     )
+    master = universe.primary_tasks[0]
+    assert tuple(
+        sample_uniform_family_for_slot(
+            families=universe.config.families,
+            master_task_seed=master.master_task_seed,
+            structured_expert_config_sha256=universe.structured_expert_config_sha256,
+            realization_slot=slot,
+        )
+        for slot in range(4)
+    ) == tuple(row.family for row in assignments0)
 
     three = replace(
         load_formal_corpus_config(FORMAL_CONFIG),

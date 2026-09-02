@@ -243,7 +243,7 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n"
 
 
-def _write_json(path: Path, value: Any) -> None:
+def write_review_json(path: Path, value: Any) -> None:
     temporary = path.with_name(f".{path.name}.building")
     if temporary.exists():
         raise FileExistsError(temporary)
@@ -253,7 +253,7 @@ def _write_json(path: Path, value: Any) -> None:
     temporary.rename(path)
 
 
-def _intent_summary(intent: Any) -> dict[str, Any]:
+def intent_summary(intent: Any) -> dict[str, Any]:
     return {
         "family": intent.family.value,
         "strategy": intent.strategy.to_mapping(),
@@ -341,7 +341,7 @@ def collect_behavior_review(
         if json.loads(run_path.read_text(encoding="utf-8")) != run_record:
             raise ValueError("existing review target belongs to a different request")
     else:
-        _write_json(run_path, run_record)
+        write_review_json(run_path, run_record)
 
     bridge = build_panda_planning_bridge(root)
     rows: list[dict[str, Any]] = []
@@ -427,7 +427,7 @@ def collect_behavior_review(
                     "master_task_seed": master.master_task_seed,
                     "reason": str(error),
                 }
-                _write_json(group_root / "group_failure.json", failure)
+                write_review_json(group_root / "group_failure.json", failure)
                 group_failures.append(failure)
                 processed_groups += 1
                 continue
@@ -481,9 +481,9 @@ def collect_behavior_review(
                         "physical_handoff_tick": rollout.physical_handoff_tick,
                         "video": str(video_path.relative_to(target)),
                         "trajectory": str(trajectory_path.relative_to(target)),
-                        "intent": _intent_summary(intents_by_slot[slot]),
+                        "intent": intent_summary(intents_by_slot[slot]),
                     }
-                    _write_json(summary_path, row)
+                    write_review_json(summary_path, row)
                 group_rows.append(row)
                 if on_progress is not None:
                     on_progress(
@@ -507,7 +507,7 @@ def collect_behavior_review(
                 )
             tagged_rows = [{**row, "admitted": group_admitted} for row in group_rows]
             rows.extend(tagged_rows)
-            _write_json(
+            write_review_json(
                 group_root / "group_result.json",
                 {
                     "admitted": group_admitted,
@@ -524,14 +524,10 @@ def collect_behavior_review(
             processed_groups += 1
         if stop:
             break
-        if all(
-            count >= request.task_instance_count for count in admitted_group_counts.values()
-        ):
+        if all(count >= request.task_instance_count for count in admitted_group_counts.values()):
             break
 
-    complete = all(
-        count == request.task_instance_count for count in admitted_group_counts.values()
-    )
+    complete = all(count == request.task_instance_count for count in admitted_group_counts.values())
     admitted_rows = [row for row in rows if row["admitted"]]
     manifest = {
         "schema_version": 1,
@@ -552,5 +548,79 @@ def collect_behavior_review(
     manifest_path = target / ("manifest.json" if complete else "partial_manifest.json")
     if manifest_path.exists():
         manifest_path.unlink()
-    _write_json(manifest_path, manifest)
+    write_review_json(manifest_path, manifest)
     return manifest_path
+
+
+def assemble_review_manifest(*, target: Path, config_path: Path) -> Path:
+    """Assemble the final review strictly from complete, explicitly admitted task groups."""
+    target = Path(target).resolve()
+    request = load_review_request(config_path)
+    audit_rows = []
+    admitted_rows = []
+    failures = []
+    admitted_counts = {level: 0 for level in request.levels}
+    for level in request.levels:
+        groups = sorted((target / f"level-{level}").glob("task-*/group_result.json"))
+        for result_path in groups:
+            group = result_path.parent
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            summaries = {
+                int(path.parent.name.split("-")[-1]): json.loads(path.read_text(encoding="utf-8"))
+                for path in sorted(group.glob("realization-*/summary.json"))
+            }
+            audit_rows.extend(summaries.values())
+            if not result.get("admitted", False):
+                failures.append(
+                    {
+                        "level": level,
+                        "task_directory": str(group.relative_to(target)),
+                        "reason": "task group was not admitted",
+                    }
+                )
+                continue
+            selected_slots = result.get("selected_realization_slots")
+            if selected_slots is None:
+                selected_slots = sorted(
+                    slot for slot, row in summaries.items() if row["terminal_status"] == "success"
+                )[: request.realizations_per_task]
+            if (
+                type(selected_slots) is not list
+                or len(selected_slots) != request.realizations_per_task
+                or len(set(selected_slots)) != len(selected_slots)
+                or any(
+                    type(slot) is not int
+                    or slot not in summaries
+                    or summaries[slot]["terminal_status"] != "success"
+                    for slot in selected_slots
+                )
+            ):
+                raise ValueError(f"admitted group has invalid selected slots: {group}")
+            if admitted_counts[level] < request.task_instance_count:
+                admitted_rows.extend(
+                    {**summaries[slot], "admitted": True} for slot in selected_slots
+                )
+                admitted_counts[level] += 1
+
+    complete = all(value == request.task_instance_count for value in admitted_counts.values())
+    manifest = {
+        "schema_version": 1,
+        "format_id": "smooth_expert_behavior_review_v1",
+        "review_id": request.review_id,
+        "bounded_review_only": True,
+        "training_authorized": False,
+        "complete": complete,
+        "requested_trajectory_count": request.requested_trajectory_count,
+        "materialized_video_count": len(audit_rows),
+        "successful_trajectory_count": sum(
+            row["terminal_status"] == "success" for row in audit_rows
+        ),
+        "admitted_video_count": len(admitted_rows),
+        "admitted_task_instance_count_by_level": admitted_counts,
+        "group_failures": failures,
+        "trajectories": admitted_rows,
+        "audit_trajectories": audit_rows,
+    }
+    path = target / ("manifest.json" if complete else "partial_manifest.json")
+    write_review_json(path, manifest)
+    return path

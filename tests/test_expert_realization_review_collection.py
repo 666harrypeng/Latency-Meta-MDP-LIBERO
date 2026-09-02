@@ -73,6 +73,53 @@ def test_real_ffmpeg_review_video_contains_both_views_and_all_frames(tmp_path: P
     }
 
 
+def test_final_manifest_assembles_exactly_three_complete_groups_per_level(tmp_path: Path) -> None:
+    """Break caught: successful rows from incomplete task groups enter the final 27-video view."""
+    from latency_meta_mdp.expert_realization.review_collection import assemble_review_manifest
+
+    for level in (1, 2, 3):
+        for task_index in range(3):
+            group = tmp_path / f"level-{level}" / f"task-{task_index:03d}-seed-{task_index}"
+            group.mkdir(parents=True)
+            (group / "group_result.json").write_text(
+                json.dumps(
+                    {
+                        "admitted": True,
+                        "selected_realization_slots": [0, 1, 2],
+                        "trajectory_statuses": [],
+                    }
+                )
+            )
+            for slot in range(3):
+                realization = group / f"realization-{slot:02d}"
+                realization.mkdir()
+                (realization / "summary.json").write_text(
+                    json.dumps(
+                        {
+                            "level": level,
+                            "logical_task_index": task_index,
+                            "master_task_seed": task_index,
+                            "realization_slot": slot,
+                            "family": "canonical_direct",
+                            "terminal_status": "success",
+                            "terminal_reason": "lift_succeeded",
+                            "video": f"level-{level}/task-{task_index}/r{slot}.mp4",
+                        }
+                    )
+                )
+
+    manifest_path = assemble_review_manifest(
+        target=tmp_path,
+        config_path=Path("configs/collection/panda_ball_smooth_review_3x3x3.yaml"),
+    )
+    manifest = json.loads(manifest_path.read_text())
+
+    assert manifest["complete"] is True
+    assert manifest["admitted_video_count"] == 27
+    assert len(manifest["trajectories"]) == 27
+    assert manifest["admitted_task_instance_count_by_level"] == {"1": 3, "2": 3, "3": 3}
+
+
 def test_phase_timeline_covers_prefix_decisions_and_terminal_frame() -> None:
     """Break caught: video labels are shifted one tick relative to recorded actions."""
     from latency_meta_mdp.expert_realization.review_collection import phase_timeline

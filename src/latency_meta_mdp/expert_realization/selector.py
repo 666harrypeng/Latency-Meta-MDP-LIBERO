@@ -46,6 +46,10 @@ def _discrete_frechet(left: np.ndarray, right: np.ndarray) -> float:
     return distance(len(left) - 1, len(right) - 1)
 
 
+def discrete_frechet(left: np.ndarray, right: np.ndarray) -> float:
+    return _discrete_frechet(left, right)
+
+
 def _candidate_set_sha256(
     candidates_by_key: Mapping[ExpertRealizationKey, tuple[PlannerCandidate, ...]],
 ) -> str:
@@ -124,7 +128,7 @@ class FrozenTaskInstancePlanSet:
         object.__setattr__(self, "references", MappingProxyType(dict(self.references)))
 
 
-def _freeze_reference(
+def freeze_selected_reference(
     candidate: PlannerCandidate,
     *,
     fixed_orientation_world: np.ndarray,
@@ -217,7 +221,7 @@ def select_task_instance_plan_set(
         selected_paths.append(choice.eef_positions_world)
     orientation = task_instance.expected_anchor.anchor_eef_orientation_matrix_world
     references = {
-        index: _freeze_reference(candidate, fixed_orientation_world=orientation)
+        index: freeze_selected_reference(candidate, fixed_orientation_world=orientation)
         for index, candidate in selected.items()
     }
     return FrozenTaskInstancePlanSet(
