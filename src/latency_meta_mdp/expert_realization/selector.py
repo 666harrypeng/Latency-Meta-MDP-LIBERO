@@ -232,3 +232,64 @@ def select_task_instance_plan_set(
         },
         references=references,
     )
+
+
+def select_first_qualified_plan_set(
+    *,
+    task_instance: MaterializedTaskInstance,
+    plans_by_key: Mapping[ExpertRealizationKey, object],
+) -> FrozenTaskInstancePlanSet:
+    """Freeze four prequalified plans without ranking alternate successes."""
+    if not isinstance(task_instance, MaterializedTaskInstance):
+        raise TypeError("task_instance must be a MaterializedTaskInstance")
+    task_instance.validate_publication_consistency()
+    keys = tuple(sorted(plans_by_key, key=lambda item: item.realization_index))
+    if len(keys) != 4 or tuple(key.realization_index for key in keys) != tuple(range(4)):
+        raise ValueError("formal first-qualified plan set requires exactly four slots")
+    if any(key.task_instance_id != task_instance.task_instance_id for key in keys):
+        raise ValueError("formal first-qualified plans do not share the task instance")
+    candidates: list[PlannerCandidate] = []
+    references: dict[int, SelectedReference] = {}
+    for key in keys:
+        plan = plans_by_key[key]
+        candidate = getattr(plan, "candidate", None)
+        reference = getattr(plan, "reference", None)
+        if (
+            not isinstance(candidate, PlannerCandidate)
+            or candidate.status is not PlannerCandidateStatus.SUCCESS
+            or candidate.expert_realization_key != key
+            or not isinstance(reference, SelectedReference)
+            or reference.expert_realization_key != key
+        ):
+            raise ValueError("formal plan slot is not one first-qualified candidate/reference")
+        if any(
+            _discrete_frechet(candidate.eef_positions_world, previous.eef_positions_world)
+            < 0.005
+            for previous in candidates
+        ):
+            raise DiversitySelectionError(
+                "formal first-qualified EEF paths violate the 5 mm diversity gate"
+            )
+        candidates.append(candidate)
+        references[key.realization_index] = reference
+    payload = json.dumps(
+        [
+            {
+                "key": candidate.expert_realization_key.to_mapping(),
+                "candidate_index": candidate.candidate_index,
+                "fingerprint": candidate.fingerprint,
+            }
+            for candidate in candidates
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return FrozenTaskInstancePlanSet(
+        task_instance_id=task_instance.task_instance_id,
+        candidate_set_sha256=hashlib.sha256(payload).hexdigest(),
+        selected_candidate_fingerprints={
+            candidate.expert_realization_key.realization_index: candidate.fingerprint
+            for candidate in candidates
+        },
+        references=references,
+    )

@@ -92,6 +92,30 @@ def _intent():
     )
 
 
+def _task_instance():
+    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+
+    value = object.__new__(MaterializedTaskInstance)
+    object.__setattr__(value, "task_instance_id", _key().task_instance_id)
+    object.__setattr__(
+        value,
+        "expected_anchor",
+        SimpleNamespace(anchor_eef_orientation_matrix_world=np.eye(3, dtype=np.float64)),
+    )
+    return value
+
+
+@pytest.fixture(autouse=True)
+def _validated_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+
+    monkeypatch.setattr(
+        MaterializedTaskInstance,
+        "validate_publication_consistency",
+        lambda self: None,
+    )
+
+
 def test_first_candidate_success_stops_without_building_a_candidate_bank() -> None:
     """Break caught: all eight candidates are generated before the first success is frozen."""
     from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
@@ -218,3 +242,71 @@ def test_infrastructure_retry_limit_aborts_without_advancing_candidate() -> None
             on_progress=lambda _message: None,
         )
     assert calls == [0, 0, 0]
+
+
+def _first_plan(*, slot: int, offset: float):
+    from latency_meta_mdp.expert_realization.selector import freeze_selected_reference
+    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+        FirstQualifiedPlan,
+    )
+
+    candidate = _success(0, slot=slot, offset=offset)
+    return FirstQualifiedPlan(
+        candidate=candidate,
+        reference=freeze_selected_reference(
+            candidate, fixed_orientation_world=np.eye(3, dtype=np.float64)
+        ),
+        attempted_candidate_indices=(0,),
+        semantic_failures=(),
+    )
+
+
+def test_first_qualified_selector_requires_four_numerically_distinct_plans() -> None:
+    """Break caught: a formal four-realization group is incomplete or fingerprint-only diverse."""
+    from latency_meta_mdp.expert_realization.selector import (
+        DiversitySelectionError,
+        select_first_qualified_plan_set,
+    )
+
+    plans = {_key(slot): _first_plan(slot=slot, offset=0.02 * slot) for slot in range(4)}
+    selected = select_first_qualified_plan_set(
+        task_instance=_task_instance(), plans_by_key=plans
+    )
+    assert tuple(selected.references) == (0, 1, 2, 3)
+    assert selected.selected_candidate_fingerprints == {
+        slot: plans[_key(slot)].candidate.fingerprint for slot in range(4)
+    }
+
+    with pytest.raises(ValueError, match="four"):
+        select_first_qualified_plan_set(
+            task_instance=_task_instance(),
+            plans_by_key={key: value for key, value in plans.items() if key.realization_index < 3},
+        )
+    duplicate = dict(plans)
+    duplicate[_key(1)] = _first_plan(slot=1, offset=0.0)
+    with pytest.raises(DiversitySelectionError, match="5 mm"):
+        select_first_qualified_plan_set(
+            task_instance=_task_instance(), plans_by_key=duplicate
+        )
+
+
+def test_level_canary_ignores_wall_time_but_requires_exact_trajectory() -> None:
+    """Break caught: deterministic replay compares wall time or misses numerical path drift."""
+    from dataclasses import replace
+
+    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+        PlannerDeterminismError,
+        verify_level_planner_canary,
+    )
+
+    selected = _first_plan(slot=0, offset=0.0)
+    replay = replace(selected.candidate, planning_time_seconds=9.0)
+    result = verify_level_planner_canary(selected, replay_candidate=lambda: replay)
+    assert result.level == 1
+    assert result.candidate_index == 0
+    assert result.requested_seed == selected.candidate.requested_seed
+    assert result.passed is True
+
+    changed = _success(0, slot=0, offset=0.001)
+    with pytest.raises(PlannerDeterminismError, match="numerical replay"):
+        verify_level_planner_canary(selected, replay_candidate=lambda: changed)
