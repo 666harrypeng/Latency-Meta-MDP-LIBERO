@@ -1,0 +1,8 @@
+schema_version: 1
+calibration_id: panda-ball-feedback-calibration-v1
+logical_task_index_start: 0
+task_instance_count: 50
+levels: [1, 2, 3]
+quantiles: [0.10, 0.50, 0.90]
+bounded_review_only: true
+training_authorized: false
