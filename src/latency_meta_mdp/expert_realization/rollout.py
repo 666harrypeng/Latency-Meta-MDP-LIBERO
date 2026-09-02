@@ -10,6 +10,7 @@ from latency_meta_mdp.expert_realization.executor import (
     SemanticExecutionFailure,
     StructuredExpertDecision,
     StructuredExpertExecutor,
+    StructuredExpertPhase,
 )
 from latency_meta_mdp.expert_realization.selector import SelectedReference
 from latency_meta_mdp.expert_realization.shared_prefix import (
@@ -113,7 +114,8 @@ def _execute_structured_realization(
     reference: SelectedReference,
     maximum_formal_ticks: int,
     source_metadata: object | None = None,
-) -> tuple[StructuredRealizationRollout, object | None]:
+    safety_bridge: object | None = None,
+) -> tuple[StructuredRealizationRollout, object | None, object | None]:
     """Replay the exact K6 prefix, then execute the frozen realization in real physics."""
     if not isinstance(task_instance, MaterializedTaskInstance):
         raise TypeError("task_instance must be a MaterializedTaskInstance")
@@ -128,7 +130,9 @@ def _execute_structured_realization(
     if type(maximum_formal_ticks) is not int or maximum_formal_ticks <= 5:
         raise ValueError("maximum_formal_ticks must exceed the K6 decision tick")
 
-    runtime = _build_task_instance_runtime(task_instance)
+    if source_metadata is not None and safety_bridge is None:
+        raise ValueError("formal source recording requires a safety bridge")
+    runtime = _build_task_instance_runtime(task_instance, safety_bridge=safety_bridge)
     actions: list[np.ndarray] = []
     decisions: list[StructuredExpertDecision] = []
     eef_positions: list[np.ndarray] = []
@@ -163,6 +167,10 @@ def _execute_structured_realization(
             wrist_frames=wrist_frames,
         )
         for action in task_instance.expected_anchor.shared_actions:
+            if runtime.safety_monitor is not None:
+                runtime.safety_monitor.set_active_interval_phase(
+                    StructuredExpertPhase.SMOOTH_APPROACH
+                )
             if source_recorder is not None:
                 source_recorder.append_shared_transition(snapshot, action)
             actions.append(np.asarray(action, dtype=np.float64))
@@ -211,6 +219,8 @@ def _execute_structured_realization(
                     right_pad_contact=False if contact is None else contact.right_pad_contact,
                 )
                 decisions.append(decision)
+                if runtime.safety_monitor is not None:
+                    runtime.safety_monitor.set_active_interval_phase(decision.phase)
                 if source_recorder is not None:
                     source_recorder.append_decision_transition(decision)
                 actions.append(np.asarray(decision.action, dtype=np.float64))
@@ -262,7 +272,17 @@ def _execute_structured_realization(
                 handoff_release_qpos=runtime.handoff.release_qpos,
                 handoff_release_qvel=runtime.handoff.release_qvel,
             )
-        return rollout, source_episode
+        safety_report = None
+        if runtime.safety_monitor is not None:
+            from latency_meta_mdp.expert_realization.safety import (
+                build_actual_rollout_safety_report,
+            )
+
+            safety_report = build_actual_rollout_safety_report(
+                rollout=rollout,
+                physics=runtime.safety_monitor.finalize(),
+            )
+        return rollout, source_episode, safety_report
     finally:
         runtime.close()
 
@@ -275,7 +295,7 @@ def execute_structured_realization(
     maximum_formal_ticks: int,
 ) -> StructuredRealizationRollout:
     """Replay one frozen realization for bounded visual review."""
-    rollout, _source_episode = _execute_structured_realization(
+    rollout, _source_episode, _safety_report = _execute_structured_realization(
         task_instance=task_instance,
         intent=intent,
         reference=reference,

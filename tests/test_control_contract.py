@@ -131,6 +131,44 @@ def test_zero_delta_holds_pose_for_exactly_ten_physics_steps() -> None:
         env.close()
 
 
+def test_post_step_observer_sees_solved_step_before_ledger_advance() -> None:
+    """Break caught: contact force is sampled before mj_step2 solves the completed step."""
+    from latency_meta_mdp.backend import CompletedPhysicsStep
+
+    contract = load_action_contract(_CONTROL_CONFIG)
+    env = make_dynamic_grasp_lift_environment(
+        spec=load_task_spec(_TASK_CONFIG),
+        seed=7,
+        offscreen=False,
+        controller_config=contract.to_robosuite_config(),
+    )
+    try:
+        ledger = ClockLedger(physics_dt_us=2_000, formal_tick_us=20_000)
+        observed: list[tuple[CompletedPhysicsStep, int]] = []
+        plant = RoboSuitePlant(
+            env=env,
+            snapshotter=BoundarySnapshotter(camera_names=(), width=16, height=16),
+            completed_physics_step_observer=lambda sample: observed.append(
+                (sample, ledger.physics_step_index)
+            ),
+        )
+        executor = FormalStepExecutor(plant=plant, ledger=ledger)
+        executor.initialize()
+        executor.step_formal(
+            contract.compose_action(
+                arm_reference=np.zeros(6),
+                gripper_command=contract.gripper_open_command,
+            )
+        )
+    finally:
+        env.close()
+
+    assert [sample.physics_step_index for sample, _ in observed] == list(range(1, 11))
+    assert [sample.time_us for sample, _ in observed] == list(range(2_000, 20_001, 2_000))
+    assert [ledger_index for _, ledger_index in observed] == list(range(10))
+    assert [sample.at_formal_boundary for sample, _ in observed] == [False] * 9 + [True]
+
+
 def test_runtime_verification_rejects_controller_parameter_drift() -> None:
     contract = load_action_contract(_CONTROL_CONFIG)
     env = make_dynamic_grasp_lift_environment(

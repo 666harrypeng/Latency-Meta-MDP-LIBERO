@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -25,6 +26,12 @@ from latency_meta_mdp.expert_realization.trajectory_intent import PlannedMotionI
 from latency_meta_mdp.outcomes import OutcomeEvent
 from latency_meta_mdp.snapshots import BoundarySnapshot
 
+if TYPE_CHECKING:
+    from latency_meta_mdp.expert_realization.config import PilotGateConfig
+    from latency_meta_mdp.expert_realization.qualification import QualificationDecision
+    from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
+    from latency_meta_mdp.expert_realization.safety import ActualRolloutSafetyReport
+
 
 class SourceRecordingFailure(RuntimeError):
     """A formal source execution ended without an admissible success episode."""
@@ -33,6 +40,46 @@ class SourceRecordingFailure(RuntimeError):
         self.terminal_status = terminal_status
         self.terminal_reason = terminal_reason
         super().__init__(f"source recording failed: {terminal_status}: {terminal_reason}")
+
+
+class SourceQualificationFailure(RuntimeError):
+    """A task-success trace failed one or more immutable physical admission gates."""
+
+    def __init__(
+        self,
+        *,
+        report: ActualRolloutSafetyReport,
+        decision: QualificationDecision,
+    ) -> None:
+        self.report = report
+        self.decision = decision
+        super().__init__(f"source recording failed physical qualification: {decision.failures}")
+
+
+@dataclass(frozen=True)
+class QualifiedSourceRecording:
+    episode: FormalSourceSynchronizedEpisode
+    safety_report: ActualRolloutSafetyReport
+    qualification: QualificationDecision
+
+    def __post_init__(self) -> None:
+        from latency_meta_mdp.expert_realization.qualification import QualificationDecision
+        from latency_meta_mdp.expert_realization.safety import ActualRolloutSafetyReport
+
+        if not isinstance(self.episode, FormalSourceSynchronizedEpisode):
+            raise TypeError("episode must be FormalSourceSynchronizedEpisode")
+        if not isinstance(self.safety_report, ActualRolloutSafetyReport):
+            raise TypeError("safety_report must be ActualRolloutSafetyReport")
+        if not isinstance(self.qualification, QualificationDecision):
+            raise TypeError("qualification must be QualificationDecision")
+        if not self.qualification.eligible:
+            raise ValueError("QualifiedSourceRecording requires an eligible qualification")
+
+    def qualification_mapping(self) -> dict[str, Any]:
+        return {
+            "actual_rollout_safety": self.safety_report.to_mapping(),
+            "admission": self.qualification.to_mapping(),
+        }
 
 
 def _commanded(snapshot: BoundarySnapshot, name: str, *, shape: tuple[int, ...]) -> np.ndarray:
@@ -280,16 +327,27 @@ def execute_structured_source_recording(
     reference: SelectedReference,
     metadata: FormalSourceEpisodeMetadata,
     maximum_formal_ticks: int,
-) -> FormalSourceSynchronizedEpisode:
-    """Execute one frozen realization and return only a complete successful source episode."""
+    planning_bridge: PandaPlanningBridge,
+    gate: PilotGateConfig,
+) -> QualifiedSourceRecording:
+    """Execute, physically qualify, and return one complete successful source recording."""
+    from latency_meta_mdp.expert_realization.config import PilotGateConfig
+    from latency_meta_mdp.expert_realization.qualification import qualify_actual_rollout
+    from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
     from latency_meta_mdp.expert_realization.rollout import _execute_structured_realization
+    from latency_meta_mdp.expert_realization.safety import ActualRolloutSafetyReport
 
-    rollout, source_episode = _execute_structured_realization(
+    if not isinstance(planning_bridge, PandaPlanningBridge):
+        raise TypeError("planning_bridge must be a PandaPlanningBridge")
+    if not isinstance(gate, PilotGateConfig):
+        raise TypeError("gate must be a PilotGateConfig")
+    rollout, source_episode, safety_report = _execute_structured_realization(
         task_instance=task_instance,
         intent=intent,
         reference=reference,
         maximum_formal_ticks=maximum_formal_ticks,
         source_metadata=metadata,
+        safety_bridge=planning_bridge,
     )
     if source_episode is None:
         raise SourceRecordingFailure(
@@ -298,4 +356,13 @@ def execute_structured_source_recording(
         )
     if not isinstance(source_episode, FormalSourceSynchronizedEpisode):
         raise TypeError("source execution returned an invalid episode")
-    return source_episode
+    if not isinstance(safety_report, ActualRolloutSafetyReport):
+        raise TypeError("source execution returned no actual-physics safety report")
+    decision = qualify_actual_rollout(safety_report, gate=gate)
+    if not decision.eligible:
+        raise SourceQualificationFailure(report=safety_report, decision=decision)
+    return QualifiedSourceRecording(
+        episode=source_episode,
+        safety_report=safety_report,
+        qualification=decision,
+    )

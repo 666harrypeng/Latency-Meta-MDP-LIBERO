@@ -123,6 +123,17 @@ class PreparedPhysicsPoint:
 PhysicsPointObserver = Callable[[PreparedPhysicsPoint], Mapping[str, Any] | None]
 
 
+@dataclass(frozen=True)
+class CompletedPhysicsStep:
+    physics_step_index: int
+    formal_tick_index: int
+    time_us: int
+    at_formal_boundary: bool
+
+
+CompletedPhysicsStepObserver = Callable[[CompletedPhysicsStep], None]
+
+
 class RoboSuitePlant:
     """Narrow adapter around a mounted-Panda RoboSuite environment."""
 
@@ -134,6 +145,7 @@ class RoboSuitePlant:
         world_writer: WorldWriter | None = None,
         control_observer: ControlObserver | None = None,
         physics_point_observer: PhysicsPointObserver | None = None,
+        completed_physics_step_observer: CompletedPhysicsStepObserver | None = None,
     ) -> None:
         import mujoco
 
@@ -150,6 +162,7 @@ class RoboSuitePlant:
         self._world_writer = world_writer
         self._control_observer = control_observer
         self._physics_point_observer = physics_point_observer
+        self._completed_physics_step_observer = completed_physics_step_observer
         self._commanded_world: Mapping[str, Any] = {}
         self.world_write_count = 0
         self.step1_count = 0
@@ -229,6 +242,17 @@ class RoboSuitePlant:
 
     def step2(self) -> None:
         self._env.sim.step2()
+        if self._completed_physics_step_observer is not None:
+            time_us = round(float(self._env.sim.data.time) * 1_000_000)
+            physics_step_index = time_us // 2_000
+            self._completed_physics_step_observer(
+                CompletedPhysicsStep(
+                    physics_step_index=physics_step_index,
+                    formal_tick_index=physics_step_index // 10,
+                    time_us=time_us,
+                    at_formal_boundary=physics_step_index % 10 == 0,
+                )
+            )
         self.step2_count += 1
 
 

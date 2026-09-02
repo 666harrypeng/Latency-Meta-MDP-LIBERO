@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import yaml
@@ -42,6 +42,10 @@ from latency_meta_mdp.outcomes import EpisodeOutcomeTracker, OutcomeCriteria
 from latency_meta_mdp.snapshots import BoundarySnapshot, BoundarySnapshotter
 from latency_meta_mdp.task import TaskSpec, load_task_spec, make_dynamic_grasp_lift_environment
 from latency_meta_mdp.timing import ClockLedger
+
+if TYPE_CHECKING:
+    from latency_meta_mdp.expert_realization.actual_physics import RuntimePhysicsSafetyMonitor
+    from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
 
 _CAMERAS = ("agentview", "robot0_eye_in_hand")
 _EXPECTED_RUNTIME = {
@@ -492,6 +496,7 @@ class _TaskInstanceRuntime:
     handoff: Any
     world: Any
     executor: Any
+    safety_monitor: RuntimePhysicsSafetyMonitor | None = None
     closed: bool = False
 
     def require_open(self) -> None:
@@ -505,8 +510,33 @@ class _TaskInstanceRuntime:
         self.env.close()
 
 
+def _compose_physics_observers(*observers: Callable[[Any], Mapping[str, Any] | None]):
+    if not observers or any(not callable(observer) for observer in observers):
+        raise TypeError("physics observers must be non-empty callables")
+
+    def composed(point: Any) -> Mapping[str, Any]:
+        combined: dict[str, Any] = {}
+        for observer in observers:
+            updates = observer(point)
+            if updates is None:
+                continue
+            overlap = set(combined) & set(updates)
+            if overlap:
+                raise ValueError(
+                    f"physics observers returned overlapping fields: {sorted(overlap)}"
+                )
+            combined.update(updates)
+        return combined
+
+    return composed
+
+
 def _construct_runtime(
-    *, config: _LoadedConfiguration, profile: MotionProfile, seed: int
+    *,
+    config: _LoadedConfiguration,
+    profile: MotionProfile,
+    seed: int,
+    safety_bridge: PandaPlanningBridge | None = None,
 ) -> _TaskInstanceRuntime:
     env: Any | None = None
     try:
@@ -538,6 +568,31 @@ def _construct_runtime(
             driver=DrivenBallWorld(profile=profile, motion_level=config.motion_config.level),
             handoff=handoff,
         )
+        safety_monitor = None
+        physics_point_observer = handoff.on_physics_point
+        completed_physics_step_observer = None
+        if safety_bridge is not None:
+            from latency_meta_mdp.expert_realization.actual_physics import (
+                RuntimePhysicsSafetyMonitor,
+                compile_runtime_safety_geometry,
+            )
+            from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
+
+            if not isinstance(safety_bridge, PandaPlanningBridge):
+                raise TypeError("safety_bridge must be a PandaPlanningBridge")
+            geometry = compile_runtime_safety_geometry(
+                env,
+                joint_names=safety_bridge.joint_names,
+                joint_lower=safety_bridge.joint_lower,
+                joint_upper=safety_bridge.joint_upper,
+                joint_velocity_limit=safety_bridge.joint_velocity,
+            )
+            safety_monitor = RuntimePhysicsSafetyMonitor(env=env, geometry=geometry)
+            physics_point_observer = _compose_physics_observers(
+                handoff.on_physics_point,
+                safety_monitor.on_prepared,
+            )
+            completed_physics_step_observer = safety_monitor.on_completed
         executor = FormalStepExecutor(
             plant=RoboSuitePlant(
                 env=env,
@@ -547,8 +602,9 @@ def _construct_runtime(
                     height=256,
                 ),
                 world_writer=world,
-                physics_point_observer=handoff.on_physics_point,
+                physics_point_observer=physics_point_observer,
                 control_observer=handoff.on_control_applied,
+                completed_physics_step_observer=completed_physics_step_observer,
             ),
             ledger=ClockLedger(physics_dt_us=2_000, formal_tick_us=20_000),
         )
@@ -559,6 +615,7 @@ def _construct_runtime(
             handoff=handoff,
             world=world,
             executor=executor,
+            safety_monitor=safety_monitor,
         )
     except BaseException:
         if env is not None:
@@ -566,7 +623,11 @@ def _construct_runtime(
         raise
 
 
-def _build_task_instance_runtime(task_instance: MaterializedTaskInstance) -> _TaskInstanceRuntime:
+def _build_task_instance_runtime(
+    task_instance: MaterializedTaskInstance,
+    *,
+    safety_bridge: PandaPlanningBridge | None = None,
+) -> _TaskInstanceRuntime:
     if not isinstance(task_instance, MaterializedTaskInstance):
         raise TypeError("task_instance must be a MaterializedTaskInstance")
     config = _load_configuration(task_instance.project_root, task_instance.task_instance_id.level)
@@ -581,6 +642,7 @@ def _build_task_instance_runtime(task_instance: MaterializedTaskInstance) -> _Ta
         config=config,
         profile=parsed,
         seed=task_instance.task_instance_id.task_instance_seed,
+        safety_bridge=safety_bridge,
     )
 
 

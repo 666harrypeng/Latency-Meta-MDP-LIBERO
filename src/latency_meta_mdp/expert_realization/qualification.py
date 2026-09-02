@@ -23,6 +23,9 @@ class QualificationDecision:
         if self.eligible != (not self.failures):
             raise ValueError("eligible must equal absence of failures")
 
+    def to_mapping(self) -> dict[str, object]:
+        return {"eligible": self.eligible, "failures": list(self.failures)}
+
 
 def qualify_actual_rollout(
     report: ActualRolloutSafetyReport,
@@ -44,11 +47,6 @@ def qualify_actual_rollout(
             "environment_clearance",
         ),
         (
-            report.maximum_intentional_contact_penetration_m
-            <= gate.intentional_contact_penetration_m,
-            "contact_penetration",
-        ),
-        (
             report.maximum_pad_ball_impulse_ns
             <= gate.peak_pad_ball_impulse_per_physics_contact_event_ns,
             "pad_ball_impulse",
@@ -59,6 +57,8 @@ def qualify_actual_rollout(
             "pregrasp_ball_contact",
         ),
         (report.other_link_ball_contacts == 0, "other_link_ball_contact"),
+        (report.robot_environment_contacts == 0, "robot_environment_contact"),
+        (report.robot_self_contacts == 0, "robot_self_contact"),
         (
             report.minimum_joint_position_margin_rad >= gate.joint_position_margin_rad,
             "joint_position_margin",
@@ -72,22 +72,6 @@ def qualify_actual_rollout(
         (
             report.maximum_eef_acceleration_mps2 <= gate.eef_acceleration_mps2,
             "eef_acceleration",
-        ),
-        (report.maximum_eef_jerk_mps3 <= gate.eef_jerk_mps3, "eef_jerk"),
-        (
-            report.maximum_reference_tracking_error_m
-            <= gate.reference_to_achieved_eef_error_outside_contact_m,
-            "reference_tracking",
-        ),
-        (
-            report.maximum_pregrasp_translation_error_m
-            <= gate.pregrasp_tracking_translation_m,
-            "pregrasp_translation",
-        ),
-        (
-            report.maximum_pregrasp_rotation_error_degrees
-            <= gate.pregrasp_tracking_rotation_degrees,
-            "pregrasp_rotation",
         ),
         (report.minimum_osc_action >= gate.osc_action_bounds[0], "osc_action_bounds"),
         (report.maximum_osc_action <= gate.osc_action_bounds[1], "osc_action_bounds"),

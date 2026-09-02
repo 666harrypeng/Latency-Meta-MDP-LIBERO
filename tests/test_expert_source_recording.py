@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -63,6 +65,61 @@ def _runtime():
     )
     robot = SimpleNamespace(part_controllers={"right": arm})
     return SimpleNamespace(env=SimpleNamespace(robots=[robot]))
+
+
+def _passing_safety_report():
+    from latency_meta_mdp.expert_realization.config import load_pilot_gate_config
+    from latency_meta_mdp.expert_realization.safety import ActualRolloutSafetyReport
+
+    gate = load_pilot_gate_config(
+        Path("configs/analysis/panda_ball_structured_pilot_gate.yaml")
+    )
+    return ActualRolloutSafetyReport(
+        terminal_success=True,
+        physical_handoff=True,
+        phase_order_valid=True,
+        minimum_non_contact_environment_clearance_m=gate.non_contact_environment_clearance_m,
+        maximum_intentional_contact_penetration_m=0.1,
+        maximum_pad_ball_impulse_ns=gate.peak_pad_ball_impulse_per_physics_contact_event_ns,
+        unintended_pregrasp_ball_contacts=0,
+        other_link_ball_contacts=0,
+        robot_environment_contacts=0,
+        robot_self_contacts=0,
+        minimum_joint_position_margin_rad=gate.joint_position_margin_rad,
+        maximum_joint_velocity_fraction=gate.joint_velocity_fraction_of_model_limit,
+        maximum_eef_speed_mps=gate.eef_speed_mps,
+        maximum_eef_acceleration_mps2=gate.eef_acceleration_mps2,
+        maximum_eef_jerk_mps3=1_000.0,
+        maximum_reference_tracking_error_m=10.0,
+        maximum_pregrasp_translation_error_m=1.0,
+        maximum_pregrasp_rotation_error_degrees=180.0,
+        minimum_osc_action=-1.0,
+        maximum_osc_action=1.0,
+        pre_handoff_saturation_fraction=gate.pre_handoff_saturation_fraction,
+    )
+
+
+def _successful_episode():
+    from latency_meta_mdp.expert_realization.source_corpus.recording import SourceEpisodeRecorder
+    from latency_meta_mdp.outcomes import OutcomeEvent, TerminalReason
+
+    metadata = make_formal_source_metadata()
+    recorder = SourceEpisodeRecorder(metadata)
+    first, second = _snapshot(0), _snapshot(1)
+    action = np.array([0, 0, 0, 0, 0, 0, -1], dtype=np.float64)
+    recorder.append_boundary(
+        first, runtime=_runtime(), previous_action=None, outcome_status="running"
+    )
+    recorder.append_shared_transition(first, action)
+    recorder.append_boundary(
+        second, runtime=_runtime(), previous_action=action, outcome_status="success"
+    )
+    return recorder.build_success(
+        terminal_reason="lift_succeeded",
+        outcome_events=(OutcomeEvent("success", 20_000, TerminalReason.LIFT_SUCCEEDED),),
+        handoff_release_qpos=None,
+        handoff_release_qvel=None,
+    )
 
 
 def test_source_episode_recorder_preserves_boundary_transition_and_event_alignment() -> None:
@@ -158,4 +215,81 @@ def test_source_recorder_rejects_noncontiguous_appends_and_non_success_build() -
             outcome_events=(),
             handoff_release_qpos=None,
             handoff_release_qvel=None,
+        )
+
+
+def test_formal_source_execution_returns_episode_beside_physical_qualification(
+    monkeypatch,
+) -> None:
+    """Break caught: terminal success is published without the actual-physics gate."""
+    import latency_meta_mdp.expert_realization.rollout as rollout_module
+    from latency_meta_mdp.expert_realization.config import load_pilot_gate_config
+    from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
+    from latency_meta_mdp.expert_realization.source_corpus.recording import (
+        QualifiedSourceRecording,
+        execute_structured_source_recording,
+    )
+
+    metadata = make_formal_source_metadata()
+    episode = _successful_episode()
+    report = _passing_safety_report()
+    monkeypatch.setattr(
+        rollout_module,
+        "_execute_structured_realization",
+        lambda **_kwargs: (SimpleNamespace(terminal_status="success"), episode, report),
+    )
+
+    result = execute_structured_source_recording(
+        task_instance=object(),
+        intent=object(),
+        reference=object(),
+        metadata=metadata,
+        maximum_formal_ticks=10,
+        planning_bridge=object.__new__(PandaPlanningBridge),
+        gate=load_pilot_gate_config(
+            Path("configs/analysis/panda_ball_structured_pilot_gate.yaml")
+        ),
+    )
+
+    assert isinstance(result, QualifiedSourceRecording)
+    assert result.episode is episode
+    assert result.safety_report is report
+    assert result.qualification.eligible is True
+    assert result.qualification_mapping()["admission"]["eligible"] is True
+
+
+def test_formal_source_execution_rejects_a_task_success_that_fails_physics(
+    monkeypatch,
+) -> None:
+    """Break caught: a successful payload can bypass the source qualification decision."""
+    import latency_meta_mdp.expert_realization.rollout as rollout_module
+    from latency_meta_mdp.expert_realization.config import load_pilot_gate_config
+    from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
+    from latency_meta_mdp.expert_realization.source_corpus.recording import (
+        SourceQualificationFailure,
+        execute_structured_source_recording,
+    )
+
+    report = replace(_passing_safety_report(), robot_environment_contacts=1)
+    episode = _successful_episode()
+    monkeypatch.setattr(
+        rollout_module,
+        "_execute_structured_realization",
+        lambda **_kwargs: (
+            SimpleNamespace(terminal_status="success"),
+            episode,
+            report,
+        ),
+    )
+    with pytest.raises(SourceQualificationFailure, match="robot_environment_contact"):
+        execute_structured_source_recording(
+            task_instance=object(),
+            intent=object(),
+            reference=object(),
+            metadata=make_formal_source_metadata(),
+            maximum_formal_ticks=10,
+            planning_bridge=object.__new__(PandaPlanningBridge),
+            gate=load_pilot_gate_config(
+                Path("configs/analysis/panda_ball_structured_pilot_gate.yaml")
+            ),
         )
