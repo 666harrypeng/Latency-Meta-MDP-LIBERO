@@ -1,0 +1,18 @@
+schema_version: 1
+pilot_id: panda-ball-structured-paired-4000-4019-v1
+task_instance_seed_start: 4000
+task_instance_seed_stop: 4020
+levels: [1, 2, 3]
+families: [canonical_direct, early_high_arc, lateral_arc, time_shifted_smooth]
+samples_per_family: 2
+maximum_infrastructure_attempts_per_realization: 2
+record_profile: pilot_debug
+camera_width: 256
+camera_height: 256
+review_video_fps: 50
+bounded_review_only: true
+formal_training_authorized: false
+formal_dino_cache_authorized: false
+jepa_training_authorized: false
+policy_training_authorized: false
+meta_policy_training_authorized: false

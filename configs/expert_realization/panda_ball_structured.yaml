@@ -1,0 +1,27 @@
+schema_version: 1
+expert_id: panda_ball_structured_v1
+action_contract_id: panda_osc_pose_delta_v1
+decision_source_tick: 5
+shared_prefix_policy: settle_open_hold_v1
+families:
+  - canonical_direct
+  - early_high_arc
+  - lateral_arc
+  - time_shifted_smooth
+samples_per_family: 2
+interception_lead_seconds: [0.14, 0.26]
+pregrasp_height_m: [0.08, 0.13]
+lateral_offset_m: [0.015, 0.040]
+tracking_error_clip_m: [0.022, 0.038]
+close_dwell_ticks: [0, 1, 2, 3, 4]
+lift_lateral_offset_m: [0.000, 0.020]
+lift_vertical_offset_m: [0.14, 0.19]
+interception_tick_ranges:
+  canonical_direct: [75, 105]
+  early_high_arc: [60, 85]
+  lateral_arc: [75, 110]
+  time_shifted_smooth: [100, 125]
+fixed_orientation: true
+rotation_action_variation: false
+iid_per_tick_action_noise: false
+subseed_tags: [strategy, keypose, planner, timing]

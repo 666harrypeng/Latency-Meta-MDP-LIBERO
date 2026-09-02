@@ -1,0 +1,17 @@
+schema_version: 1
+pregrasp_tracking_translation_m: 0.010
+pregrasp_tracking_rotation_degrees: 2.0
+non_contact_environment_clearance_m: 0.002
+osc_action_bounds: [-1.0, 1.0]
+pre_handoff_saturation_fraction: 0.05
+joint_position_margin_rad: 1.0e-4
+joint_velocity_fraction_of_model_limit: 0.80
+eef_speed_mps: 0.75
+eef_acceleration_mps2: 5.0
+eef_jerk_mps3: 100.0
+reference_to_achieved_eef_error_outside_contact_m: 0.015
+unintended_pregrasp_ball_contacts: 0
+intentional_contact_penetration_m: 0.002
+peak_pad_ball_impulse_per_physics_contact_event_ns: 1.0
+near_duplicate_d20_xyz_action_rms: 0.02
+near_duplicate_eef_frechet_m: 0.005
