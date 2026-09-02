@@ -244,6 +244,36 @@ def test_infrastructure_retry_limit_aborts_without_advancing_candidate() -> None
     assert calls == [0, 0, 0]
 
 
+def test_resume_starts_at_workspace_candidate_without_replaying_prior_failures() -> None:
+    """Break caught: resume reruns candidate indices already recorded as semantic failures."""
+    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+        generate_first_qualified_plan,
+    )
+
+    calls = []
+
+    def run(index: int):
+        calls.append(index)
+        return _success(index)
+
+    plan = generate_first_qualified_plan(
+        realization_key=_key(),
+        intent=_intent(),
+        execution=_execution(),
+        run_candidate=run,
+        on_progress=lambda _message: None,
+        start_candidate_index=2,
+        prior_semantic_failures=("candidate=0: infeasible", "candidate=1: timeout"),
+    )
+
+    assert calls == [2]
+    assert plan.attempted_candidate_indices == (0, 1, 2)
+    assert plan.semantic_failures == (
+        "candidate=0: infeasible",
+        "candidate=1: timeout",
+    )
+
+
 def _first_plan(*, slot: int, offset: float):
     from latency_meta_mdp.expert_realization.selector import freeze_selected_reference
     from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (

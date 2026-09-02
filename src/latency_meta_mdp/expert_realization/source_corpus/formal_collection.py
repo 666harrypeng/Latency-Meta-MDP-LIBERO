@@ -89,6 +89,8 @@ def generate_first_qualified_plan(
     execution: SourceExecutionConfig,
     run_candidate: Callable[[int], PlannerCandidate],
     on_progress: Callable[[str], None],
+    start_candidate_index: int = 0,
+    prior_semantic_failures: tuple[str, ...] = (),
 ) -> FirstQualifiedPlan:
     """Generate candidates sequentially and stop at the first qualified result."""
     if not isinstance(realization_key, ExpertRealizationKey):
@@ -97,10 +99,24 @@ def generate_first_qualified_plan(
         raise TypeError("execution must be SourceExecutionConfig")
     if not callable(run_candidate) or not callable(on_progress):
         raise TypeError("planner runner and progress callback must be callable")
+    if (
+        type(start_candidate_index) is not int
+        or not 0 <= start_candidate_index < execution.maximum_candidate_attempts_per_realization
+    ):
+        raise ValueError("start_candidate_index is outside the bounded candidate range")
+    if (
+        type(prior_semantic_failures) is not tuple
+        or len(prior_semantic_failures) != start_candidate_index
+        or any(type(value) is not str or not value for value in prior_semantic_failures)
+    ):
+        raise ValueError("prior semantic failures must match the resume candidate index")
     orientation = getattr(getattr(intent, "approach", None), "fixed_orientation_world", None)
-    semantic_failures = []
-    attempted_indices = []
-    for candidate_index in range(execution.maximum_candidate_attempts_per_realization):
+    semantic_failures = list(prior_semantic_failures)
+    attempted_indices = list(range(start_candidate_index))
+    for candidate_index in range(
+        start_candidate_index,
+        execution.maximum_candidate_attempts_per_realization,
+    ):
         infrastructure_failures = 0
         while True:
             on_progress(f"candidate={candidate_index} start")
