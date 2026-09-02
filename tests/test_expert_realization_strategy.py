@@ -85,6 +85,9 @@ def test_strategy_sampling_has_bounded_approach_diversity_and_canonical_grasp() 
         assert strategy.funnel_descent_ticks == 30
         assert strategy.close_dwell_ticks == 2
         assert strategy.bilateral_contact_acquisition_ticks == 4
+        assert strategy.close_centering_tolerance_m == 0.004
+        assert strategy.close_distance_tolerance_m == 0.016
+        assert strategy.close_relative_speed_tolerance_mps == 0.13
         assert strategy.lift_vertical_displacement_m == 0.16
         if strategy.family.value == "early_high_arc":
             assert strategy.high_arc_extra_height_m is not None

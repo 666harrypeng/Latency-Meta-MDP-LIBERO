@@ -108,6 +108,9 @@ class StructuredExpertConfig:
     handoff_window_ticks: int
     close_dwell_ticks: int
     bilateral_contact_acquisition_ticks: int
+    close_centering_tolerance_m: float
+    close_distance_tolerance_m: float
+    close_relative_speed_tolerance_mps: float
     lift_vertical_displacement_m: float
     close_target_tick_ranges: dict[str, tuple[int, int]]
     fixed_orientation: bool
@@ -133,6 +136,9 @@ class StructuredExpertConfig:
         for field in (
             "funnel_entry_height_m",
             "soft_guide_radius_m",
+            "close_centering_tolerance_m",
+            "close_distance_tolerance_m",
+            "close_relative_speed_tolerance_mps",
             "lift_vertical_displacement_m",
         ):
             _require_float(getattr(self, field), name=field)
@@ -199,6 +205,9 @@ class StructuredExpertConfig:
             or self.handoff_window_ticks != 50
             or self.close_dwell_ticks != 2
             or self.bilateral_contact_acquisition_ticks != 4
+            or self.close_centering_tolerance_m != 0.004
+            or self.close_distance_tolerance_m != 0.016
+            or self.close_relative_speed_tolerance_mps != 0.13
             or self.lift_vertical_displacement_m != 0.16
         ):
             raise ValueError("structured expert proposal bounds are invalid")
@@ -230,6 +239,9 @@ class StructuredExpertConfig:
             "handoff_window_ticks": self.handoff_window_ticks,
             "close_dwell_ticks": self.close_dwell_ticks,
             "bilateral_contact_acquisition_ticks": self.bilateral_contact_acquisition_ticks,
+            "close_centering_tolerance_m": self.close_centering_tolerance_m,
+            "close_distance_tolerance_m": self.close_distance_tolerance_m,
+            "close_relative_speed_tolerance_mps": self.close_relative_speed_tolerance_mps,
             "lift_vertical_displacement_m": self.lift_vertical_displacement_m,
             "close_target_tick_ranges": {
                 family: list(bounds) for family, bounds in self.close_target_tick_ranges.items()
@@ -298,6 +310,16 @@ def load_structured_expert_config(path: Path) -> StructuredExpertConfig:
         bilateral_contact_acquisition_ticks=_require_int(
             raw["bilateral_contact_acquisition_ticks"],
             name="bilateral_contact_acquisition_ticks",
+        ),
+        close_centering_tolerance_m=_require_float(
+            raw["close_centering_tolerance_m"], name="close_centering_tolerance_m"
+        ),
+        close_distance_tolerance_m=_require_float(
+            raw["close_distance_tolerance_m"], name="close_distance_tolerance_m"
+        ),
+        close_relative_speed_tolerance_mps=_require_float(
+            raw["close_relative_speed_tolerance_mps"],
+            name="close_relative_speed_tolerance_mps",
         ),
         lift_vertical_displacement_m=_require_float(
             raw["lift_vertical_displacement_m"], name="lift_vertical_displacement_m"

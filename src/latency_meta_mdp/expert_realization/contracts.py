@@ -832,6 +832,9 @@ class StrategyParameters:
     handoff_window_ticks: int
     close_dwell_ticks: int
     bilateral_contact_acquisition_ticks: int
+    close_centering_tolerance_m: float
+    close_distance_tolerance_m: float
+    close_relative_speed_tolerance_mps: float
     lift_vertical_displacement_m: float
     fixed_orientation: bool
     rotation_action_variation: bool
@@ -899,6 +902,9 @@ class StrategyParameters:
             "handoff_window_ticks": config.handoff_window_ticks,
             "close_dwell_ticks": config.close_dwell_ticks,
             "bilateral_contact_acquisition_ticks": config.bilateral_contact_acquisition_ticks,
+            "close_centering_tolerance_m": config.close_centering_tolerance_m,
+            "close_distance_tolerance_m": config.close_distance_tolerance_m,
+            "close_relative_speed_tolerance_mps": config.close_relative_speed_tolerance_mps,
             "lift_vertical_displacement_m": config.lift_vertical_displacement_m,
         }
         for name, expected in canonical_values.items():
@@ -931,6 +937,9 @@ class StrategyParameters:
             "handoff_window_ticks": self.handoff_window_ticks,
             "close_dwell_ticks": self.close_dwell_ticks,
             "bilateral_contact_acquisition_ticks": self.bilateral_contact_acquisition_ticks,
+            "close_centering_tolerance_m": self.close_centering_tolerance_m,
+            "close_distance_tolerance_m": self.close_distance_tolerance_m,
+            "close_relative_speed_tolerance_mps": self.close_relative_speed_tolerance_mps,
             "lift_vertical_displacement_m": self.lift_vertical_displacement_m,
             "fixed_orientation": self.fixed_orientation,
             "rotation_action_variation": self.rotation_action_variation,
@@ -996,6 +1005,9 @@ def sample_strategy_parameters(
         handoff_window_ticks=config.handoff_window_ticks,
         close_dwell_ticks=config.close_dwell_ticks,
         bilateral_contact_acquisition_ticks=config.bilateral_contact_acquisition_ticks,
+        close_centering_tolerance_m=config.close_centering_tolerance_m,
+        close_distance_tolerance_m=config.close_distance_tolerance_m,
+        close_relative_speed_tolerance_mps=config.close_relative_speed_tolerance_mps,
         lift_vertical_displacement_m=config.lift_vertical_displacement_m,
         fixed_orientation=config.fixed_orientation,
         rotation_action_variation=config.rotation_action_variation,

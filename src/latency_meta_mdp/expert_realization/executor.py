@@ -352,9 +352,9 @@ class StructuredExpertExecutor:
             eef_velocity = (eef - self._previous_eef_position) / 0.02
             relative_speed = float(np.linalg.norm(eef_velocity - estimated_object_velocity))
         return bool(
-            np.linalg.norm(relative) <= 0.025
-            and centered_error <= 0.010
-            and relative_speed <= 0.25
+            np.linalg.norm(relative) <= self.intent.grasp_funnel.distance_tolerance_m
+            and centered_error <= self.intent.grasp_funnel.centering_tolerance_m
+            and relative_speed <= self.intent.grasp_funnel.relative_speed_tolerance_mps
         )
 
     def _update_contact_gate(

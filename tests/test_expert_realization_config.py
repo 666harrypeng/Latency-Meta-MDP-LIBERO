@@ -33,6 +33,9 @@ def _structured_mapping() -> dict[str, object]:
         "handoff_window_ticks": 50,
         "close_dwell_ticks": 2,
         "bilateral_contact_acquisition_ticks": 4,
+        "close_centering_tolerance_m": 0.004,
+        "close_distance_tolerance_m": 0.016,
+        "close_relative_speed_tolerance_mps": 0.13,
         "lift_vertical_displacement_m": 0.16,
         "close_target_tick_ranges": {
             "canonical_direct": [86, 100],
@@ -154,6 +157,9 @@ def test_checked_in_configs_preserve_paired_pilot_and_exact_bounds() -> None:
     assert structured.handoff_window_ticks == 50
     assert structured.close_dwell_ticks == 2
     assert structured.bilateral_contact_acquisition_ticks == 4
+    assert structured.close_centering_tolerance_m == 0.004
+    assert structured.close_distance_tolerance_m == 0.016
+    assert structured.close_relative_speed_tolerance_mps == 0.13
     assert structured.lift_vertical_displacement_m == 0.16
     assert curobo.planner_candidate_count == 8
     assert curobo.planner_invocation_timeout_seconds == 5.0

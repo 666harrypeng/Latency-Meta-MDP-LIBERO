@@ -185,6 +185,9 @@ class CanonicalGraspFunnel:
     handoff_deadline_tick: int
     close_dwell_ticks: int
     bilateral_contact_acquisition_ticks: int
+    centering_tolerance_m: float
+    distance_tolerance_m: float
+    relative_speed_tolerance_mps: float
     lift_relative_displacement_world: np.ndarray
     requires_physical_handoff: bool
     symmetric_close_command: bool
@@ -233,6 +236,14 @@ class CanonicalGraspFunnel:
             value = getattr(self, name)
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
+        for name in (
+            "centering_tolerance_m",
+            "distance_tolerance_m",
+            "relative_speed_tolerance_mps",
+        ):
+            value = getattr(self, name)
+            if type(value) is not float or not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be a positive finite float")
         object.__setattr__(
             self,
             "lift_relative_displacement_world",
@@ -391,6 +402,9 @@ def build_trajectory_intent(
         ),
         close_dwell_ticks=strategy.close_dwell_ticks,
         bilateral_contact_acquisition_ticks=strategy.bilateral_contact_acquisition_ticks,
+        centering_tolerance_m=strategy.close_centering_tolerance_m,
+        distance_tolerance_m=strategy.close_distance_tolerance_m,
+        relative_speed_tolerance_mps=strategy.close_relative_speed_tolerance_mps,
         lift_relative_displacement_world=lift_displacement,
         requires_physical_handoff=True,
         symmetric_close_command=True,
