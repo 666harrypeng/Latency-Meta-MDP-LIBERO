@@ -21,9 +21,18 @@ from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
     load_jepa_proprio_normalization,
     write_jepa_proprio_normalization,
 )
+from latency_meta_mdp.belief.action_conditioned_jepa.latent_return import (
+    LoadedReturnLatentBelief,
+    assemble_return_latent_belief,
+    load_return_latent_belief,
+    weighted_future_proprio,
+    weighted_future_visual_latents,
+    write_return_latent_belief,
+)
 from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
     ActionConditionedJepaPredictor,
 )
+from latency_meta_mdp.belief.action_conditioned_jepa.runtime import JepaRuntimeHistory
 
 __all__ = [
     "ActionConditionedJepaConfig",
@@ -33,13 +42,20 @@ __all__ = [
     "JepaEpisodeRecord",
     "JepaLaunchSupportContract",
     "JepaProprioNormalization",
+    "JepaRuntimeHistory",
     "JepaSampleIndex",
     "JepaTrainingSample",
     "LaunchContextBatch",
+    "LoadedReturnLatentBelief",
     "ReturnLatentBeliefBatch",
+    "assemble_return_latent_belief",
     "compute_jepa_proprio_normalization",
     "load_action_conditioned_jepa_config",
     "load_action_conditioned_jepa_corpus",
     "load_jepa_proprio_normalization",
+    "load_return_latent_belief",
+    "weighted_future_proprio",
+    "weighted_future_visual_latents",
+    "write_return_latent_belief",
     "write_jepa_proprio_normalization",
 ]
