@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).parents[1]
 
 
@@ -82,3 +81,18 @@ def test_collection_dry_run_needs_no_split_config(
         )
         == 0
     )
+
+
+def test_fresh_unsplit_smoke_config_is_one_complete_paired_block() -> None:
+    """Break caught: the smoke silently grows into a formal collection or loses one level."""
+    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+
+    config = load_formal_corpus_config(
+        ROOT / "configs/source_corpus/panda_ball_formal_source_smoke.yaml"
+    )
+    assert config.corpus_id == "panda-ball-structured-source-smoke-1x4-v1"
+    assert config.task_instance_count == 1
+    assert config.reserve_task_instance_count == 4
+    assert config.levels == (1, 2, 3)
+    assert config.realizations_per_task == 4
+    assert config.primary_trajectory_count == 12

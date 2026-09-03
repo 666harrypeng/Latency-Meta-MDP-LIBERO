@@ -1,0 +1,15 @@
+schema_version: 2
+corpus_id: panda-ball-structured-source-smoke-1x4-v1
+logical_task_index_start: 0
+task_instance_count: 1
+levels: [1, 2, 3]
+realizations_per_task: 4
+families:
+  - canonical_direct
+  - early_high_arc
+  - lateral_arc
+  - time_shifted_smooth
+family_allocation: iid_uniform_seeded
+reserve_task_instance_count: 4
+require_complete_realization_block: true
+group_unit: logical_master_task_index
