@@ -154,14 +154,14 @@ def _episode_inventory(corpus: VerifiedSourceCorpus) -> dict[int, tuple[dict[str
     if set(grouped) != set(corpus.manifest.admitted_master_task_indices):
         raise ValueError("source does not contain complete master-task blocks")
     for values in grouped.values():
-        keys = {(row["level"], row["realization_index"]) for row in values}
+        keys = {(row["level"], row["accepted_slot"]) for row in values}
         if len(values) != 12 or keys != expected_keys:
             raise ValueError("source does not contain complete master-task blocks")
     return {
         master: tuple(
             sorted(
                 values,
-                key=lambda row: (row["level"], row["realization_index"]),
+                key=lambda row: (row["level"], row["accepted_slot"]),
             )
         )
         for master, values in grouped.items()
@@ -188,9 +188,7 @@ def build_source_split(
     train = tuple(sorted(set(inventory) - set(validation)))
 
     def episode_ids(masters: tuple[int, ...]) -> tuple[str, ...]:
-        return tuple(
-            sorted(row["episode_id"] for master in masters for row in inventory[master])
-        )
+        return tuple(sorted(row["episode_id"] for master in masters for row in inventory[master]))
 
     return SourceSplitManifest(
         split_id=split_id,
@@ -225,9 +223,7 @@ def write_source_split(path: Path, manifest: SourceSplitManifest) -> Path:
     return path
 
 
-def load_verified_source_split(
-    path: Path, corpus: VerifiedSourceCorpus
-) -> SourceSplitManifest:
+def load_verified_source_split(path: Path, corpus: VerifiedSourceCorpus) -> SourceSplitManifest:
     try:
         mapping = json.loads(Path(path).read_text(encoding="utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
+import re
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -12,12 +12,20 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from latency_meta_mdp.artifacts import sha256_file
+from latency_meta_mdp.expert_realization.artifacts import (
+    _cleanup_owned_staging,
+    _fsync_directory,
+    _hash_file,
+    _rename_noreplace,
+    _write_file_fsynced,
+)
 from latency_meta_mdp.vision_encoder import VisionEncoderSpec
 
 CAMERA_ORDER = ("agentview", "wrist")
-_FORMAT_ID = "vision_feature_cache_v1"
-_MANIFEST_FIELDS = frozenset(
+_FORMAT_ID_V1 = "vision_feature_cache_v1"
+_FORMAT_ID_V2 = "vision_feature_cache_v2"
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_MANIFEST_FIELDS_V1 = frozenset(
     {
         "schema_version",
         "format_id",
@@ -43,6 +51,38 @@ _MANIFEST_FIELDS = frozenset(
         "artifacts",
     }
 )
+_MANIFEST_FIELDS_V2 = frozenset(
+    {
+        "schema_version",
+        "format_id",
+        "episode_id",
+        "task_instance_id",
+        "logical_master_task_index",
+        "level",
+        "accepted_slot",
+        "realization_draw_index",
+        "boundary_count",
+        "camera_order",
+        "feature_shape",
+        "dtype",
+        "real_boundaries_only",
+        "source_corpus_manifest_sha256",
+        "source_episode_metadata_sha256",
+        "encoder_id",
+        "encoder_family",
+        "model_id",
+        "model_revision",
+        "weights_sha256",
+        "encoder_fingerprint",
+        "preprocessing",
+        "runtime",
+        "boundary_batch_size",
+        "maximum_image_batch_size",
+        "feature_payload_bytes",
+        "feature_artifact_bytes",
+        "artifacts",
+    }
+)
 
 
 class VisionFeatureEncoder(Protocol):
@@ -58,21 +98,30 @@ class EpisodeVisionFeatureCache:
     features: np.ndarray
 
 
-def _write_json(path: Path, value: dict[str, Any]) -> None:
-    with path.open("x", encoding="utf-8") as handle:
-        json.dump(value, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
+def _json_bytes(value: dict[str, Any]) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
+
+
+def _require_sha256(value: Any, *, name: str) -> str:
+    if type(value) is not str or _SHA256.fullmatch(value) is None:
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+    return value
 
 
 def _validate_episode_images(episode: Any) -> tuple[np.ndarray, np.ndarray, int]:
     if (
         not isinstance(episode.episode_id, str)
         or not episode.episode_id
+        or not isinstance(episode.task_instance_id, str)
+        or not episode.task_instance_id
+        or type(episode.logical_master_task_index) is not int
+        or episode.logical_master_task_index < 0
+        or type(episode.level) is not int
         or episode.level not in (1, 2, 3)
-        or isinstance(episode.scene_seed, bool)
-        or not isinstance(episode.scene_seed, int)
+        or type(episode.accepted_slot) is not int
+        or not 0 <= episode.accepted_slot < 4
+        or type(episode.realization_draw_index) is not int
+        or episode.realization_draw_index < 0
         or isinstance(episode.boundary_count, bool)
         or not isinstance(episode.boundary_count, int)
         or episode.boundary_count <= 0
@@ -105,12 +154,13 @@ def _runtime_dict(encoder: VisionFeatureEncoder) -> dict[str, Any]:
 def write_episode_vision_feature_cache(
     *,
     episode: Any,
-    source_episode_manifest: Path,
+    source_corpus_manifest_sha256: str,
+    source_episode_metadata_sha256: str,
     encoder: VisionFeatureEncoder,
     output_dir: Path,
     boundary_batch_size: int,
 ) -> Path:
-    target = output_dir.resolve()
+    target = Path(output_dir).absolute()
     if target.exists():
         raise FileExistsError(f"vision feature cache already exists: {target}")
     if (
@@ -119,9 +169,14 @@ def write_episode_vision_feature_cache(
         or boundary_batch_size <= 0
     ):
         raise ValueError("vision boundary batch size must be a positive integer")
-    source_manifest = source_episode_manifest.resolve()
-    if not source_manifest.is_file():
-        raise FileNotFoundError(f"source episode manifest does not exist: {source_manifest}")
+    source_corpus_sha = _require_sha256(
+        source_corpus_manifest_sha256,
+        name="source_corpus_manifest_sha256",
+    )
+    source_episode_sha = _require_sha256(
+        source_episode_metadata_sha256,
+        name="source_episode_metadata_sha256",
+    )
     agent, wrist, boundary_count = _validate_episode_images(episode)
     spec = encoder.spec
     feature_shape = (
@@ -131,8 +186,10 @@ def write_episode_vision_feature_cache(
         spec.feature_dim,
     )
     target.parent.mkdir(parents=True, exist_ok=True)
-    building = target.parent / f"{target.name}.building-{uuid.uuid4().hex}"
+    parent_stat = os.lstat(target.parent)
+    building = target.parent / f".{target.name}.building-{os.getpid()}-{uuid.uuid4().hex}"
     building.mkdir()
+    building_stat = os.lstat(building)
     try:
         feature_path = building / "features.npy"
         features = np.lib.format.open_memmap(
@@ -167,18 +224,24 @@ def write_episode_vision_feature_cache(
         del features
         with feature_path.open("rb") as handle:
             os.fsync(handle.fileno())
+        feature_artifact_bytes = feature_path.stat().st_size
+        feature_payload_bytes = int(np.prod(feature_shape)) * np.dtype(np.float16).itemsize
         manifest = {
-            "schema_version": 1,
-            "format_id": _FORMAT_ID,
+            "schema_version": 2,
+            "format_id": _FORMAT_ID_V2,
             "episode_id": episode.episode_id,
+            "task_instance_id": episode.task_instance_id,
+            "logical_master_task_index": episode.logical_master_task_index,
             "level": episode.level,
-            "scene_seed": episode.scene_seed,
+            "accepted_slot": episode.accepted_slot,
+            "realization_draw_index": episode.realization_draw_index,
             "boundary_count": boundary_count,
             "camera_order": list(CAMERA_ORDER),
             "feature_shape": list(feature_shape),
             "dtype": "float16",
             "real_boundaries_only": True,
-            "source_episode_manifest_sha256": sha256_file(source_manifest),
+            "source_corpus_manifest_sha256": source_corpus_sha,
+            "source_episode_metadata_sha256": source_episode_sha,
             "encoder_id": spec.encoder_id,
             "encoder_family": spec.family,
             "model_id": spec.model_id,
@@ -189,14 +252,28 @@ def write_episode_vision_feature_cache(
             "runtime": _runtime_dict(encoder),
             "boundary_batch_size": boundary_batch_size,
             "maximum_image_batch_size": boundary_batch_size * len(CAMERA_ORDER),
-            "artifacts": {"features.npy": sha256_file(feature_path)},
+            "feature_payload_bytes": feature_payload_bytes,
+            "feature_artifact_bytes": feature_artifact_bytes,
+            "artifacts": {
+                "features.npy": {
+                    "bytes": feature_artifact_bytes,
+                    "sha256": _hash_file(feature_path),
+                }
+            },
         }
-        _write_json(building / "manifest.json", manifest)
-        if target.exists():
-            raise FileExistsError(f"vision feature cache already exists: {target}")
-        os.rename(building, target)
+        _write_file_fsynced(building / "manifest.json", _json_bytes(manifest))
+        _fsync_directory(building)
+        _rename_noreplace(building, target)
+        _fsync_directory(target.parent)
     except BaseException:
-        shutil.rmtree(building, ignore_errors=True)
+        _cleanup_owned_staging(
+            building,
+            expected_device=building_stat.st_dev,
+            expected_inode=building_stat.st_ino,
+            parent=target.parent,
+            expected_parent_device=parent_stat.st_dev,
+            expected_parent_inode=parent_stat.st_ino,
+        )
         raise
     return target / "manifest.json"
 
@@ -209,19 +286,43 @@ def load_episode_vision_feature_cache(
     root = cache_dir.resolve()
     manifest_path = root / "manifest.json"
     value = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or set(value) != _MANIFEST_FIELDS:
+    if not isinstance(value, dict):
         raise ValueError("vision feature cache manifest fields are invalid")
-    if value["schema_version"] != 1 or value["format_id"] != _FORMAT_ID:
+    format_id = value.get("format_id")
+    schema_version = value.get("schema_version")
+    if format_id == _FORMAT_ID_V1 and schema_version == 1:
+        expected_fields = _MANIFEST_FIELDS_V1
+    elif format_id == _FORMAT_ID_V2 and schema_version == 2:
+        expected_fields = _MANIFEST_FIELDS_V2
+    else:
         raise ValueError("unsupported vision feature cache format")
+    if set(value) != expected_fields:
+        raise ValueError("vision feature cache manifest fields are invalid")
     if expected_spec is not None and value["encoder_fingerprint"] != expected_spec.fingerprint:
         raise ValueError("vision feature cache encoder fingerprint mismatch")
     artifacts = value["artifacts"]
     feature_path = root / "features.npy"
-    if (
-        not isinstance(artifacts, dict)
-        or set(artifacts) != {"features.npy"}
-        or sha256_file(feature_path) != artifacts["features.npy"]
-    ):
+    if not isinstance(artifacts, dict) or set(artifacts) != {"features.npy"}:
+        raise ValueError("vision feature cache artifact verification failed")
+    if schema_version == 1:
+        artifact_valid = _hash_file(feature_path) == artifacts["features.npy"]
+    else:
+        metadata = artifacts["features.npy"]
+        artifact_valid = (
+            type(metadata) is dict
+            and set(metadata) == {"bytes", "sha256"}
+            and type(metadata["bytes"]) is int
+            and metadata["bytes"] == feature_path.stat().st_size
+            and _hash_file(feature_path) == metadata["sha256"]
+            and value["feature_artifact_bytes"] == feature_path.stat().st_size
+            and value["feature_payload_bytes"]
+            == int(np.prod(value["feature_shape"])) * np.dtype(np.float16).itemsize
+            and type(value["source_corpus_manifest_sha256"]) is str
+            and _SHA256.fullmatch(value["source_corpus_manifest_sha256"]) is not None
+            and type(value["source_episode_metadata_sha256"]) is str
+            and _SHA256.fullmatch(value["source_episode_metadata_sha256"]) is not None
+        )
+    if not artifact_valid:
         raise ValueError("vision feature cache artifact verification failed")
     features = np.load(feature_path, mmap_mode="r", allow_pickle=False)
     expected_shape = tuple(value["feature_shape"])

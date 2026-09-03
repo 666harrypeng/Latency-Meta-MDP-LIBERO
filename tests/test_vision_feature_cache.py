@@ -47,9 +47,12 @@ def _episode(boundary_count: int = 3):
         [np.full((4, 4, 3), 100 + tick, dtype=np.uint8) for tick in range(boundary_count)]
     )
     return SimpleNamespace(
-        episode_id="l2-seed-001000-attempt-00",
+        episode_id="source-L2-task000010-s01-d0003",
+        task_instance_id="task-instance-10-level-2",
+        logical_master_task_index=10,
         level=2,
-        scene_seed=1000,
+        accepted_slot=1,
+        realization_draw_index=3,
         boundary_count=boundary_count,
         deployment=SimpleNamespace(
             agentview_rgb=agent,
@@ -64,14 +67,13 @@ def test_episode_cache_preserves_boundary_and_camera_order(tmp_path: Path) -> No
         write_episode_vision_feature_cache,
     )
 
-    source_manifest = tmp_path / "source_manifest.json"
-    source_manifest.write_text('{"source": "episode"}\n', encoding="utf-8")
     output = tmp_path / "cache"
     encoder = _DeterministicEncoder()
 
     manifest_path = write_episode_vision_feature_cache(
         episode=_episode(),
-        source_episode_manifest=source_manifest,
+        source_corpus_manifest_sha256="a" * 64,
+        source_episode_metadata_sha256="b" * 64,
         encoder=encoder,
         output_dir=output,
         boundary_batch_size=2,
@@ -88,28 +90,35 @@ def test_episode_cache_preserves_boundary_and_camera_order(tmp_path: Path) -> No
     np.testing.assert_array_equal(cache.features[:, 1, 0, 0], [100, 101, 102])
     assert cache.manifest["camera_order"] == ["agentview", "wrist"]
     assert cache.manifest["real_boundaries_only"] is True
-    assert cache.manifest["source_episode_manifest_sha256"] == sha256_file(
-        source_manifest
-    )
+    assert cache.manifest["format_id"] == "vision_feature_cache_v2"
+    assert cache.manifest["schema_version"] == 2
+    assert cache.manifest["task_instance_id"] == "task-instance-10-level-2"
+    assert cache.manifest["logical_master_task_index"] == 10
+    assert cache.manifest["accepted_slot"] == 1
+    assert cache.manifest["realization_draw_index"] == 3
+    assert cache.manifest["source_corpus_manifest_sha256"] == "a" * 64
+    assert cache.manifest["source_episode_metadata_sha256"] == "b" * 64
     assert cache.manifest["encoder_fingerprint"] == encoder.spec.fingerprint
     assert cache.manifest["weights_sha256"] == encoder.spec.weights_sha256
     assert cache.manifest["boundary_batch_size"] == 2
     assert cache.manifest["maximum_image_batch_size"] == 4
-    assert cache.manifest["artifacts"]["features.npy"] == sha256_file(
-        output / "features.npy"
-    )
+    assert cache.manifest["feature_payload_bytes"] == 3 * 2 * 196 * 384 * 2
+    assert cache.manifest["feature_artifact_bytes"] == (output / "features.npy").stat().st_size
+    assert cache.manifest["artifacts"]["features.npy"] == {
+        "bytes": (output / "features.npy").stat().st_size,
+        "sha256": sha256_file(output / "features.npy"),
+    }
 
 
 def test_episode_cache_is_no_overwrite(tmp_path: Path) -> None:
     from latency_meta_mdp.vision_feature_cache import write_episode_vision_feature_cache
 
-    source_manifest = tmp_path / "source_manifest.json"
-    source_manifest.write_text("{}\n", encoding="utf-8")
     output = tmp_path / "cache"
     encoder = _DeterministicEncoder()
     write_episode_vision_feature_cache(
         episode=_episode(),
-        source_episode_manifest=source_manifest,
+        source_corpus_manifest_sha256="a" * 64,
+        source_episode_metadata_sha256="b" * 64,
         encoder=encoder,
         output_dir=output,
         boundary_batch_size=2,
@@ -118,7 +127,8 @@ def test_episode_cache_is_no_overwrite(tmp_path: Path) -> None:
     with pytest.raises(FileExistsError, match="already exists"):
         write_episode_vision_feature_cache(
             episode=_episode(),
-            source_episode_manifest=source_manifest,
+            source_corpus_manifest_sha256="a" * 64,
+            source_episode_metadata_sha256="b" * 64,
             encoder=encoder,
             output_dir=output,
             boundary_batch_size=2,
@@ -128,21 +138,20 @@ def test_episode_cache_is_no_overwrite(tmp_path: Path) -> None:
 def test_episode_cache_failure_leaves_no_partial_output(tmp_path: Path) -> None:
     from latency_meta_mdp.vision_feature_cache import write_episode_vision_feature_cache
 
-    source_manifest = tmp_path / "source_manifest.json"
-    source_manifest.write_text("{}\n", encoding="utf-8")
     output = tmp_path / "cache"
 
     with pytest.raises(RuntimeError, match="injected extraction failure"):
         write_episode_vision_feature_cache(
             episode=_episode(boundary_count=4),
-            source_episode_manifest=source_manifest,
+            source_corpus_manifest_sha256="a" * 64,
+            source_episode_metadata_sha256="b" * 64,
             encoder=_DeterministicEncoder(fail_on_call=2),
             output_dir=output,
             boundary_batch_size=2,
         )
 
     assert not output.exists()
-    assert list(tmp_path.glob("cache.building-*")) == []
+    assert list(tmp_path.glob(".cache.building-*")) == []
 
 
 def test_episode_cache_loader_rejects_wrong_encoder(tmp_path: Path) -> None:
@@ -151,20 +160,17 @@ def test_episode_cache_loader_rejects_wrong_encoder(tmp_path: Path) -> None:
         write_episode_vision_feature_cache,
     )
 
-    source_manifest = tmp_path / "source_manifest.json"
-    source_manifest.write_text("{}\n", encoding="utf-8")
     output = tmp_path / "cache"
     encoder = _DeterministicEncoder()
     write_episode_vision_feature_cache(
         episode=_episode(),
-        source_episode_manifest=source_manifest,
+        source_corpus_manifest_sha256="a" * 64,
+        source_episode_metadata_sha256="b" * 64,
         encoder=encoder,
         output_dir=output,
         boundary_batch_size=2,
     )
-    wrong = load_vision_encoder_spec(
-        Path("configs/vision/dinov2_vits14_lvd142m_196_v1.yaml")
-    )
+    wrong = load_vision_encoder_spec(Path("configs/vision/dinov2_vits14_lvd142m_196_v1.yaml"))
 
     with pytest.raises(ValueError, match="encoder fingerprint"):
         load_episode_vision_feature_cache(output, expected_spec=wrong)

@@ -22,11 +22,11 @@ def _corpus(tmp_path: Path, *, omit: tuple[int, int, int] | None = None):
     (root / "manifest.json").write_bytes(MANIFEST_BYTES)
     rows = tuple(
         {
-            "episode_id": f"source-L{level}-task{master:06d}-r{realization:04d}",
+            "episode_id": f"source-L{level}-task{master:06d}-s{realization:02d}-d{realization:04d}",
             "logical_master_task_index": master,
             "level": level,
-            "realization_index": realization,
-            "split": "train" if master != 12 else "validation",
+            "accepted_slot": realization,
+            "realization_draw_index": realization,
         }
         for master in (10, 11, 12)
         for level in (1, 2, 3)
@@ -37,7 +37,7 @@ def _corpus(tmp_path: Path, *, omit: tuple[int, int, int] | None = None):
         corpus_id="demo-source",
         request_sha256="a" * 64,
         source_config_sha256="b" * 64,
-        split_plan_sha256="c" * 64,
+        split_plan_sha256=None,
         admitted_master_task_indices=(10, 11, 12),
         master_task_count=3,
         level_task_instance_count=9,
@@ -46,6 +46,8 @@ def _corpus(tmp_path: Path, *, omit: tuple[int, int, int] | None = None):
         frame_count=5_400,
         shard_count=3,
         artifacts=MappingProxyType({}),
+        schema_version=3,
+        format_id="structured_expert_source_corpus_v3",
     )
     return VerifiedSourceCorpus(root=root, manifest=manifest, episode_rows=rows)
 

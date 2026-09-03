@@ -206,6 +206,8 @@ pluggy==1.6.0
     # via
     #   -r requirements/belief-vision.lock
     #   pytest
+pyarrow==20.0.0
+    # via -r requirements/action-conditioned-jepa.in
 pygments==2.21.0
     # via
     #   -r requirements/belief-vision.lock
