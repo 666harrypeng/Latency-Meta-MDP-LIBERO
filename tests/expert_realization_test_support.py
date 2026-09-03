@@ -125,7 +125,7 @@ def make_formal_source_metadata(*, camera_height: int = 2, camera_width: int = 3
         action_contract_id="panda_osc_pose_delta_v1",
         action_dim=7,
         actuator_dim=9,
-        expert_id="panda_ball_smooth_approach_canonical_grasp_v2",
+        expert_id="panda_ball_smooth_approach_canonical_grasp_v3",
         strategy_family=StrategyFamily.CANONICAL_DIRECT,
         formal_corpus_config_sha256="e" * 64,
         source_corpus_config_sha256="f" * 64,

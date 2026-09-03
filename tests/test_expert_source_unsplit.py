@@ -90,7 +90,7 @@ def test_fresh_unsplit_smoke_config_is_one_complete_paired_block() -> None:
     config = load_formal_corpus_config(
         ROOT / "configs/source_corpus/panda_ball_formal_source_smoke.yaml"
     )
-    assert config.corpus_id == "panda-ball-structured-source-smoke-1x4-v1"
+    assert config.corpus_id == "panda-ball-structured-source-smoke-1x4-v2"
     assert config.task_instance_count == 1
     assert config.reserve_task_instance_count == 4
     assert config.levels == (1, 2, 3)

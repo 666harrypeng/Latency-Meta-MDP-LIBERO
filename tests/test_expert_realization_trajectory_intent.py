@@ -90,7 +90,7 @@ def test_intent_is_one_curve_followed_by_one_canonical_funnel() -> None:
         )
         assert funnel.requires_physical_handoff is True
         assert funnel.symmetric_close_command is True
-        assert funnel.centering_tolerance_m == 0.004
+        assert funnel.centering_tolerance_m == 0.005
         assert funnel.distance_tolerance_m == 0.016
         assert funnel.relative_speed_tolerance_mps == 0.13
         np.testing.assert_array_equal(

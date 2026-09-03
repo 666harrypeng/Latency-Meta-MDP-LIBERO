@@ -10,8 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def _structured_mapping() -> dict[str, object]:
     return {
-        "schema_version": 3,
-        "expert_id": "panda_ball_smooth_approach_canonical_grasp_v2",
+        "schema_version": 4,
+        "expert_id": "panda_ball_smooth_approach_canonical_grasp_v3",
         "action_contract_id": "panda_osc_pose_delta_v1",
         "decision_source_tick": 5,
         "shared_prefix_policy": "settle_open_hold_v1",
@@ -34,7 +34,7 @@ def _structured_mapping() -> dict[str, object]:
         "handoff_window_ticks": 50,
         "close_dwell_ticks": 2,
         "bilateral_contact_acquisition_ticks": 4,
-        "close_centering_tolerance_m": 0.004,
+        "close_centering_tolerance_m": 0.005,
         "close_distance_tolerance_m": 0.016,
         "close_relative_speed_tolerance_mps": 0.13,
         "lift_vertical_displacement_m": 0.16,
@@ -159,7 +159,7 @@ def test_checked_in_configs_preserve_paired_pilot_and_exact_bounds() -> None:
     assert structured.handoff_window_ticks == 50
     assert structured.close_dwell_ticks == 2
     assert structured.bilateral_contact_acquisition_ticks == 4
-    assert structured.close_centering_tolerance_m == 0.004
+    assert structured.close_centering_tolerance_m == 0.005
     assert structured.close_distance_tolerance_m == 0.016
     assert structured.close_relative_speed_tolerance_mps == 0.13
     assert structured.lift_vertical_displacement_m == 0.16

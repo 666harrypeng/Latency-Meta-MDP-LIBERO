@@ -175,10 +175,10 @@ class StructuredExpertConfig:
             name="subseed_tags",
             check=lambda item: _require_str(item, name="subseed tag"),
         )
-        if self.schema_version != 3:
-            raise ValueError("structured expert schema_version must be 3")
+        if self.schema_version != 4:
+            raise ValueError("structured expert schema_version must be 4")
         if (
-            self.expert_id != "panda_ball_smooth_approach_canonical_grasp_v2"
+            self.expert_id != "panda_ball_smooth_approach_canonical_grasp_v3"
             or self.action_contract_id != "panda_osc_pose_delta_v1"
             or self.decision_source_tick != 5
             or self.shared_prefix_policy != "settle_open_hold_v1"
@@ -208,7 +208,7 @@ class StructuredExpertConfig:
             or self.handoff_window_ticks != 50
             or self.close_dwell_ticks != 2
             or self.bilateral_contact_acquisition_ticks != 4
-            or self.close_centering_tolerance_m != 0.004
+            or self.close_centering_tolerance_m != 0.005
             or self.close_distance_tolerance_m != 0.016
             or self.close_relative_speed_tolerance_mps != 0.13
             or self.lift_vertical_displacement_m != 0.16
