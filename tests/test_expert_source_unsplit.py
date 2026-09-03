@@ -96,3 +96,18 @@ def test_fresh_unsplit_smoke_config_is_one_complete_paired_block() -> None:
     assert config.levels == (1, 2, 3)
     assert config.realizations_per_task == 4
     assert config.primary_trajectory_count == 12
+
+
+def test_formal_unsplit_source_config_targets_100_by_4_with_bounded_reserves() -> None:
+    """Break caught: the formal run has the wrong final size or too few reserve identities."""
+    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+
+    config = load_formal_corpus_config(
+        ROOT / "configs/source_corpus/panda_ball_formal_source_100x4.yaml"
+    )
+    assert config.corpus_id == "panda-ball-structured-source-formal-100x4-v1"
+    assert config.primary_task_indices == tuple(range(100))
+    assert config.reserve_task_indices == tuple(range(100, 200))
+    assert config.realizations_per_task == 4
+    assert config.trajectories_per_level == 400
+    assert config.primary_trajectory_count == 1200
