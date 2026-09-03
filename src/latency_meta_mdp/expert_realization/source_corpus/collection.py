@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from latency_meta_mdp.expert_realization.artifacts import (
@@ -34,14 +35,16 @@ from latency_meta_mdp.expert_realization.source_corpus.contracts import (
 from latency_meta_mdp.expert_realization.source_corpus.metadata import (
     SourceEpisodeMetadataEntry,
     SourceTaskMetadataEntry,
-    build_episode_table,
-    build_event_table,
     build_provenance_document,
     build_schema_document,
     build_task_instance_table,
 )
 from latency_meta_mdp.expert_realization.source_corpus.parquet import (
     SourceParquetShardWriter,
+)
+from latency_meta_mdp.expert_realization.source_corpus.schema import (
+    EPISODE_SCHEMA,
+    EVENT_SCHEMA,
 )
 
 
@@ -115,61 +118,24 @@ class AdmittedSourceEpisode:
             json.dumps(json_thaw(value), allow_nan=False)
 
 
-def _validate_admitted_inventory(
+def _validate_task_inventory(
     *,
     request: FormalRequestUniverse,
-    source_config: SourceCorpusConfig,
     task_entries: tuple[SourceTaskMetadataEntry, ...],
-    admitted_episodes: tuple[AdmittedSourceEpisode, ...],
-) -> tuple[int, ...]:
+) -> tuple[tuple[int, ...], dict[str, SourceTaskMetadataEntry]]:
     if not isinstance(request, FormalRequestUniverse):
         raise TypeError("request must be FormalRequestUniverse")
-    if not isinstance(source_config, SourceCorpusConfig):
-        raise TypeError("source_config must be SourceCorpusConfig")
     all_tasks = request.primary_tasks + request.reserve_tasks
     if type(task_entries) is not tuple or any(
         not isinstance(entry, SourceTaskMetadataEntry) for entry in task_entries
     ):
         raise TypeError("task_entries must be a tuple of SourceTaskMetadataEntry")
-    if type(admitted_episodes) is not tuple or any(
-        not isinstance(entry, AdmittedSourceEpisode) for entry in admitted_episodes
-    ):
-        raise TypeError("admitted_episodes must be a tuple of AdmittedSourceEpisode")
     tasks_by_key = {
         (row.logical_master_task_index, row.task_instance_id.level): row
         for row in task_entries
     }
     if len(tasks_by_key) != len(task_entries):
         raise ValueError("source task metadata contains duplicate task identities")
-    episodes_by_task: dict[tuple[int, int], list[AdmittedSourceEpisode]] = defaultdict(list)
-    for admitted in admitted_episodes:
-        metadata = admitted.episode.metadata
-        logical = metadata.logical_master_task_index
-        level = metadata.task_instance_id.level
-        if metadata.corpus_id != request.config.corpus_id:
-            raise ValueError("source episode corpus does not match formal request")
-        if metadata.formal_corpus_config_sha256 != request.corpus_config_sha256:
-            raise ValueError("source episode formal config does not match request")
-        if metadata.source_corpus_config_sha256 != source_config.sha256:
-            raise ValueError("source episode storage config does not match source config")
-        expected_requests = build_formal_realization_requests(
-            request,
-            metadata.task_instance_id,
-        )
-        key = metadata.expert_realization_id.expert_realization_key
-        if key.realization_index >= len(expected_requests):
-            raise ValueError("source realization is outside the formal request")
-        expected_request = expected_requests[key.realization_index]
-        if key != expected_request.to_expert_realization_key() or (
-            metadata.strategy_family is not expected_request.assigned_family
-        ):
-            raise ValueError("source realization identity does not match formal request")
-        task = tasks_by_key.get((logical, level))
-        if task is None:
-            raise ValueError("source episode has no admitted task metadata")
-        if metadata.task_instance_id != task.task_instance_id:
-            raise ValueError("source episode does not match exact task metadata")
-        episodes_by_task[(logical, level)].append(admitted)
     complete_blocks = []
     candidate_indices = sorted({logical for logical, _level in tasks_by_key})
     request_tasks = {row.logical_task_index: row for row in all_tasks}
@@ -179,7 +145,6 @@ def _validate_admitted_inventory(
         complete = True
         for level in request.config.levels:
             task = tasks_by_key.get((logical, level))
-            episodes = episodes_by_task.get((logical, level), [])
             if task is None or (
                 task.admitted_realization_count != request.config.realizations_per_task
             ):
@@ -189,13 +154,6 @@ def _validate_admitted_inventory(
                 raise ValueError("source task metadata does not match formal request")
             if task.task_instance_id.task_instance_seed != request_tasks[logical].master_task_seed:
                 raise ValueError("source task seed does not match formal request")
-            slots = sorted(
-                item.episode.metadata.expert_realization_id.expert_realization_key.realization_index
-                for item in episodes
-            )
-            if slots != list(range(request.config.realizations_per_task)):
-                complete = False
-                break
         if complete:
             complete_blocks.append(logical)
     if len(complete_blocks) != request.config.task_instance_count:
@@ -203,9 +161,45 @@ def _validate_admitted_inventory(
     admitted_keys = {
         (logical, level) for logical in complete_blocks for level in request.config.levels
     }
-    if set(tasks_by_key) != admitted_keys or set(episodes_by_task) != admitted_keys:
+    if set(tasks_by_key) != admitted_keys:
         raise ValueError("publication contains rows outside complete admitted master-task blocks")
-    return tuple(complete_blocks)
+    return (
+        tuple(complete_blocks),
+        {row.task_instance_id.canonical_json(): row for row in task_entries},
+    )
+
+
+def _validate_admitted_episode(
+    admitted: AdmittedSourceEpisode,
+    *,
+    request: FormalRequestUniverse,
+    source_config: SourceCorpusConfig,
+    tasks_by_id: Mapping[str, SourceTaskMetadataEntry],
+) -> tuple[int, int, int]:
+    if not isinstance(admitted, AdmittedSourceEpisode):
+        raise TypeError("admitted episode stream must contain AdmittedSourceEpisode values")
+    metadata = admitted.episode.metadata
+    logical = metadata.logical_master_task_index
+    level = metadata.task_instance_id.level
+    if metadata.corpus_id != request.config.corpus_id:
+        raise ValueError("source episode corpus does not match formal request")
+    if metadata.formal_corpus_config_sha256 != request.corpus_config_sha256:
+        raise ValueError("source episode formal config does not match request")
+    if metadata.source_corpus_config_sha256 != source_config.sha256:
+        raise ValueError("source episode storage config does not match source config")
+    expected_requests = build_formal_realization_requests(request, metadata.task_instance_id)
+    key = metadata.expert_realization_id.expert_realization_key
+    if key.realization_index >= len(expected_requests):
+        raise ValueError("source realization is outside the formal request")
+    expected_request = expected_requests[key.realization_index]
+    if key != expected_request.to_expert_realization_key() or (
+        metadata.strategy_family is not expected_request.assigned_family
+    ):
+        raise ValueError("source realization identity does not match formal request")
+    task = tasks_by_id.get(metadata.task_instance_id.canonical_json())
+    if task is None or metadata.task_instance_id != task.task_instance_id:
+        raise ValueError("source episode does not match exact task metadata")
+    return logical, level, key.realization_index
 
 
 def _write_parquet(path: Path, table: Any, *, config: SourceCorpusConfig) -> None:
@@ -226,19 +220,15 @@ def publish_source_corpus(
     request: FormalRequestUniverse,
     source_config: SourceCorpusConfig,
     task_entries: tuple[SourceTaskMetadataEntry, ...],
-    admitted_episodes: tuple[AdmittedSourceEpisode, ...],
+    admitted_episodes: Iterable[AdmittedSourceEpisode],
     collection_summary: CollectionSummary,
 ) -> Path:
     if not isinstance(collection_summary, CollectionSummary):
         raise TypeError("collection_summary must be CollectionSummary")
-    complete_blocks = _validate_admitted_inventory(
+    complete_blocks, tasks_by_id = _validate_task_inventory(
         request=request,
-        source_config=source_config,
         task_entries=task_entries,
-        admitted_episodes=admitted_episodes,
     )
-    if collection_summary.admitted_realizations != len(admitted_episodes):
-        raise ValueError("collection summary admitted count does not match source episodes")
     total_requested = (
         len(request.primary_tasks + request.reserve_tasks)
         * len(request.config.levels)
@@ -255,16 +245,6 @@ def publish_source_corpus(
             ),
         )
     )
-    ordered_admitted = tuple(
-        sorted(
-            admitted_episodes,
-            key=lambda item: (
-                item.episode.metadata.task_instance_id.level,
-                item.episode.metadata.logical_master_task_index,
-                item.episode.metadata.expert_realization_id.expert_realization_key.realization_index,
-            ),
-        )
-    )
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
@@ -274,51 +254,96 @@ def publish_source_corpus(
     building.mkdir()
     building_stat = os.lstat(building)
     try:
-        indexed_entries = []
+        episode_rows = []
+        event_rows = []
+        provenance_metadata = []
         published_shards: list[tuple[str, Any]] = []
-        by_level: dict[int, list[AdmittedSourceEpisode]] = defaultdict(list)
-        for admitted in ordered_admitted:
-            by_level[admitted.episode.metadata.task_instance_id.level].append(admitted)
-        for level in sorted(by_level):
-            ordered = sorted(
-                by_level[level],
-                key=lambda item: (
-                    item.episode.metadata.logical_master_task_index,
-                    item.episode.metadata.expert_realization_id.expert_realization_key.realization_index,
-                ),
+        episodes_by_level: Counter[int] = Counter()
+        slots_by_task: dict[tuple[int, int], list[int]] = {}
+        frame_count = 0
+        episode_count = 0
+        previous_key: tuple[int, int, int] | None = None
+        current_level: int | None = None
+        shard_index = 0
+        shard_relative = ""
+        writer: SourceParquetShardWriter | None = None
+        for admitted in admitted_episodes:
+            logical, level, realization = _validate_admitted_episode(
+                admitted,
+                request=request,
+                source_config=source_config,
+                tasks_by_id=tasks_by_id,
             )
-            shard_index = 0
-            writer: SourceParquetShardWriter | None = None
-            shard_relative = ""
-            for position, admitted in enumerate(ordered):
-                if writer is None:
-                    shard_relative = f"data/level-{level}/shard-{shard_index:05d}.parquet"
-                    writer = SourceParquetShardWriter(
-                        target=building / shard_relative,
-                        level=level,
-                        config=source_config,
-                    )
-                location = writer.add_episode(admitted.episode)
-                indexed_entries.append(
-                    SourceEpisodeMetadataEntry(
-                        episode=admitted.episode,
-                        logical_master_task_index=(
-                            admitted.episode.metadata.logical_master_task_index
-                        ),
-                        strategy_parameters=admitted.strategy_parameters,
-                        selected_planner_fingerprint=(
-                            admitted.selected_planner_fingerprint
-                        ),
-                        qualification=admitted.qualification,
-                        location=location,
-                        data_shard=shard_relative,
-                    )
-                )
-                is_last = position == len(ordered) - 1
-                if writer.current_byte_count >= source_config.target_shard_bytes or is_last:
+            order_key = (level, logical, realization)
+            if previous_key is not None and order_key <= previous_key:
+                raise ValueError("admitted episode stream must use canonical order")
+            previous_key = order_key
+            if level != current_level:
+                if writer is not None:
                     published_shards.append((shard_relative, writer.close()))
-                    writer = None
-                    shard_index += 1
+                current_level = level
+                shard_index = 0
+                writer = None
+            if writer is None:
+                shard_relative = f"data/level-{level}/shard-{shard_index:05d}.parquet"
+                writer = SourceParquetShardWriter(
+                    target=building / shard_relative,
+                    level=level,
+                    config=source_config,
+                )
+            episode = admitted.episode
+            location = writer.add_episode(episode)
+            entry = SourceEpisodeMetadataEntry(
+                episode=episode,
+                logical_master_task_index=logical,
+                strategy_parameters=admitted.strategy_parameters,
+                selected_planner_fingerprint=admitted.selected_planner_fingerprint,
+                qualification=admitted.qualification,
+                location=location,
+                data_shard=shard_relative,
+            )
+            episode_rows.append(entry.to_row())
+            for event_index, event in enumerate(episode.physical_events):
+                event_rows.append(
+                    {
+                        "episode_id": episode.metadata.episode_id,
+                        "event_index": event_index,
+                        "kind": event.kind,
+                        "physics_step": event.physics_step_index,
+                        "time_us": event.time_us,
+                        "payload_json": json.dumps(
+                            json_thaw(event.payload),
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            allow_nan=False,
+                        ),
+                        "terminal_reason": event.terminal_reason,
+                    }
+                )
+            provenance_metadata.append(episode.metadata)
+            slots_by_task.setdefault((logical, level), []).append(realization)
+            episode_count += 1
+            frame_count += len(episode.boundaries)
+            episodes_by_level[level] += 1
+            if writer.current_byte_count >= source_config.target_shard_bytes:
+                published_shards.append((shard_relative, writer.close()))
+                writer = None
+                shard_index += 1
+            del entry, episode, admitted
+        if writer is not None:
+            published_shards.append((shard_relative, writer.close()))
+        expected_slots = list(range(request.config.realizations_per_task))
+        expected_task_keys = {
+            (logical, level)
+            for logical in complete_blocks
+            for level in request.config.levels
+        }
+        if set(slots_by_task) != expected_task_keys or any(
+            sorted(values) != expected_slots for values in slots_by_task.values()
+        ):
+            raise ValueError("publication requires complete admitted master-task blocks")
+        if collection_summary.admitted_realizations != episode_count:
+            raise ValueError("collection summary admitted count does not match source episodes")
         meta = building / "meta"
         _write_parquet(
             meta / "task_instances.parquet",
@@ -327,12 +352,12 @@ def publish_source_corpus(
         )
         _write_parquet(
             meta / "episodes.parquet",
-            build_episode_table(tuple(indexed_entries)),
+            pa.Table.from_pylist(episode_rows, schema=EPISODE_SCHEMA),
             config=source_config,
         )
         _write_parquet(
             meta / "events.parquet",
-            build_event_table(tuple(item.episode for item in ordered_admitted)),
+            pa.Table.from_pylist(event_rows, schema=EVENT_SCHEMA),
             config=source_config,
         )
         _write_file_fsynced(
@@ -344,7 +369,7 @@ def publish_source_corpus(
             _json_bytes(build_schema_document()),
         )
         provenance = build_provenance_document(
-            tuple(item.episode.metadata for item in ordered_admitted)
+            tuple(provenance_metadata)
         )
         provenance.update(
             {
@@ -367,9 +392,6 @@ def publish_source_corpus(
                 "sha256": _hash_file(path),
                 "bytes": path.stat().st_size,
             }
-        episodes_by_level = Counter(
-            item.episode.metadata.task_instance_id.level for item in ordered_admitted
-        )
         manifest = {
             "schema_version": 2,
             "format_id": "structured_expert_source_corpus_v2",
@@ -380,13 +402,11 @@ def publish_source_corpus(
             "admitted_master_task_indices": list(complete_blocks),
             "master_task_count": len(complete_blocks),
             "level_task_instance_count": len(ordered_tasks),
-            "episode_count": len(ordered_admitted),
+            "episode_count": episode_count,
             "episodes_by_level": {
                 str(level): episodes_by_level[level] for level in sorted(episodes_by_level)
             },
-            "frame_count": sum(
-                len(item.episode.boundaries) for item in ordered_admitted
-            ),
+            "frame_count": frame_count,
             "shard_count": len(published_shards),
             "artifacts": artifacts,
         }

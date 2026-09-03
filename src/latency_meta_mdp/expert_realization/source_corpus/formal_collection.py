@@ -61,17 +61,52 @@ class PlannedMasterBlock:
 
 
 @dataclass(frozen=True)
+class SourceSuccessPayloadRef:
+    logical_master_task_index: int
+    level: int
+    realization_index: int
+    payload_path: Path
+
+    def __post_init__(self) -> None:
+        if type(self.logical_master_task_index) is not int or self.logical_master_task_index < 0:
+            raise ValueError("success payload master task index must be non-negative")
+        if self.level not in (1, 2, 3):
+            raise ValueError("success payload level must be L1, L2, or L3")
+        if type(self.realization_index) is not int or not 0 <= self.realization_index < 4:
+            raise ValueError("success payload realization index must be in 0..3")
+        path = Path(self.payload_path)
+        if not path.is_absolute():
+            raise ValueError("success payload path must be absolute")
+        object.__setattr__(self, "payload_path", path)
+
+
+@dataclass(frozen=True)
 class CompletedMasterBlock:
     logical_master_task_index: int
-    successes: tuple[object, ...]
+    successes: tuple[SourceSuccessPayloadRef, ...]
 
     def __post_init__(self) -> None:
         if type(self.logical_master_task_index) is not int or (
             self.logical_master_task_index < 0
         ):
             raise ValueError("logical master task index must be non-negative")
-        if type(self.successes) is not tuple or len(self.successes) != 12:
+        if (
+            type(self.successes) is not tuple
+            or len(self.successes) != 12
+            or any(not isinstance(value, SourceSuccessPayloadRef) for value in self.successes)
+        ):
             raise ValueError("completed master block requires exactly twelve successes")
+        expected = {
+            (self.logical_master_task_index, level, realization)
+            for level in (1, 2, 3)
+            for realization in range(4)
+        }
+        actual = {
+            (value.logical_master_task_index, value.level, value.realization_index)
+            for value in self.successes
+        }
+        if actual != expected:
+            raise ValueError("completed master block success identities are incomplete")
 
 
 @dataclass(frozen=True)

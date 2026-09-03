@@ -13,6 +13,26 @@ def _twelve(logical: int) -> tuple[str, ...]:
     )
 
 
+def _success_refs(logical: int):
+    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+        SourceSuccessPayloadRef,
+    )
+
+    return tuple(
+        SourceSuccessPayloadRef(
+            logical_master_task_index=logical,
+            level=level,
+            realization_index=realization,
+            payload_path=Path(
+                f"/workspace/payloads/successful/L{level}/task-{logical:06d}/"
+                f"realization-{realization:04d}"
+            ),
+        )
+        for level in (1, 2, 3)
+        for realization in range(4)
+    )
+
+
 def test_scheduler_requires_complete_planning_before_ordered_execution(
     tmp_path: Path,
 ) -> None:
@@ -33,7 +53,10 @@ def test_scheduler_requires_complete_planning_before_ordered_execution(
     def execute(block):
         assert len([event for event in events if event[0] == "plan"]) % 12 == 0
         events.extend(("execute", identity) for identity in block.plan_identities)
-        return CompletedMasterBlock(block.logical_master_task_index, block.plan_identities)
+        return CompletedMasterBlock(
+            block.logical_master_task_index,
+            _success_refs(block.logical_master_task_index),
+        )
 
     published = []
 
@@ -76,7 +99,10 @@ def test_failed_block_is_discarded_and_next_reserve_replaces_it(tmp_path: Path) 
             raise BlockExecutionFailure(
                 "grasp failed", partial_successes=block.plan_identities[:2]
             )
-        return CompletedMasterBlock(block.logical_master_task_index, block.plan_identities)
+        return CompletedMasterBlock(
+            block.logical_master_task_index,
+            _success_refs(block.logical_master_task_index),
+        )
 
     published = []
     result = schedule_paired_master_blocks(
@@ -90,7 +116,11 @@ def test_failed_block_is_discarded_and_next_reserve_replaces_it(tmp_path: Path) 
     assert result == tmp_path / "manifest.json"
     assert executed == [0, 1, 2, 3]
     assert [block.logical_master_task_index for block in published] == [1, 2, 3]
-    assert all("task=0" not in item for block in published for item in block.successes)
+    assert all(
+        item.logical_master_task_index != 0
+        for block in published
+        for item in block.successes
+    )
 
 
 def test_planning_failure_produces_no_rollout_for_rejected_block(tmp_path: Path) -> None:
@@ -111,7 +141,10 @@ def test_planning_failure_produces_no_rollout_for_rejected_block(tmp_path: Path)
 
     def execute(block):
         executed.append(block.logical_master_task_index)
-        return CompletedMasterBlock(block.logical_master_task_index, block.plan_identities)
+        return CompletedMasterBlock(
+            block.logical_master_task_index,
+            _success_refs(block.logical_master_task_index),
+        )
 
     schedule_paired_master_blocks(
         master_task_indices=(0, 1),
@@ -158,7 +191,8 @@ def test_scheduler_rejects_malformed_completed_block() -> None:
             target_block_count=1,
             plan_block=lambda logical: PlannedMasterBlock(logical, _twelve(logical)),
             execute_block=lambda block: CompletedMasterBlock(
-                block.logical_master_task_index, block.plan_identities[:-1]
+                block.logical_master_task_index,
+                _success_refs(block.logical_master_task_index)[:-1],
             ),
             publish_blocks=lambda _blocks: Path("manifest.json"),
         )

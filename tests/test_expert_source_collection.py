@@ -277,6 +277,41 @@ def test_source_publication_is_no_overwrite_and_manifest_is_last(tmp_path: Path)
     assert (target / "manifest.json").read_bytes() == first_manifest
 
 
+def test_source_publication_streams_a_one_shot_episode_iterable(tmp_path: Path) -> None:
+    """Break caught: final publication materializes every decoded episode in host RAM."""
+    from latency_meta_mdp.expert_realization.source_corpus.collection import (
+        publish_source_corpus,
+    )
+
+    request, config, task, episode = _publication_fixture()
+
+    class OneShotEpisodes:
+        def __init__(self) -> None:
+            self.iterated = False
+
+        def __iter__(self):
+            if self.iterated:
+                raise AssertionError("episode stream was iterated more than once")
+            self.iterated = True
+            yield _admitted(episode)
+
+        def __len__(self):
+            raise AssertionError("episode stream length was requested")
+
+    stream = OneShotEpisodes()
+    manifest = publish_source_corpus(
+        target=tmp_path / "streamed",
+        request=request,
+        source_config=config,
+        task_entries=(task,),
+        admitted_episodes=stream,
+        collection_summary=_summary(),
+    )
+
+    assert stream.iterated is True
+    assert json.loads(manifest.read_text())["episode_count"] == 1
+
+
 def test_failed_publication_removes_only_its_owned_building_tree(tmp_path: Path) -> None:
     """Break caught: a failed finalization leaves ambiguous hidden corpus payloads."""
     from latency_meta_mdp.expert_realization.source_corpus.collection import publish_source_corpus

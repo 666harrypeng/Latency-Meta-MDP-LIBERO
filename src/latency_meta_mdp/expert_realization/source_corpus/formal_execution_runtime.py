@@ -111,6 +111,7 @@ def execute_formal_master_block(
         BlockExecutionFailure,
         CompletedMasterBlock,
         PlannedMasterBlock,
+        SourceSuccessPayloadRef,
     )
     from latency_meta_mdp.expert_realization.source_corpus.recording import (
         SourceQualificationFailure,
@@ -138,6 +139,15 @@ def execute_formal_master_block(
             partial_successes=(),
         )
     successes = []
+
+    def success_ref(item: PlannedSourceRealization, payload_path: Path):
+        return SourceSuccessPayloadRef(
+            logical_master_task_index=logical,
+            level=item.level,
+            realization_index=item.realization_index,
+            payload_path=payload_path.absolute(),
+        )
+
     for item in planned_block.plan_identities:
         if not isinstance(item, PlannedSourceRealization):
             raise TypeError("planned block contains an invalid realization")
@@ -159,7 +169,8 @@ def execute_formal_master_block(
                     payload_path,
                     source_config=source_config,
                 )
-                successes.append(loaded)
+                del loaded
+                successes.append(success_ref(item, payload_path))
                 break
             if status.status in {
                 "task_failure",
@@ -217,7 +228,8 @@ def execute_formal_master_block(
                         terminal_reason=loaded.episode.terminal_reason,
                     )
                 )
-                successes.append(loaded)
+                del loaded
+                successes.append(success_ref(item, payload_path))
                 break
             metadata = _episode_metadata(
                 item,
@@ -292,15 +304,18 @@ def execute_formal_master_block(
                     terminal_reason=recording.episode.terminal_reason,
                 )
             )
+            terminal_tick = len(recording.episode.transitions)
+            del recording
             loaded = load_source_success_payload(
                 payload_path,
                 source_config=source_config,
             )
-            successes.append(loaded)
+            del loaded
+            successes.append(success_ref(item, payload_path))
             on_progress(
                 f"[execute] master={logical} L{item.level} "
                 f"r{item.realization_index} success "
-                f"tick={len(recording.episode.transitions)}"
+                f"tick={terminal_tick}"
             )
             break
     if workspace.formal_block_status(logical).status == "executing":
@@ -326,9 +341,13 @@ def publish_completed_blocks(
     )
     from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
         CompletedMasterBlock,
+        SourceSuccessPayloadRef,
     )
     from latency_meta_mdp.expert_realization.source_corpus.metadata import (
         SourceTaskMetadataEntry,
+    )
+    from latency_meta_mdp.expert_realization.source_corpus.success_payload import (
+        load_source_success_payload,
     )
     from latency_meta_mdp.expert_realization.task_instance import materialize_task_instance
 
@@ -343,38 +362,21 @@ def publish_completed_blocks(
         for item in formal_request.primary_tasks + formal_request.reserve_tasks
     }
     task_entries = []
-    admitted = []
+    success_refs: list[SourceSuccessPayloadRef] = []
     for block in completed_blocks:
         logical = block.logical_master_task_index
         if logical not in masters:
             raise ValueError("completed block is outside the formal request")
-        by_level: dict[int, list[Any]] = {1: [], 2: [], 3: []}
-        for success in block.successes:
-            metadata = success.episode.metadata
-            if metadata.logical_master_task_index != logical:
-                raise ValueError("success payload belongs to another master block")
-            by_level[metadata.task_instance_id.level].append(success)
-            admitted.append(
-                AdmittedSourceEpisode(
-                    episode=success.episode,
-                    strategy_parameters=success.strategy_parameters,
-                    selected_planner_fingerprint=success.selected_planner_fingerprint,
-                    qualification=success.qualification,
-                )
-            )
+        success_refs.extend(block.successes)
         for level in formal_request.config.levels:
-            if len(by_level[level]) != formal_request.config.realizations_per_task:
+            level_refs = [value for value in block.successes if value.level == level]
+            if len(level_refs) != formal_request.config.realizations_per_task:
                 raise ValueError("completed block level does not contain four successes")
             task = materialize_task_instance(
                 project_root=project_root,
                 level=level,
                 task_instance_seed=masters[logical].master_task_seed,
             )
-            if any(
-                success.episode.metadata.task_instance_id != task.task_instance_id
-                for success in by_level[level]
-            ):
-                raise ValueError("success payload task identity changed before publication")
             task_entries.append(
                 SourceTaskMetadataEntry(
                     task_instance_id=task.task_instance_id,
@@ -407,14 +409,45 @@ def publish_completed_blocks(
         planned_realizations=sum(row.status != "requested" for row in statuses),
         executed_attempts=sum(execution_attempts(row) for row in statuses),
         successful_realizations=sum(row.status == "success" for row in statuses),
-        admitted_realizations=len(admitted),
+        admitted_realizations=len(success_refs),
         failures_by_class=dict(failures),
     )
+
+    def admitted_stream():
+        for reference in sorted(
+            success_refs,
+            key=lambda value: (
+                value.level,
+                value.logical_master_task_index,
+                value.realization_index,
+            ),
+        ):
+            success = load_source_success_payload(
+                reference.payload_path,
+                source_config=source_config,
+            )
+            metadata = success.episode.metadata
+            if (
+                metadata.logical_master_task_index
+                != reference.logical_master_task_index
+                or metadata.task_instance_id.level != reference.level
+                or metadata.expert_realization_id.expert_realization_key.realization_index
+                != reference.realization_index
+            ):
+                raise ValueError("success payload reference identity changed")
+            yield AdmittedSourceEpisode(
+                episode=success.episode,
+                strategy_parameters=success.strategy_parameters,
+                selected_planner_fingerprint=success.selected_planner_fingerprint,
+                qualification=success.qualification,
+            )
+            del success
+
     return publish_source_corpus(
         target=output_root,
         request=formal_request,
         source_config=source_config,
         task_entries=tuple(task_entries),
-        admitted_episodes=tuple(admitted),
+        admitted_episodes=admitted_stream(),
         collection_summary=summary,
     )
