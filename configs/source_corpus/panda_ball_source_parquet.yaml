@@ -1,5 +1,5 @@
-schema_version: 2
-format_id: structured_expert_source_parquet_v2
+schema_version: 3
+format_id: structured_expert_source_parquet_v3
 image_encoding: lossless_png
 png_compress_level: 6
 parquet_compression: zstd

@@ -18,7 +18,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from latency_meta_mdp.expert_realization.artifacts import _check_final_root, _hash_file
-from latency_meta_mdp.expert_realization.contracts import FormalRequestUniverse, TaskInstanceId
+from latency_meta_mdp.expert_realization.contracts import (
+    FormalRequestUniverse,
+    TaskInstanceId,
+    build_formal_realization_draw_request,
+)
 from latency_meta_mdp.expert_realization.source_corpus.config import (
     MasterTaskSplitPlan,
     SourceCorpusConfig,
@@ -26,6 +30,7 @@ from latency_meta_mdp.expert_realization.source_corpus.config import (
 from latency_meta_mdp.expert_realization.source_corpus.schema import (
     EPISODE_SCHEMA,
     EPISODE_SCHEMA_V1_SPLIT,
+    EPISODE_SCHEMA_V2,
     EVENT_SCHEMA,
     SOURCE_FRAME_FIELDS,
     SOURCE_FRAME_SCHEMA,
@@ -34,6 +39,7 @@ from latency_meta_mdp.expert_realization.source_corpus.schema import (
     SourceFieldRole,
     legacy_split_source_schema_document,
     source_schema_document,
+    source_schema_document_v2,
 )
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -93,6 +99,7 @@ class SourceCorpusManifest:
     frame_count: int
     shard_count: int
     artifacts: Mapping[str, Mapping[str, Any]]
+    schema_version: int = 2
     format_id: str = "structured_expert_source_corpus_v2"
 
     @classmethod
@@ -106,6 +113,9 @@ class SourceCorpusManifest:
         elif format_id == "structured_expert_source_corpus_v2":
             version_fields = set()
             schema_version = 2
+        elif format_id == "structured_expert_source_corpus_v3":
+            version_fields = set()
+            schema_version = 3
         else:
             raise ValueError("source manifest is not a complete supported corpus")
         raw = _strict(
@@ -197,6 +207,7 @@ class SourceCorpusManifest:
             frame_count=raw["frame_count"],
             shard_count=raw["shard_count"],
             artifacts=MappingProxyType(frozen_artifacts),
+            schema_version=schema_version,
             format_id=format_id,
         )
 
@@ -299,13 +310,17 @@ def _verify_inventory(root: Path, manifest: SourceCorpusManifest) -> None:
 
 
 def _load_metadata_tables(
-    root: Path, *, legacy_split: bool
+    root: Path, *, schema_version: int
 ) -> tuple[pa.Table, pa.Table, pa.Table]:
     tasks = pq.read_table(root / "meta/task_instances.parquet")
     episodes = pq.read_table(root / "meta/episodes.parquet")
     events = pq.read_table(root / "meta/events.parquet")
-    expected_tasks = TASK_INSTANCE_SCHEMA_V1_SPLIT if legacy_split else TASK_INSTANCE_SCHEMA
-    expected_episodes = EPISODE_SCHEMA_V1_SPLIT if legacy_split else EPISODE_SCHEMA
+    expected_tasks = TASK_INSTANCE_SCHEMA_V1_SPLIT if schema_version == 1 else TASK_INSTANCE_SCHEMA
+    expected_episodes = {
+        1: EPISODE_SCHEMA_V1_SPLIT,
+        2: EPISODE_SCHEMA_V2,
+        3: EPISODE_SCHEMA,
+    }[schema_version]
     if tasks.schema != expected_tasks:
         raise ValueError("task metadata schema is invalid")
     if episodes.schema != expected_episodes:
@@ -372,6 +387,7 @@ def _validate_relations(
     *,
     root: Path,
     manifest: SourceCorpusManifest,
+    request: FormalRequestUniverse,
     split_plan: MasterTaskSplitPlan | None,
     tasks: pa.Table,
     episodes: pa.Table,
@@ -444,6 +460,34 @@ def _validate_relations(
         locations.setdefault(shard, []).append(row)
         level = str(row["level"])
         by_level[level] = by_level.get(level, 0) + 1
+    if manifest.schema_version == 3:
+        slots_by_task: dict[str, list[int]] = {}
+        draws_by_task: dict[str, list[int]] = {}
+        for row in episode_rows:
+            slots_by_task.setdefault(row["task_instance_id"], []).append(row["accepted_slot"])
+            draws_by_task.setdefault(row["task_instance_id"], []).append(
+                row["realization_draw_index"]
+            )
+        for task_id, slots in slots_by_task.items():
+            if sorted(slots) != list(range(len(slots))):
+                raise ValueError("source accepted slots are not dense and unique")
+            draws = draws_by_task[task_id]
+            if any(type(value) is not int or value < 0 for value in draws) or (
+                len(set(draws)) != len(draws)
+            ):
+                raise ValueError("source realization draw indices are invalid or duplicated")
+        for row in episode_rows:
+            task_id = TaskInstanceId.from_mapping(json.loads(row["task_instance_id"]))
+            expected = build_formal_realization_draw_request(
+                request,
+                task_id,
+                row["realization_draw_index"],
+            )
+            if (
+                row["realization_seed"] != expected.realization_seed
+                or row["strategy_family"] != expected.assigned_family.value
+            ):
+                raise ValueError("source realization draw provenance is invalid")
     if by_level != dict(manifest.episodes_by_level):
         raise ValueError("episode level counts do not match manifest")
     if sum(row["frame_count"] for row in episode_rows) != manifest.frame_count:
@@ -510,11 +554,11 @@ def load_verified_source_corpus(root: Path) -> VerifiedSourceCorpus:
         _load_json(root / "manifest.json", name="source manifest")
     )
     _verify_inventory(root, manifest)
-    expected_schema = (
-        legacy_split_source_schema_document()
-        if manifest.legacy_split
-        else source_schema_document()
-    )
+    expected_schema = {
+        1: legacy_split_source_schema_document,
+        2: source_schema_document_v2,
+        3: source_schema_document,
+    }[manifest.schema_version]()
     if _load_json(root / "schema.json", name="source schema") != expected_schema:
         raise ValueError("source schema document does not match the canonical schema")
     provenance = _load_json(root / "provenance.json", name="source provenance")
@@ -571,11 +615,12 @@ def load_verified_source_corpus(root: Path) -> VerifiedSourceCorpus:
     ):
         raise ValueError("collection summary does not match source manifest")
     tasks, episodes, events = _load_metadata_tables(
-        root, legacy_split=manifest.legacy_split
+        root, schema_version=manifest.schema_version
     )
     episode_rows = _validate_relations(
         root=root,
         manifest=manifest,
+        request=request,
         split_plan=split_plan,
         tasks=tasks,
         episodes=episodes,

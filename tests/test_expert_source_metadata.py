@@ -40,7 +40,7 @@ def _episode_entry(*, episode_id: str = "source-l1-task000-r000"):
     )
     from latency_meta_mdp.expert_realization.source_corpus.parquet import EpisodeLocation
 
-    episode = make_formal_source_episode()
+    episode = make_formal_source_episode(schema_version=3)
     if episode_id != episode.metadata.episode_id:
         episode = replace(episode, metadata=replace(episode.metadata, episode_id=episode_id))
     return SourceEpisodeMetadataEntry(
@@ -168,7 +168,7 @@ def test_schema_and_provenance_documents_are_centralized_and_model_agnostic() ->
     schema = build_schema_document()
     provenance = build_provenance_document((episode.metadata,))
 
-    assert schema["format_id"] == "structured_expert_source_parquet_v2"
+    assert schema["format_id"] == "structured_expert_source_parquet_v3"
     assert provenance == {
         "schema_version": 2,
         "format_id": "structured_expert_source_provenance_v2",

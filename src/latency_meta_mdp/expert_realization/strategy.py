@@ -15,10 +15,12 @@ from latency_meta_mdp.expert_realization.config import (
 )
 from latency_meta_mdp.expert_realization.contracts import (
     ExpertRealizationKey,
+    FormalRealizationDrawRequest,
     FormalRealizationRequest,
     FormalRequestUniverse,
     StrategyFamily,
     StrategyParameters,
+    build_formal_realization_draw_request,
     build_formal_realization_requests,
     sample_strategy_parameters,
 )
@@ -96,7 +98,7 @@ def sample_strategy(
 
 def sample_requested_strategy(
     task_instance: MaterializedTaskInstance,
-    request: FormalRealizationRequest,
+    request: FormalRealizationRequest | FormalRealizationDrawRequest,
     config: StructuredStrategyConfig,
     *,
     universe: FormalRequestUniverse,
@@ -104,8 +106,8 @@ def sample_requested_strategy(
     """Resolve one formal request without reconstructing its family or random seed."""
     if not isinstance(task_instance, MaterializedTaskInstance):
         raise TypeError("task_instance must be a MaterializedTaskInstance")
-    if not isinstance(request, FormalRealizationRequest):
-        raise TypeError("request must be a FormalRealizationRequest")
+    if not isinstance(request, (FormalRealizationRequest, FormalRealizationDrawRequest)):
+        raise TypeError("request must be a formal realization request")
     if not isinstance(config, StructuredStrategyConfig):
         raise TypeError("config must be a StructuredStrategyConfig")
     if not isinstance(universe, FormalRequestUniverse):
@@ -115,7 +117,17 @@ def sample_requested_strategy(
         raise ValueError("formal request universe does not bind the structured strategy config")
     if request.task_instance_id != task_instance.task_instance_id:
         raise ValueError("formal realization request does not belong to the task instance")
-    if request not in build_formal_realization_requests(universe, task_instance.task_instance_id):
+    if isinstance(request, FormalRealizationDrawRequest):
+        expected = build_formal_realization_draw_request(
+            universe,
+            task_instance.task_instance_id,
+            request.realization_draw_index,
+        )
+        if request != expected:
+            raise ValueError("formal realization draw is not part of its request universe")
+    elif request not in build_formal_realization_requests(
+        universe, task_instance.task_instance_id
+    ):
         raise ValueError("formal realization request is not part of its request universe")
     key = request.to_expert_realization_key()
     return sample_strategy_parameters(

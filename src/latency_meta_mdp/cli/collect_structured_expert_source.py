@@ -113,10 +113,6 @@ def load_collection_inputs(argv: list[str] | None = None) -> CollectionInputs:
 def _dry_run_summary(inputs: CollectionInputs) -> dict[str, Any]:
     request = inputs.formal_request
     config = request.config
-    assignments = {
-        str(task_index): [row.to_mapping() for row in rows]
-        for task_index, rows in sorted(request.family_assignments.items())
-    }
     target_success_count = config.primary_trajectory_count
     expected_canaries = len(config.levels) * inputs.execution_config.determinism_canaries_per_level
     return {
@@ -130,14 +126,17 @@ def _dry_run_summary(inputs: CollectionInputs) -> dict[str, Any]:
         "reserve_master_task_indices": [row.logical_task_index for row in request.reserve_tasks],
         "levels": list(config.levels),
         "realizations_per_task": config.realizations_per_task,
-        "family_assignments": assignments,
         "target_success_count": target_success_count,
-        "predeclared_realization_count": (
+        "maximum_realization_draws_per_level": (
+            inputs.execution_config.maximum_realization_draws_per_level
+        ),
+        "planner_candidates_per_draw": inputs.execution_config.planner_candidates_per_draw,
+        "maximum_semantic_draw_count": (
             len(request.primary_tasks + request.reserve_tasks)
             * len(config.levels)
-            * config.realizations_per_task
+            * inputs.execution_config.maximum_realization_draws_per_level
         ),
-        "expected_planner_calls_if_candidate_zero_qualifies": (
+        "minimum_planner_calls_if_first_four_draws_pass": (
             target_success_count + expected_canaries
         ),
         "work_root": str(inputs.work_root),

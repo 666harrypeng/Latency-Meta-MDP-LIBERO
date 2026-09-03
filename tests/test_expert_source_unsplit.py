@@ -14,7 +14,7 @@ def test_source_storage_config_has_no_split_semantics() -> None:
     config = load_source_corpus_config(
         ROOT / "configs/source_corpus/panda_ball_source_parquet.yaml"
     )
-    assert config.format_id == "structured_expert_source_parquet_v2"
+    assert config.format_id == "structured_expert_source_parquet_v3"
     assert "split_unit" not in config.to_mapping()
 
 
@@ -48,7 +48,7 @@ def test_source_metadata_schemas_have_no_split_column() -> None:
 
     assert "split" not in TASK_INSTANCE_SCHEMA.names
     assert "split" not in EPISODE_SCHEMA.names
-    assert source_schema_document()["format_id"] == "structured_expert_source_parquet_v2"
+    assert source_schema_document()["format_id"] == "structured_expert_source_parquet_v3"
 
 
 def test_collection_dry_run_needs_no_split_config(
@@ -90,7 +90,7 @@ def test_fresh_unsplit_smoke_config_is_one_complete_paired_block() -> None:
     config = load_formal_corpus_config(
         ROOT / "configs/source_corpus/panda_ball_formal_source_smoke.yaml"
     )
-    assert config.corpus_id == "panda-ball-structured-source-smoke-1x4-v2"
+    assert config.corpus_id == "panda-ball-structured-source-quota-smoke-1x4-v1"
     assert config.task_instance_count == 1
     assert config.reserve_task_instance_count == 4
     assert config.levels == (1, 2, 3)
@@ -105,7 +105,7 @@ def test_formal_unsplit_source_config_targets_100_by_4_with_bounded_reserves() -
     config = load_formal_corpus_config(
         ROOT / "configs/source_corpus/panda_ball_formal_source_100x4.yaml"
     )
-    assert config.corpus_id == "panda-ball-structured-source-formal-100x4-v1"
+    assert config.corpus_id == "panda-ball-structured-source-quota-formal-100x4-v1"
     assert config.primary_task_indices == tuple(range(100))
     assert config.reserve_task_indices == tuple(range(100, 200))
     assert config.realizations_per_task == 4

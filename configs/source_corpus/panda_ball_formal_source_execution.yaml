@@ -1,7 +1,7 @@
-schema_version: 1
-execution_id: panda-ball-formal-source-sequential-first-qualified-v1
-candidate_policy: sequential_first_qualified
-maximum_candidate_attempts_per_realization: 8
+schema_version: 2
+execution_id: panda-ball-formal-source-success-quota-v1
+planner_candidates_per_draw: 1
+maximum_realization_draws_per_level: 16
 infrastructure_retry_limit: 2
 determinism_canaries_per_level: 1
 maximum_formal_ticks: 220

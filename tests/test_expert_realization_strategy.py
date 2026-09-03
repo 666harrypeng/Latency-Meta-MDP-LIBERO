@@ -225,3 +225,41 @@ def test_formal_request_is_the_only_source_of_formal_family_and_strategy_seed() 
             config,
             universe=replace(universe, structured_expert_config_sha256="d" * 64),
         )
+
+
+def test_success_quota_draw_request_is_the_strategy_source() -> None:
+    from dataclasses import replace
+
+    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+    from latency_meta_mdp.expert_realization.contracts import (
+        TaskInstanceId,
+        build_formal_realization_draw_request,
+        build_formal_request_universe,
+    )
+    from latency_meta_mdp.expert_realization.strategy import sample_requested_strategy
+
+    config = _strategy_config()
+    formal = replace(
+        load_formal_corpus_config(Path("configs/collection/panda_ball_structured_formal.yaml")),
+        task_instance_count=1,
+        reserve_task_instance_count=0,
+    )
+    universe = build_formal_request_universe(
+        formal,
+        corpus_config_sha256="a" * 64,
+        structured_expert_config_sha256=config.source_sha256,
+    )
+    task_id = TaskInstanceId(
+        level=3,
+        task_instance_seed=universe.primary_tasks[0].master_task_seed,
+        motion_profile_sha256="b" * 64,
+        initial_state_sha256="c" * 64,
+    )
+    request = build_formal_realization_draw_request(universe, task_id, 9)
+    task = _task_instance(seed=task_id.task_instance_seed)
+    object.__setattr__(task, "task_instance_id", task_id)
+
+    strategy = sample_requested_strategy(task, request, config, universe=universe)
+
+    assert strategy.family is request.assigned_family
+    assert request.realization_draw_index == 9

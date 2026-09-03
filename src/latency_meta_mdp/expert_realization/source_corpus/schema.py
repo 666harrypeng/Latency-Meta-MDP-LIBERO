@@ -233,8 +233,25 @@ TASK_INSTANCE_SCHEMA = pa.schema(
     [field for field in TASK_INSTANCE_SCHEMA_V1_SPLIT if field.name != "split"]
 )
 
-EPISODE_SCHEMA = pa.schema(
+EPISODE_SCHEMA_V2 = pa.schema(
     [field for field in EPISODE_SCHEMA_V1_SPLIT if field.name != "split"]
+)
+
+EPISODE_SCHEMA = pa.schema(
+    [
+        field
+        for field in EPISODE_SCHEMA_V2
+        if field.name != "realization_index"
+    ][:4]
+    + [
+        pa.field("accepted_slot", pa.int32(), nullable=False),
+        pa.field("realization_draw_index", pa.int32(), nullable=False),
+    ]
+    + [
+        field
+        for field in EPISODE_SCHEMA_V2
+        if field.name != "realization_index"
+    ][4:]
 )
 
 EVENT_SCHEMA = pa.schema(
@@ -258,11 +275,22 @@ def fields_for_role(role: SourceFieldRole) -> tuple[str, ...]:
 
 def source_schema_document() -> dict[str, Any]:
     return {
+        "schema_version": 3,
+        "format_id": "structured_expert_source_parquet_v3",
+        "source_frame_fields": [item.to_mapping() for item in SOURCE_FRAME_FIELDS],
+        "task_instance_fields": list(TASK_INSTANCE_SCHEMA.names),
+        "episode_fields": list(EPISODE_SCHEMA.names),
+        "event_fields": list(EVENT_SCHEMA.names),
+    }
+
+
+def source_schema_document_v2() -> dict[str, Any]:
+    return {
         "schema_version": 2,
         "format_id": "structured_expert_source_parquet_v2",
         "source_frame_fields": [item.to_mapping() for item in SOURCE_FRAME_FIELDS],
         "task_instance_fields": list(TASK_INSTANCE_SCHEMA.names),
-        "episode_fields": list(EPISODE_SCHEMA.names),
+        "episode_fields": list(EPISODE_SCHEMA_V2.names),
         "event_fields": list(EVENT_SCHEMA.names),
     }
 

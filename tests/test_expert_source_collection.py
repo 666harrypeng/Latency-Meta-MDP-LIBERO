@@ -15,7 +15,7 @@ def _publication_fixture(*, boundary_count: int = 2):
     from latency_meta_mdp.expert_realization.contracts import (
         ExpertRealizationId,
         TaskInstanceId,
-        build_formal_realization_requests,
+        build_formal_realization_draw_request,
         build_formal_request_universe,
     )
     from latency_meta_mdp.expert_realization.source_corpus.config import (
@@ -63,8 +63,11 @@ def _publication_fixture(*, boundary_count: int = 2):
         camera_height=256,
         camera_width=256,
         boundary_count=boundary_count,
+        schema_version=3,
+        accepted_slot=0,
+        realization_draw_index=0,
     )
-    formal_realization = build_formal_realization_requests(request, task_id)[0]
+    formal_realization = build_formal_realization_draw_request(request, task_id, 0)
     key = formal_realization.to_expert_realization_key()
     metadata = replace(
         source.metadata,

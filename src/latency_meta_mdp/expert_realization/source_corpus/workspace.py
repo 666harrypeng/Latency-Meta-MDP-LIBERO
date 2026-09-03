@@ -99,6 +99,7 @@ class FormalBlockStatus:
             raise ValueError("logical_master_task_index must be non-negative")
         if self.status not in {
             "pending",
+            "filling",
             "planning",
             "plan_ready",
             "executing",
@@ -111,43 +112,93 @@ class FormalBlockStatus:
 
 
 @dataclass(frozen=True)
-class FormalPlanStatus:
+class LevelQuotaStatus:
     logical_master_task_index: int
     level: int
-    realization_index: int
     status: str
-    current_candidate_index: int
-    infrastructure_retry_count: int
-    selected_candidate_fingerprint: str | None
-    semantic_failures: tuple[str, ...]
+    next_draw_index: int
+    accepted_count: int
 
     def __post_init__(self) -> None:
         if type(self.logical_master_task_index) is not int or self.logical_master_task_index < 0:
             raise ValueError("logical_master_task_index must be non-negative")
-        if self.level not in (1, 2, 3) or type(self.realization_index) is not int or (
-            self.realization_index < 0
+        if self.level not in (1, 2, 3):
+            raise ValueError("level must be one of 1, 2, or 3")
+        if self.status not in {"pending", "filling", "complete", "exhausted"}:
+            raise ValueError("level quota status is invalid")
+        if type(self.next_draw_index) is not int or self.next_draw_index < 0:
+            raise ValueError("next_draw_index must be non-negative")
+        if type(self.accepted_count) is not int or self.accepted_count < 0:
+            raise ValueError("accepted_count must be non-negative")
+
+
+@dataclass(frozen=True)
+class DrawRunStatus:
+    logical_master_task_index: int
+    level: int
+    realization_draw_index: int
+    family: str
+    realization_seed: int
+    status: str
+    attempt_index: int
+    accepted_slot: int | None = None
+    plan_path: str | None = None
+    payload_path: str | None = None
+    selected_candidate_fingerprint: str | None = None
+    terminal_reason: str | None = None
+    last_infrastructure_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("logical_master_task_index", "realization_draw_index", "attempt_index"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if self.level not in (1, 2, 3):
+            raise ValueError("level must be one of 1, 2, or 3")
+        if type(self.family) is not str or not self.family:
+            raise ValueError("family must be a non-empty string")
+        if type(self.realization_seed) is not int or not 0 <= self.realization_seed < 2**64:
+            raise ValueError("realization_seed must be uint64")
+        if self.status not in {
+            "planning",
+            "plan_qualified",
+            "running",
+            "planner_failure",
+            "task_failure",
+            "safety_failure",
+            "diversity_rejection",
+            "accepted",
+        }:
+            raise ValueError("draw status is invalid")
+        if self.accepted_slot is not None and (
+            type(self.accepted_slot) is not int or self.accepted_slot < 0
         ):
-            raise ValueError("formal plan identity is invalid")
-        if self.status not in {"pending", "planning", "qualified", "exhausted"}:
-            raise ValueError("formal plan status is invalid")
-        if not 0 <= self.current_candidate_index < 8:
-            raise ValueError("current_candidate_index must be in 0..7")
-        if type(self.infrastructure_retry_count) is not int or (
-            self.infrastructure_retry_count < 0
+            raise ValueError("accepted_slot must be a non-negative integer or None")
+        for value in (self.plan_path, self.payload_path):
+            _safe_relative(value)
+        if self.selected_candidate_fingerprint is not None and (
+            type(self.selected_candidate_fingerprint) is not str
+            or len(self.selected_candidate_fingerprint) != 64
         ):
-            raise ValueError("infrastructure_retry_count must be non-negative")
-        if self.status == "qualified":
-            if (
-                type(self.selected_candidate_fingerprint) is not str
-                or len(self.selected_candidate_fingerprint) != 64
-            ):
-                raise ValueError("qualified plan requires selected candidate fingerprint")
-        elif self.selected_candidate_fingerprint is not None:
-            raise ValueError("only qualified plan may carry selected candidate fingerprint")
-        if type(self.semantic_failures) is not tuple or any(
-            type(value) is not str or not value for value in self.semantic_failures
-        ):
-            raise ValueError("semantic_failures must contain non-empty strings")
+            raise ValueError("selected_candidate_fingerprint must be a SHA-256 digest")
+        for name in ("terminal_reason", "last_infrastructure_reason"):
+            value = getattr(self, name)
+            if value is not None and (type(value) is not str or not value):
+                raise ValueError(f"{name} must be a non-empty string or None")
+        terminal = {
+            "planner_failure",
+            "task_failure",
+            "safety_failure",
+            "diversity_rejection",
+            "accepted",
+        }
+        if (self.status in terminal) != (self.terminal_reason is not None):
+            raise ValueError("only terminal draw statuses carry terminal_reason")
+        if self.status == "accepted":
+            if self.accepted_slot is None or self.payload_path is None:
+                raise ValueError("accepted draw requires slot and payload")
+        elif self.accepted_slot is not None or self.payload_path is not None:
+            raise ValueError("only accepted draw carries slot and payload")
 
 
 class CollectionWorkspace:
@@ -245,6 +296,7 @@ class CollectionWorkspace:
         )
         workspace = cls.create(root, request)
         with cls._connect(workspace.database_path) as connection:
+            connection.execute("DELETE FROM realization_status")
             connection.executescript(
                 """
                 CREATE TABLE formal_block_status (
@@ -252,16 +304,30 @@ class CollectionWorkspace:
                     status TEXT NOT NULL,
                     terminal_reason TEXT
                 );
-                CREATE TABLE formal_plan_status (
+                CREATE TABLE level_quota_status (
                     logical_master_task_index INTEGER NOT NULL,
                     level INTEGER NOT NULL,
-                    realization_index INTEGER NOT NULL,
                     status TEXT NOT NULL,
-                    current_candidate_index INTEGER NOT NULL,
-                    infrastructure_retry_count INTEGER NOT NULL,
+                    next_draw_index INTEGER NOT NULL,
+                    accepted_count INTEGER NOT NULL,
+                    PRIMARY KEY (logical_master_task_index, level)
+                );
+                CREATE TABLE draw_status (
+                    logical_master_task_index INTEGER NOT NULL,
+                    level INTEGER NOT NULL,
+                    realization_draw_index INTEGER NOT NULL,
+                    family TEXT NOT NULL,
+                    realization_seed TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    attempt_index INTEGER NOT NULL,
+                    accepted_slot INTEGER,
+                    plan_path TEXT,
+                    payload_path TEXT,
                     selected_candidate_fingerprint TEXT,
-                    semantic_failures_json TEXT NOT NULL,
-                    PRIMARY KEY (logical_master_task_index, level, realization_index)
+                    terminal_reason TEXT,
+                    last_infrastructure_reason TEXT,
+                    PRIMARY KEY (logical_master_task_index, level, realization_draw_index),
+                    UNIQUE (logical_master_task_index, level, accepted_slot)
                 );
                 """
             )
@@ -275,20 +341,10 @@ class CollectionWorkspace:
                     (task.logical_task_index, "pending", None),
                 )
                 for level in request.config.levels:
-                    for assignment in request.family_assignments[task.logical_task_index]:
-                        connection.execute(
-                            "INSERT INTO formal_plan_status VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            (
-                                task.logical_task_index,
-                                level,
-                                assignment.realization_slot,
-                                "pending",
-                                0,
-                                0,
-                                None,
-                                "[]",
-                            ),
-                        )
+                    connection.execute(
+                        "INSERT INTO level_quota_status VALUES (?, ?, ?, ?, ?)",
+                        (task.logical_task_index, level, "pending", 0, 0),
+                    )
         _fsync_directory(workspace.root)
         return workspace
 
@@ -345,7 +401,7 @@ class CollectionWorkspace:
             }
         if row is None or row["value"] != expected:
             raise ValueError("workspace formal collection identity does not match")
-        if not {"formal_block_status", "formal_plan_status"} <= table_names:
+        if not {"formal_block_status", "level_quota_status", "draw_status"} <= table_names:
             raise ValueError("workspace formal collection tables are missing")
         return workspace
 
@@ -355,22 +411,6 @@ class CollectionWorkspace:
             logical_master_task_index=row["logical_master_task_index"],
             status=row["status"],
             terminal_reason=row["terminal_reason"],
-        )
-
-    @staticmethod
-    def _formal_plan_from_row(row: sqlite3.Row) -> FormalPlanStatus:
-        failures = json.loads(row["semantic_failures_json"])
-        if type(failures) is not list:
-            raise ValueError("workspace semantic failure history is invalid")
-        return FormalPlanStatus(
-            logical_master_task_index=row["logical_master_task_index"],
-            level=row["level"],
-            realization_index=row["realization_index"],
-            status=row["status"],
-            current_candidate_index=row["current_candidate_index"],
-            infrastructure_retry_count=row["infrastructure_retry_count"],
-            selected_candidate_fingerprint=row["selected_candidate_fingerprint"],
-            semantic_failures=tuple(failures),
         )
 
     def formal_block_statuses(self) -> tuple[FormalBlockStatus, ...]:
@@ -390,30 +430,346 @@ class CollectionWorkspace:
             raise KeyError("formal block identity is outside the workspace")
         return self._formal_block_from_row(row)
 
-    def formal_plan_statuses(self) -> tuple[FormalPlanStatus, ...]:
+    @staticmethod
+    def _level_quota_from_row(row: sqlite3.Row) -> LevelQuotaStatus:
+        return LevelQuotaStatus(
+            logical_master_task_index=row["logical_master_task_index"],
+            level=row["level"],
+            status=row["status"],
+            next_draw_index=row["next_draw_index"],
+            accepted_count=row["accepted_count"],
+        )
+
+    @staticmethod
+    def _draw_from_row(row: sqlite3.Row) -> DrawRunStatus:
+        return DrawRunStatus(
+            logical_master_task_index=row["logical_master_task_index"],
+            level=row["level"],
+            realization_draw_index=row["realization_draw_index"],
+            family=row["family"],
+            realization_seed=int(row["realization_seed"]),
+            status=row["status"],
+            attempt_index=row["attempt_index"],
+            accepted_slot=row["accepted_slot"],
+            plan_path=row["plan_path"],
+            payload_path=row["payload_path"],
+            selected_candidate_fingerprint=row["selected_candidate_fingerprint"],
+            terminal_reason=row["terminal_reason"],
+            last_infrastructure_reason=row["last_infrastructure_reason"],
+        )
+
+    def level_quota_statuses(self) -> tuple[LevelQuotaStatus, ...]:
         with self._connect(self.database_path) as connection:
             rows = connection.execute(
                 """
-                SELECT * FROM formal_plan_status
-                ORDER BY logical_master_task_index, level, realization_index
+                SELECT * FROM level_quota_status
+                ORDER BY logical_master_task_index, level
                 """
             ).fetchall()
-        return tuple(self._formal_plan_from_row(row) for row in rows)
+        return tuple(self._level_quota_from_row(row) for row in rows)
 
-    def formal_plan_status(
-        self, logical_master_task_index: int, level: int, realization_index: int
-    ) -> FormalPlanStatus:
+    def level_quota_status(
+        self, logical_master_task_index: int, level: int
+    ) -> LevelQuotaStatus:
         with self._connect(self.database_path) as connection:
             row = connection.execute(
                 """
-                SELECT * FROM formal_plan_status
-                WHERE logical_master_task_index=? AND level=? AND realization_index=?
+                SELECT * FROM level_quota_status
+                WHERE logical_master_task_index=? AND level=?
                 """,
-                (logical_master_task_index, level, realization_index),
+                (logical_master_task_index, level),
             ).fetchone()
         if row is None:
-            raise KeyError("formal plan identity is outside the workspace")
-        return self._formal_plan_from_row(row)
+            raise KeyError("level quota identity is outside the workspace")
+        return self._level_quota_from_row(row)
+
+    def draw_statuses(self) -> tuple[DrawRunStatus, ...]:
+        with self._connect(self.database_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM draw_status
+                ORDER BY logical_master_task_index, level, realization_draw_index
+                """
+            ).fetchall()
+        return tuple(self._draw_from_row(row) for row in rows)
+
+    def draw_status(
+        self, logical_master_task_index: int, level: int, realization_draw_index: int
+    ) -> DrawRunStatus:
+        with self._connect(self.database_path) as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM draw_status
+                WHERE logical_master_task_index=? AND level=?
+                  AND realization_draw_index=?
+                """,
+                (logical_master_task_index, level, realization_draw_index),
+            ).fetchone()
+        if row is None:
+            raise KeyError("draw identity is outside the workspace")
+        return self._draw_from_row(row)
+
+    def accepted_draws(
+        self, logical_master_task_index: int, level: int
+    ) -> tuple[DrawRunStatus, ...]:
+        return tuple(
+            row
+            for row in self.draw_statuses()
+            if row.logical_master_task_index == logical_master_task_index
+            and row.level == level
+            and row.status == "accepted"
+        )
+
+    @staticmethod
+    def _draw_identity(draw: DrawRunStatus) -> tuple[int, int, int]:
+        if not isinstance(draw, DrawRunStatus):
+            raise TypeError("draw must be DrawRunStatus")
+        return (
+            draw.logical_master_task_index,
+            draw.level,
+            draw.realization_draw_index,
+        )
+
+    def begin_next_draw(self, *, logical_master_task_index: int, request: Any) -> DrawRunStatus:
+        from latency_meta_mdp.expert_realization.contracts import FormalRealizationDrawRequest
+
+        if not isinstance(request, FormalRealizationDrawRequest):
+            raise TypeError("request must be FormalRealizationDrawRequest")
+        masters = {
+            row.logical_task_index: row
+            for row in self.request.primary_tasks + self.request.reserve_tasks
+        }
+        master = masters.get(logical_master_task_index)
+        if master is None or master.master_task_seed != request.task_instance_id.task_instance_seed:
+            raise ValueError("draw request does not match the formal master task")
+        identity = (
+            logical_master_task_index,
+            request.task_instance_id.level,
+            request.realization_draw_index,
+        )
+        with self._connect(self.database_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            block = connection.execute(
+                "SELECT status FROM formal_block_status WHERE logical_master_task_index=?",
+                (logical_master_task_index,),
+            ).fetchone()
+            level = connection.execute(
+                """
+                SELECT * FROM level_quota_status
+                WHERE logical_master_task_index=? AND level=?
+                """,
+                identity[:2],
+            ).fetchone()
+            if block is None or block["status"] != "filling":
+                raise ValueError("draw requires a filling formal block")
+            if level is None or level["status"] == "complete":
+                raise ValueError("level quota is complete or missing")
+            if level["status"] == "exhausted":
+                raise ValueError("level quota is exhausted")
+            if request.realization_draw_index != level["next_draw_index"]:
+                raise ValueError("draw index must equal the level's next draw index")
+            existing = connection.execute(
+                """
+                SELECT * FROM draw_status
+                WHERE logical_master_task_index=? AND level=?
+                  AND realization_draw_index=?
+                """,
+                identity,
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO draw_status VALUES (?, ?, ?, ?, ?, 'planning', 0,
+                        NULL, NULL, NULL, NULL, NULL, NULL)
+                    """,
+                    (
+                        *identity,
+                        request.assigned_family.value,
+                        str(request.realization_seed),
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE level_quota_status SET status='filling'
+                    WHERE logical_master_task_index=? AND level=? AND status='pending'
+                    """,
+                    identity[:2],
+                )
+                existing = connection.execute(
+                    """
+                    SELECT * FROM draw_status
+                    WHERE logical_master_task_index=? AND level=?
+                      AND realization_draw_index=?
+                    """,
+                    identity,
+                ).fetchone()
+            if existing is None:
+                raise RuntimeError("draw row was not created")
+            value = self._draw_from_row(existing)
+            if value.family != request.assigned_family.value or (
+                value.realization_seed != request.realization_seed
+            ):
+                raise ValueError("stored draw identity does not match request")
+            return value
+
+    def record_draw_plan_qualified(
+        self,
+        draw: DrawRunStatus,
+        *,
+        selected_candidate_fingerprint: str,
+        plan_path: str,
+    ) -> DrawRunStatus:
+        identity = self._draw_identity(draw)
+        _safe_relative(plan_path)
+        if type(selected_candidate_fingerprint) is not str or (
+            len(selected_candidate_fingerprint) != 64
+        ):
+            raise ValueError("selected_candidate_fingerprint must be a SHA-256 digest")
+        with self._connect(self.database_path) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE draw_status SET status='plan_qualified', plan_path=?,
+                    selected_candidate_fingerprint=?
+                WHERE logical_master_task_index=? AND level=?
+                  AND realization_draw_index=? AND status='planning'
+                """,
+                (plan_path, selected_candidate_fingerprint, *identity),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("draw must be planning before plan qualification")
+        return self.draw_status(*identity)
+
+    def record_draw_running(self, draw: DrawRunStatus) -> DrawRunStatus:
+        identity = self._draw_identity(draw)
+        with self._connect(self.database_path) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE draw_status SET status='running'
+                WHERE logical_master_task_index=? AND level=?
+                  AND realization_draw_index=? AND status='plan_qualified'
+                """,
+                identity,
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("draw must be plan_qualified before rollout")
+        return self.draw_status(*identity)
+
+    def record_draw_infrastructure_retry(
+        self, draw: DrawRunStatus, *, reason: str
+    ) -> DrawRunStatus:
+        identity = self._draw_identity(draw)
+        if type(reason) is not str or not reason:
+            raise ValueError("infrastructure retry reason must be non-empty")
+        with self._connect(self.database_path) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE draw_status SET attempt_index=attempt_index+1,
+                    last_infrastructure_reason=?
+                WHERE logical_master_task_index=? AND level=?
+                  AND realization_draw_index=?
+                  AND status IN ('planning', 'plan_qualified', 'running')
+                """,
+                (reason, *identity),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("only an active draw may retry infrastructure")
+        return self.draw_status(*identity)
+
+    def record_draw_failure(
+        self, draw: DrawRunStatus, *, failure_class: str, reason: str
+    ) -> DrawRunStatus:
+        identity = self._draw_identity(draw)
+        if failure_class not in {
+            "planner_failure",
+            "task_failure",
+            "safety_failure",
+            "diversity_rejection",
+        }:
+            raise ValueError("failure_class is not a terminal semantic draw failure")
+        if type(reason) is not str or not reason:
+            raise ValueError("draw failure reason must be non-empty")
+        with self._connect(self.database_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                UPDATE draw_status SET status=?, terminal_reason=?
+                WHERE logical_master_task_index=? AND level=?
+                  AND realization_draw_index=?
+                  AND status IN ('planning', 'plan_qualified', 'running')
+                """,
+                (failure_class, reason, *identity),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("only an active draw may fail")
+            connection.execute(
+                """
+                UPDATE level_quota_status SET status='filling', next_draw_index=?
+                WHERE logical_master_task_index=? AND level=?
+                  AND next_draw_index=? AND status='filling'
+                """,
+                (identity[2] + 1, identity[0], identity[1], identity[2]),
+            )
+            if connection.total_changes != 2:
+                raise RuntimeError("draw failure did not advance exactly one level cursor")
+        return self.draw_status(*identity)
+
+    def record_draw_accepted(
+        self,
+        draw: DrawRunStatus,
+        *,
+        payload_path: str,
+        terminal_reason: str,
+    ) -> int:
+        identity = self._draw_identity(draw)
+        _safe_relative(payload_path)
+        if type(terminal_reason) is not str or not terminal_reason:
+            raise ValueError("terminal_reason must be non-empty")
+        quota = self.request.config.realizations_per_task
+        with self._connect(self.database_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            level = connection.execute(
+                """
+                SELECT * FROM level_quota_status
+                WHERE logical_master_task_index=? AND level=?
+                """,
+                identity[:2],
+            ).fetchone()
+            if level is None or level["status"] != "filling":
+                raise ValueError("accepted draw requires a filling level quota")
+            slot = level["accepted_count"]
+            if slot >= quota:
+                raise ValueError("level quota is already complete")
+            cursor = connection.execute(
+                """
+                UPDATE draw_status SET status='accepted', accepted_slot=?,
+                    payload_path=?, terminal_reason=?
+                WHERE logical_master_task_index=? AND level=?
+                  AND realization_draw_index=? AND status='running'
+                """,
+                (slot, payload_path, terminal_reason, *identity),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("draw must be running before acceptance")
+            accepted_count = slot + 1
+            connection.execute(
+                """
+                UPDATE level_quota_status SET status=?, next_draw_index=?, accepted_count=?
+                WHERE logical_master_task_index=? AND level=?
+                  AND next_draw_index=? AND accepted_count=?
+                """,
+                (
+                    "complete" if accepted_count == quota else "filling",
+                    identity[2] + 1,
+                    accepted_count,
+                    identity[0],
+                    identity[1],
+                    identity[2],
+                    slot,
+                ),
+            )
+            if connection.total_changes != 2:
+                raise RuntimeError("draw acceptance did not update exactly one level quota")
+            return slot
 
     def begin_formal_block(self, logical_master_task_index: int) -> None:
         with self._connect(self.database_path) as connection:
@@ -426,224 +782,11 @@ class CollectionWorkspace:
                 raise ValueError("formal block must be pending before planning")
             connection.execute(
                 """
-                UPDATE formal_block_status SET status='planning'
+                UPDATE formal_block_status SET status='filling'
                 WHERE logical_master_task_index=?
                 """,
                 (logical_master_task_index,),
             )
-
-    def record_formal_candidate_failure(
-        self,
-        *,
-        logical_master_task_index: int,
-        level: int,
-        realization_index: int,
-        candidate_index: int,
-        reason: str,
-    ) -> None:
-        if type(candidate_index) is not int or not 0 <= candidate_index < 8:
-            raise ValueError("candidate index must be in 0..7")
-        if type(reason) is not str or not reason:
-            raise ValueError("candidate failure reason must be non-empty")
-        identity = (logical_master_task_index, level, realization_index)
-        with self._connect(self.database_path) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                """
-                SELECT * FROM formal_plan_status
-                WHERE logical_master_task_index=? AND level=? AND realization_index=?
-                """,
-                identity,
-            ).fetchone()
-            block = connection.execute(
-                "SELECT status FROM formal_block_status WHERE logical_master_task_index=?",
-                (logical_master_task_index,),
-            ).fetchone()
-            if row is None or block is None or block["status"] != "planning":
-                raise ValueError("candidate failure requires a planning formal block")
-            if row["status"] not in {"pending", "planning"} or (
-                row["current_candidate_index"] != candidate_index
-            ):
-                raise ValueError("candidate failure does not match current candidate index")
-            failures = json.loads(row["semantic_failures_json"])
-            failures.append(f"candidate={candidate_index}: {reason}")
-            if candidate_index == 7:
-                connection.execute(
-                    """
-                    UPDATE formal_plan_status
-                    SET status='exhausted', infrastructure_retry_count=0,
-                        semantic_failures_json=?
-                    WHERE logical_master_task_index=? AND level=? AND realization_index=?
-                    """,
-                    (json.dumps(failures), *identity),
-                )
-                connection.execute(
-                    """
-                    UPDATE formal_block_status
-                    SET status='rejected', terminal_reason=?
-                    WHERE logical_master_task_index=?
-                    """,
-                    (
-                        f"planner candidates exhausted at L{level} r{realization_index}",
-                        logical_master_task_index,
-                    ),
-                )
-            else:
-                connection.execute(
-                    """
-                    UPDATE formal_plan_status
-                    SET status='planning', current_candidate_index=?,
-                        infrastructure_retry_count=0, semantic_failures_json=?
-                    WHERE logical_master_task_index=? AND level=? AND realization_index=?
-                    """,
-                    (candidate_index + 1, json.dumps(failures), *identity),
-                )
-
-    def record_formal_infrastructure_retry(
-        self,
-        *,
-        logical_master_task_index: int,
-        level: int,
-        realization_index: int,
-        candidate_index: int,
-        reason: str,
-    ) -> None:
-        if type(reason) is not str or not reason:
-            raise ValueError("infrastructure retry reason must be non-empty")
-        identity = (logical_master_task_index, level, realization_index)
-        with self._connect(self.database_path) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                """
-                SELECT * FROM formal_plan_status
-                WHERE logical_master_task_index=? AND level=? AND realization_index=?
-                """,
-                identity,
-            ).fetchone()
-            block = connection.execute(
-                "SELECT status FROM formal_block_status WHERE logical_master_task_index=?",
-                (logical_master_task_index,),
-            ).fetchone()
-            if block is None or block["status"] != "planning":
-                raise ValueError("infrastructure retry requires a planning formal block")
-            if row is None or row["status"] not in {"pending", "planning"} or (
-                row["current_candidate_index"] != candidate_index
-            ):
-                raise ValueError("infrastructure retry does not match current candidate index")
-            connection.execute(
-                """
-                UPDATE formal_plan_status
-                SET status='planning', infrastructure_retry_count=infrastructure_retry_count+1
-                WHERE logical_master_task_index=? AND level=? AND realization_index=?
-                """,
-                identity,
-            )
-
-    def record_formal_plan_success(
-        self,
-        *,
-        logical_master_task_index: int,
-        level: int,
-        realization_index: int,
-        candidate_index: int,
-        selected_candidate_fingerprint: str,
-    ) -> None:
-        if (
-            type(selected_candidate_fingerprint) is not str
-            or len(selected_candidate_fingerprint) != 64
-        ):
-            raise ValueError("selected_candidate_fingerprint must be a SHA-256 digest")
-        identity = (logical_master_task_index, level, realization_index)
-        with self._connect(self.database_path) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                """
-                SELECT * FROM formal_plan_status
-                WHERE logical_master_task_index=? AND level=? AND realization_index=?
-                """,
-                identity,
-            ).fetchone()
-            block = connection.execute(
-                "SELECT status FROM formal_block_status WHERE logical_master_task_index=?",
-                (logical_master_task_index,),
-            ).fetchone()
-            if block is None or block["status"] != "planning":
-                raise ValueError("plan success requires a planning formal block")
-            if row is None or row["status"] not in {"pending", "planning"} or (
-                row["current_candidate_index"] != candidate_index
-            ):
-                raise ValueError("plan success does not match current candidate")
-            connection.execute(
-                """
-                UPDATE formal_plan_status
-                SET status='qualified', selected_candidate_fingerprint=?
-                WHERE logical_master_task_index=? AND level=? AND realization_index=?
-                """,
-                (selected_candidate_fingerprint, *identity),
-            )
-            connection.execute(
-                """
-                UPDATE realization_status SET status='planned'
-                WHERE logical_master_task_index=? AND level=? AND realization_index=?
-                  AND status='requested'
-                """,
-                identity,
-            )
-
-    def mark_formal_block_plan_ready(self, logical_master_task_index: int) -> None:
-        with self._connect(self.database_path) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                """
-                SELECT COUNT(*) AS count FROM formal_plan_status
-                WHERE logical_master_task_index=? AND status='qualified'
-                """,
-                (logical_master_task_index,),
-            ).fetchone()
-            if row is None or row["count"] != 12:
-                raise ValueError("formal block plan_ready requires all twelve qualified plans")
-            connection.execute(
-                """
-                UPDATE formal_block_status SET status='plan_ready'
-                WHERE logical_master_task_index=? AND status='planning'
-                """,
-                (logical_master_task_index,),
-            )
-            if connection.total_changes != 1:
-                raise ValueError("formal block is not in planning state")
-
-    def begin_formal_block_execution(self, logical_master_task_index: int) -> None:
-        with self._connect(self.database_path) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            cursor = connection.execute(
-                """
-                UPDATE formal_block_status SET status='executing'
-                WHERE logical_master_task_index=? AND status='plan_ready'
-                """,
-                (logical_master_task_index,),
-            )
-            if cursor.rowcount != 1:
-                raise ValueError("formal block must be plan_ready before execution")
-
-    def record_formal_execution_status(self, status: RealizationRunStatus) -> None:
-        block = self.formal_block_status(status.logical_master_task_index)
-        if block.status != "executing":
-            raise ValueError("formal execution status requires an executing block")
-        self.record_status(status)
-        if status.status in {
-            "planner_failure",
-            "task_failure",
-            "safety_failure",
-            "diversity_rejection",
-        }:
-            with self._connect(self.database_path) as connection:
-                connection.execute(
-                    """
-                    UPDATE formal_block_status SET status='rejected', terminal_reason=?
-                    WHERE logical_master_task_index=? AND status='executing'
-                    """,
-                    (status.terminal_reason, status.logical_master_task_index),
-                )
 
     def reject_formal_block(self, logical_master_task_index: int, *, reason: str) -> None:
         if type(reason) is not str or not reason:
@@ -653,34 +796,34 @@ class CollectionWorkspace:
             cursor = connection.execute(
                 """
                 UPDATE formal_block_status SET status='rejected', terminal_reason=?
-                WHERE logical_master_task_index=? AND status IN ('planning', 'executing')
+                WHERE logical_master_task_index=? AND status IN ('filling', 'planning', 'executing')
                 """,
                 (reason, logical_master_task_index),
             )
             if cursor.rowcount != 1:
-                raise ValueError("formal block rejection requires planning or executing state")
+                raise ValueError("formal block rejection requires an active state")
 
     def admit_formal_block(self, logical_master_task_index: int) -> None:
         with self._connect(self.database_path) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
+            levels = connection.execute(
                 """
-                SELECT COUNT(*) AS count FROM realization_status
-                WHERE logical_master_task_index=? AND status='success'
+                SELECT COUNT(*) AS count FROM level_quota_status
+                WHERE logical_master_task_index=? AND status='complete'
                 """,
                 (logical_master_task_index,),
             ).fetchone()
-            if row is None or row["count"] != 12:
-                raise ValueError("formal block admission requires all twelve successes")
+            if levels is None or levels["count"] != len(self.request.config.levels):
+                raise ValueError("formal block admission requires three complete level quotas")
             cursor = connection.execute(
                 """
                 UPDATE formal_block_status SET status='admitted'
-                WHERE logical_master_task_index=? AND status='executing'
+                WHERE logical_master_task_index=? AND status='filling'
                 """,
                 (logical_master_task_index,),
             )
             if cursor.rowcount != 1:
-                raise ValueError("formal block is not executing")
+                raise ValueError("formal block is not filling")
 
     @staticmethod
     def _from_row(row: sqlite3.Row) -> RealizationRunStatus:

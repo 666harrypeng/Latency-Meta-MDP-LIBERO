@@ -11,7 +11,7 @@ def _universe():
 
     config = FormalCorpusConfig(
         schema_version=2,
-        corpus_id="formal-source-workspace-test",
+        corpus_id="formal-source-quota-workspace-test",
         logical_task_index_start=0,
         task_instance_count=3,
         levels=(1, 2, 3),
@@ -34,12 +34,11 @@ def _universe():
     )
 
 
-def _identity(*, split_sha: str = "c" * 64):
+def _identity(*, source_sha: str = "d" * 64):
     return {
-        "schema_version": 1,
-        "format_id": "formal_source_collection_identity_v1",
-        "source_config_sha256": "d" * 64,
-        "split_plan_sha256": split_sha,
+        "schema_version": 2,
+        "format_id": "formal_source_success_quota_identity_v1",
+        "source_config_sha256": source_sha,
         "execution_config_sha256": "e" * 64,
         "qualification_gate_sha256": "f" * 64,
         "planner_environment_sha256": "0" * 64,
@@ -48,9 +47,7 @@ def _identity(*, split_sha: str = "c" * 64):
 
 
 def _workspace(tmp_path: Path):
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import (
-        CollectionWorkspace,
-    )
+    from latency_meta_mdp.expert_realization.source_corpus.workspace import CollectionWorkspace
 
     return CollectionWorkspace.create_formal(
         tmp_path / "work",
@@ -59,218 +56,183 @@ def _workspace(tmp_path: Path):
     )
 
 
-def test_formal_workspace_materializes_six_blocks_and_72_plan_slots(tmp_path: Path) -> None:
-    """Break caught: reserve blocks or cross-level plan identities are created lazily."""
+def _draw(universe, *, level: int, index: int):
+    from latency_meta_mdp.expert_realization.contracts import (
+        TaskInstanceId,
+        build_formal_realization_draw_request,
+    )
+
+    task = TaskInstanceId(
+        level=level,
+        task_instance_seed=universe.primary_tasks[0].master_task_seed,
+        motion_profile_sha256=f"{level}" * 64,
+        initial_state_sha256=f"{level + 3}" * 64,
+    )
+    return build_formal_realization_draw_request(universe, task, index)
+
+
+def test_formal_workspace_predeclares_master_and_level_quotas_only(tmp_path: Path) -> None:
+    """Break caught: four fixed child draws are materialized before any semantic sampling."""
     workspace = _workspace(tmp_path)
 
-    blocks = workspace.formal_block_statuses()
-    plans = workspace.formal_plan_statuses()
-    assert len(blocks) == 6
-    assert len(plans) == 72
-    assert {row.status for row in blocks} == {"pending"}
-    assert {row.status for row in plans} == {"pending"}
-    expected = {
-        (task, level, realization)
-        for task in range(6)
-        for level in (1, 2, 3)
-        for realization in range(4)
+    assert len(workspace.formal_block_statuses()) == 6
+    levels = workspace.level_quota_statuses()
+    assert len(levels) == 18
+    assert {(row.status, row.next_draw_index, row.accepted_count) for row in levels} == {
+        ("pending", 0, 0)
     }
-    assert {
-        (row.logical_master_task_index, row.level, row.realization_index)
-        for row in plans
-    } == expected
+    assert workspace.draw_statuses() == ()
 
 
-def test_candidate_failure_advances_but_infrastructure_retry_preserves_index(
-    tmp_path: Path,
-) -> None:
-    """Break caught: semantic and infrastructure planner failures share one retry transition."""
+def test_failed_draw_advances_without_erasing_prior_acceptance(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
+    universe = workspace.request
     workspace.begin_formal_block(0)
-    workspace.record_formal_candidate_failure(
+
+    draw0 = workspace.begin_next_draw(
         logical_master_task_index=0,
-        level=1,
-        realization_index=0,
-        candidate_index=0,
-        reason="infeasible",
+        request=_draw(universe, level=1, index=0),
     )
-    advanced = workspace.formal_plan_status(0, 1, 0)
-    assert advanced.current_candidate_index == 1
-    assert advanced.infrastructure_retry_count == 0
-    assert advanced.semantic_failures == ("candidate=0: infeasible",)
+    workspace.record_draw_failure(draw0, failure_class="task_failure", reason="missed")
+    level = workspace.level_quota_status(0, 1)
+    assert (level.next_draw_index, level.accepted_count) == (1, 0)
 
-    workspace.record_formal_infrastructure_retry(
+    draw1 = workspace.begin_next_draw(
         logical_master_task_index=0,
-        level=1,
-        realization_index=0,
-        candidate_index=1,
-        reason="worker crash",
+        request=_draw(universe, level=1, index=1),
     )
-    retried = workspace.formal_plan_status(0, 1, 0)
-    assert retried.current_candidate_index == 1
-    assert retried.infrastructure_retry_count == 1
-
-
-def test_candidate_seven_exhaustion_rejects_block_and_forbids_index_eight(
-    tmp_path: Path,
-) -> None:
-    """Break caught: an impossible realization creates an unbounded candidate sequence."""
-    workspace = _workspace(tmp_path)
-    workspace.begin_formal_block(0)
-    for candidate_index in range(8):
-        workspace.record_formal_candidate_failure(
-            logical_master_task_index=0,
-            level=1,
-            realization_index=0,
-            candidate_index=candidate_index,
-            reason="infeasible",
-        )
-    plan = workspace.formal_plan_status(0, 1, 0)
-    assert plan.status == "exhausted"
-    assert workspace.formal_block_status(0).status == "rejected"
-    with pytest.raises(ValueError, match="candidate index"):
-        workspace.record_formal_candidate_failure(
-            logical_master_task_index=0,
-            level=1,
-            realization_index=0,
-            candidate_index=8,
-            reason="invalid",
-        )
-    with pytest.raises(ValueError, match="planning formal block"):
-        workspace.record_formal_infrastructure_retry(
-            logical_master_task_index=0,
-            level=1,
-            realization_index=1,
-            candidate_index=0,
-            reason="late retry",
-        )
-    with pytest.raises(ValueError, match="planning formal block"):
-        workspace.record_formal_plan_success(
-            logical_master_task_index=0,
-            level=1,
-            realization_index=1,
-            candidate_index=0,
-            selected_candidate_fingerprint="a" * 64,
-        )
-
-
-def _qualify_all_plans(workspace, logical: int) -> None:
-    for level in (1, 2, 3):
-        for realization in range(4):
-            if workspace.formal_plan_status(logical, level, realization).status == "qualified":
-                continue
-            workspace.record_formal_plan_success(
-                logical_master_task_index=logical,
-                level=level,
-                realization_index=realization,
-                candidate_index=0,
-                selected_candidate_fingerprint=f"{level}{realization}".ljust(64, "a"),
-            )
-
-
-def test_plan_ready_and_admitted_require_all_twelve_children(tmp_path: Path) -> None:
-    """Break caught: a partial level or realization is admitted as a paired master block."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import (
-        RealizationRunStatus,
-    )
-
-    workspace = _workspace(tmp_path)
-    workspace.begin_formal_block(0)
-    workspace.record_formal_plan_success(
-        logical_master_task_index=0,
-        level=1,
-        realization_index=0,
-        candidate_index=0,
+    workspace.record_draw_plan_qualified(
+        draw1,
         selected_candidate_fingerprint="a" * 64,
+        plan_path="payloads/plans/L1/task-0/draw-1",
     )
-    with pytest.raises(ValueError, match="twelve"):
-        workspace.mark_formal_block_plan_ready(0)
-    _qualify_all_plans(workspace, 0)
-    workspace.mark_formal_block_plan_ready(0)
-    workspace.begin_formal_block_execution(0)
-    with pytest.raises(ValueError, match="twelve"):
+    workspace.record_draw_running(draw1)
+    slot = workspace.record_draw_accepted(
+        draw1,
+        payload_path="payloads/successful/L1/task-0/draw-1",
+        terminal_reason="lift_succeeded",
+    )
+    assert slot == 0
+    level = workspace.level_quota_status(0, 1)
+    assert (level.next_draw_index, level.accepted_count) == (2, 1)
+    assert [row.realization_draw_index for row in workspace.accepted_draws(0, 1)] == [1]
+
+
+def test_noncontiguous_draws_receive_dense_immutable_slots(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    universe = workspace.request
+    workspace.begin_formal_block(0)
+
+    accepted = []
+    for index in range(8):
+        draw = workspace.begin_next_draw(
+            logical_master_task_index=0,
+            request=_draw(universe, level=1, index=index),
+        )
+        if index not in {0, 2, 5, 7}:
+            workspace.record_draw_failure(
+                draw,
+                failure_class="diversity_rejection",
+                reason="near duplicate",
+            )
+            continue
+        workspace.record_draw_plan_qualified(
+            draw,
+            selected_candidate_fingerprint=f"{index:x}" * 64,
+            plan_path=f"payloads/plans/L1/task-0/draw-{index}",
+        )
+        workspace.record_draw_running(draw)
+        accepted.append(
+            workspace.record_draw_accepted(
+                draw,
+                payload_path=f"payloads/successful/L1/task-0/draw-{index}",
+                terminal_reason="lift_succeeded",
+            )
+        )
+
+    assert accepted == [0, 1, 2, 3]
+    rows = workspace.accepted_draws(0, 1)
+    assert [(row.realization_draw_index, row.accepted_slot) for row in rows] == [
+        (0, 0),
+        (2, 1),
+        (5, 2),
+        (7, 3),
+    ]
+    assert workspace.level_quota_status(0, 1).status == "complete"
+    with pytest.raises(ValueError, match="complete"):
+        workspace.begin_next_draw(
+            logical_master_task_index=0,
+            request=_draw(universe, level=1, index=8),
+        )
+
+
+def test_infrastructure_retry_preserves_draw_identity(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    workspace.begin_formal_block(0)
+    request = _draw(workspace.request, level=2, index=0)
+    draw = workspace.begin_next_draw(logical_master_task_index=0, request=request)
+
+    retried = workspace.record_draw_infrastructure_retry(draw, reason="worker crash")
+
+    assert retried.realization_draw_index == draw.realization_draw_index
+    assert retried.realization_seed == draw.realization_seed
+    assert retried.family == draw.family
+    assert retried.attempt_index == 1
+    assert workspace.level_quota_status(0, 2).next_draw_index == 0
+
+
+def test_master_admission_requires_three_complete_level_quotas(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    workspace.begin_formal_block(0)
+    with pytest.raises(ValueError, match="three complete level quotas"):
         workspace.admit_formal_block(0)
 
     for level in (1, 2, 3):
-        for realization in range(4):
-            identity = dict(
+        for index in range(4):
+            draw = workspace.begin_next_draw(
                 logical_master_task_index=0,
-                level=level,
-                realization_index=realization,
+                request=_draw(workspace.request, level=level, index=index),
             )
-            workspace.record_formal_execution_status(
-                RealizationRunStatus(**identity, status="running", attempt_index=0)
+            workspace.record_draw_plan_qualified(
+                draw,
+                selected_candidate_fingerprint=f"{level}{index}".ljust(64, "a"),
+                plan_path=f"payloads/plans/L{level}/task-0/draw-{index}",
             )
-            workspace.record_formal_execution_status(
-                RealizationRunStatus(
-                    **identity,
-                    status="success",
-                    attempt_index=0,
-                    payload_path=(
-                        f"payloads/successful/L{level}/task-0/r-{realization}"
-                    ),
-                    terminal_reason="lift_succeeded",
-                )
+            workspace.record_draw_running(draw)
+            workspace.record_draw_accepted(
+                draw,
+                payload_path=f"payloads/successful/L{level}/task-0/draw-{index}",
+                terminal_reason="lift_succeeded",
             )
     workspace.admit_formal_block(0)
     assert workspace.formal_block_status(0).status == "admitted"
 
 
-def test_semantic_execution_failure_rejects_the_parent_block(tmp_path: Path) -> None:
-    """Break caught: scheduler continues a block that can no longer be paired and admitted."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import (
-        RealizationRunStatus,
-    )
-
-    workspace = _workspace(tmp_path)
-    workspace.begin_formal_block(0)
-    _qualify_all_plans(workspace, 0)
-    workspace.mark_formal_block_plan_ready(0)
-    workspace.begin_formal_block_execution(0)
-    identity = dict(logical_master_task_index=0, level=1, realization_index=0)
-    workspace.record_formal_execution_status(
-        RealizationRunStatus(**identity, status="running", attempt_index=0)
-    )
-    workspace.record_formal_execution_status(
-        RealizationRunStatus(
-            **identity,
-            status="task_failure",
-            attempt_index=0,
-            terminal_reason="grasp failed",
-        )
-    )
-    assert workspace.formal_block_status(0).status == "rejected"
-
-
-def test_explicit_planning_rejection_is_terminal_and_reasoned(tmp_path: Path) -> None:
-    """Break caught: group diversity failure is forged as one child's rollout failure."""
-    workspace = _workspace(tmp_path)
-    workspace.begin_formal_block(0)
-    workspace.reject_formal_block(0, reason="L3 four-plan diversity failed")
-    block = workspace.formal_block_status(0)
-    assert block.status == "rejected"
-    assert block.terminal_reason == "L3 four-plan diversity failed"
-    with pytest.raises(ValueError, match="planning or executing"):
-        workspace.reject_formal_block(0, reason="second rejection")
-
-
-def test_formal_resume_requires_exact_collection_identity(tmp_path: Path) -> None:
-    """Break caught: a split/gate/implementation change resumes old successful payloads."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import (
-        CollectionWorkspace,
-    )
+def test_formal_resume_requires_exact_collection_identity_and_state(tmp_path: Path) -> None:
+    from latency_meta_mdp.expert_realization.source_corpus.workspace import CollectionWorkspace
 
     root = tmp_path / "work"
-    CollectionWorkspace.create_formal(
-        root, _universe(), collection_identity=_identity()
+    workspace = CollectionWorkspace.create_formal(
+        root,
+        _universe(),
+        collection_identity=_identity(),
     )
+    workspace.begin_formal_block(0)
+    draw = workspace.begin_next_draw(
+        logical_master_task_index=0,
+        request=_draw(workspace.request, level=3, index=0),
+    )
+    workspace.record_draw_failure(draw, failure_class="planner_failure", reason="infeasible")
+
     resumed = CollectionWorkspace.resume_formal(
-        root, _universe(), collection_identity=_identity()
+        root,
+        _universe(),
+        collection_identity=_identity(),
     )
-    assert len(resumed.formal_block_statuses()) == 6
+    assert resumed.level_quota_status(0, 3).next_draw_index == 1
     with pytest.raises(ValueError, match="collection identity"):
         CollectionWorkspace.resume_formal(
             root,
             _universe(),
-            collection_identity=_identity(split_sha="2" * 64),
+            collection_identity=_identity(source_sha="2" * 64),
         )

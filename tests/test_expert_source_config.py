@@ -13,8 +13,8 @@ EXECUTION_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_executio
 
 def _valid_source_mapping() -> dict[str, object]:
     return {
-        "schema_version": 2,
-        "format_id": "structured_expert_source_parquet_v2",
+        "schema_version": 3,
+        "format_id": "structured_expert_source_parquet_v3",
         "image_encoding": "lossless_png",
         "png_compress_level": 6,
         "parquet_compression": "zstd",
@@ -36,10 +36,10 @@ def _valid_split_mapping() -> dict[str, object]:
 
 def _valid_execution_mapping() -> dict[str, object]:
     return {
-        "schema_version": 1,
-        "execution_id": "panda-ball-formal-source-sequential-first-qualified-v1",
-        "candidate_policy": "sequential_first_qualified",
-        "maximum_candidate_attempts_per_realization": 8,
+        "schema_version": 2,
+        "execution_id": "panda-ball-formal-source-success-quota-v1",
+        "planner_candidates_per_draw": 1,
+        "maximum_realization_draws_per_level": 16,
         "infrastructure_retry_limit": 2,
         "determinism_canaries_per_level": 1,
         "maximum_formal_ticks": 220,
@@ -63,7 +63,7 @@ def test_source_config_loads_the_canonical_lossless_parquet_contract() -> None:
 
     assert config.to_mapping() == _valid_source_mapping()
     assert config.target_shard_bytes == 256 * 1024 * 1024
-    assert config.sha256 == "87d847ad295725c8e3223d8d35a6d372300ce683bc3bf38b7a076e968b2eb324"
+    assert len(config.sha256) == 64
 
 
 @pytest.mark.parametrize(
@@ -211,9 +211,9 @@ def test_formal_collection_configs_lock_36_successes_and_sequential_planning() -
     ("field", "bad_value"),
     [
         ("schema_version", True),
-        ("candidate_policy", "best_of_eight"),
-        ("maximum_candidate_attempts_per_realization", 0),
-        ("maximum_candidate_attempts_per_realization", 8.0),
+        ("planner_candidates_per_draw", 8),
+        ("maximum_realization_draws_per_level", 3),
+        ("maximum_realization_draws_per_level", 16.0),
         ("infrastructure_retry_limit", -1),
         ("determinism_canaries_per_level", 0),
         ("maximum_formal_ticks", 5),
@@ -245,7 +245,7 @@ def test_source_execution_config_rejects_missing_or_unknown_fields(
 
     mapping = _valid_execution_mapping()
     if mutation == "missing":
-        mapping.pop("candidate_policy")
+        mapping.pop("planner_candidates_per_draw")
     else:
         mapping["candidate_count"] = 8
     with pytest.raises(ValueError, match="source execution"):

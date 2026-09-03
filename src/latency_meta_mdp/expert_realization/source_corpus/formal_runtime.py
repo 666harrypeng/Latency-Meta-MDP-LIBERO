@@ -16,23 +16,27 @@ from latency_meta_mdp.expert_realization.source_corpus.config import (
     SourceExecutionConfig,
 )
 from latency_meta_mdp.expert_realization.source_corpus.formal_execution_runtime import (
-    execute_formal_master_block,
+    collect_formal_master_block,
     publish_completed_blocks,
-)
-from latency_meta_mdp.expert_realization.source_corpus.formal_planning_runtime import (
-    plan_formal_master_block,
 )
 
 _IMPLEMENTATION_PATHS = (
     "src/latency_meta_mdp/backend.py",
     "src/latency_meta_mdp/expert_realization/actual_physics.py",
+    "src/latency_meta_mdp/expert_realization/config.py",
+    "src/latency_meta_mdp/expert_realization/contracts.py",
     "src/latency_meta_mdp/expert_realization/selector.py",
+    "src/latency_meta_mdp/expert_realization/strategy.py",
     "src/latency_meta_mdp/expert_realization/source_corpus/collection.py",
+    "src/latency_meta_mdp/expert_realization/source_corpus/config.py",
+    "src/latency_meta_mdp/expert_realization/source_corpus/contracts.py",
     "src/latency_meta_mdp/expert_realization/source_corpus/formal_collection.py",
     "src/latency_meta_mdp/expert_realization/source_corpus/formal_execution_runtime.py",
     "src/latency_meta_mdp/expert_realization/source_corpus/formal_planning_runtime.py",
     "src/latency_meta_mdp/expert_realization/source_corpus/formal_runtime.py",
+    "src/latency_meta_mdp/expert_realization/source_corpus/metadata.py",
     "src/latency_meta_mdp/expert_realization/source_corpus/recording.py",
+    "src/latency_meta_mdp/expert_realization/source_corpus/schema.py",
     "src/latency_meta_mdp/expert_realization/source_corpus/success_payload.py",
     "src/latency_meta_mdp/expert_realization/source_corpus/workspace.py",
     "src/latency_meta_mdp/expert_realization/task_instance.py",
@@ -63,8 +67,8 @@ def build_formal_collection_identity(
     if not isinstance(implementation, ImplementationIdentity):
         raise TypeError("implementation must be ImplementationIdentity")
     return {
-        "schema_version": 1,
-        "format_id": "formal_source_collection_identity_v1",
+        "schema_version": 2,
+        "format_id": "formal_source_success_quota_identity_v1",
         "formal_request_sha256": formal_request.request_sha256,
         "source_config_sha256": source_config.sha256,
         "execution_config_sha256": execution_config.sha256,
@@ -111,7 +115,7 @@ def collect_formal_source(
     from latency_meta_mdp.expert_realization.config import load_pilot_gate_config
     from latency_meta_mdp.expert_realization.robot_bridge import build_panda_planning_bridge
     from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
-        schedule_paired_master_blocks,
+        schedule_success_quota_master_blocks,
     )
     from latency_meta_mdp.expert_realization.source_corpus.workspace import (
         CollectionWorkspace,
@@ -186,23 +190,10 @@ def collect_formal_source(
     gate = load_pilot_gate_config(qualification_gate_path)
     canary_levels: set[int] = set()
 
-    def plan_block(logical: int):
-        return plan_formal_master_block(
+    def collect_block(logical: int):
+        return collect_formal_master_block(
             project_root=root,
             logical_master_task_index=logical,
-            formal_request=formal_request,
-            execution_config=execution_config,
-            workspace=workspace,
-            structured=structured,
-            bridge=bridge,
-            planner_python=planner_launcher,
-            canary_levels=canary_levels,
-            on_progress=on_progress,
-        )
-
-    def execute_block(block: Any):
-        return execute_formal_master_block(
-            block,
             formal_request=formal_request,
             source_config=source_config,
             execution_config=execution_config,
@@ -210,19 +201,20 @@ def collect_formal_source(
             structured=structured,
             bridge=bridge,
             gate=gate,
+            planner_python=planner_launcher,
+            canary_levels=canary_levels,
             curobo_config_sha256=_sha_file(curobo_config_path),
             implementation=implementation,
             on_progress=on_progress,
         )
 
-    return schedule_paired_master_blocks(
+    return schedule_success_quota_master_blocks(
         master_task_indices=tuple(
             item.logical_task_index
             for item in formal_request.primary_tasks + formal_request.reserve_tasks
         ),
         target_block_count=formal_request.config.task_instance_count,
-        plan_block=plan_block,
-        execute_block=execute_block,
+        collect_block=collect_block,
         publish_blocks=lambda blocks: publish_completed_blocks(
             blocks,
             project_root=root,

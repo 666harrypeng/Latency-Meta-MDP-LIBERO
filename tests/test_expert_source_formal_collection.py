@@ -5,194 +5,193 @@ from pathlib import Path
 import pytest
 
 
-def _twelve(logical: int) -> tuple[str, ...]:
-    return tuple(
-        f"task={logical}/L{level}/r{realization}"
-        for level in (1, 2, 3)
-        for realization in range(4)
-    )
-
-
-def _success_refs(logical: int):
+def _ref(logical: int, level: int, draw: int, slot: int):
     from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
         SourceSuccessPayloadRef,
     )
 
-    return tuple(
-        SourceSuccessPayloadRef(
-            logical_master_task_index=logical,
-            level=level,
-            realization_index=realization,
-            payload_path=Path(
-                f"/workspace/payloads/successful/L{level}/task-{logical:06d}/"
-                f"realization-{realization:04d}"
-            ),
-        )
-        for level in (1, 2, 3)
-        for realization in range(4)
+    return SourceSuccessPayloadRef(
+        logical_master_task_index=logical,
+        level=level,
+        realization_draw_index=draw,
+        accepted_slot=slot,
+        payload_path=Path(
+            f"/workspace/payloads/successful/L{level}/task-{logical:06d}/draw-{draw:04d}"
+        ),
     )
 
 
-def test_scheduler_requires_complete_planning_before_ordered_execution(
+def test_level_quota_replaces_failed_draws_without_losing_successes() -> None:
+    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+        DrawRejected,
+        fill_level_success_quota,
+    )
+
+    outcomes = {
+        0: "task_failure",
+        1: "success",
+        2: "diversity_rejection",
+        3: "success",
+        4: "success",
+        5: "success",
+    }
+    rejected = []
+
+    def plan(draw: int, _accepted):
+        if outcomes[draw] == "diversity_rejection":
+            raise DrawRejected("diversity_rejection", "near duplicate")
+        return draw
+
+    def execute(draw: int, slot: int):
+        if outcomes[draw] == "task_failure":
+            raise DrawRejected("task_failure", "missed grasp")
+        return _ref(0, 1, draw, slot)
+
+    completed = fill_level_success_quota(
+        logical_master_task_index=0,
+        level=1,
+        realization_quota=4,
+        maximum_draws=16,
+        start_draw_index=0,
+        existing_successes=(),
+        plan_draw=plan,
+        execute_draw=execute,
+        on_rejected=lambda draw, kind, reason: rejected.append((draw, kind, reason)),
+    )
+
+    assert [(row.realization_draw_index, row.accepted_slot) for row in completed.successes] == [
+        (1, 0),
+        (3, 1),
+        (4, 2),
+        (5, 3),
+    ]
+    assert [row[:2] for row in rejected] == [
+        (0, "task_failure"),
+        (2, "diversity_rejection"),
+    ]
+    assert completed.next_draw_index == 6
+
+
+def test_level_quota_resume_preserves_dense_slots() -> None:
+    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+        fill_level_success_quota,
+    )
+
+    existing = (_ref(0, 2, 1, 0), _ref(0, 2, 3, 1))
+    planned = []
+    completed = fill_level_success_quota(
+        logical_master_task_index=0,
+        level=2,
+        realization_quota=4,
+        maximum_draws=16,
+        start_draw_index=4,
+        existing_successes=existing,
+        plan_draw=lambda draw, _accepted: planned.append(draw) or draw,
+        execute_draw=lambda draw, slot: _ref(0, 2, draw, slot),
+        on_rejected=lambda _draw, _kind, _reason: None,
+    )
+
+    assert planned == [4, 5]
+    assert [(row.realization_draw_index, row.accepted_slot) for row in completed.successes] == [
+        (1, 0),
+        (3, 1),
+        (4, 2),
+        (5, 3),
+    ]
+
+
+def test_level_quota_exhaustion_is_typed_and_never_returns_partial() -> None:
+    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+        DrawRejected,
+        LevelQuotaExhausted,
+        fill_level_success_quota,
+    )
+
+    def fail(draw: int, _accepted):
+        raise DrawRejected("planner_failure", f"draw {draw} infeasible")
+
+    with pytest.raises(LevelQuotaExhausted, match="L3.*4 successes.*5 draws"):
+        fill_level_success_quota(
+            logical_master_task_index=7,
+            level=3,
+            realization_quota=4,
+            maximum_draws=5,
+            start_draw_index=0,
+            existing_successes=(),
+            plan_draw=fail,
+            execute_draw=lambda _draw, _slot: None,
+            on_rejected=lambda _draw, _kind, _reason: None,
+        )
+
+
+def test_completed_master_requires_dense_slots_per_level() -> None:
+    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+        CompletedMasterBlock,
+    )
+
+    successes = tuple(
+        _ref(0, level, draw=slot + level, slot=slot)
+        for level in (1, 2, 3)
+        for slot in range(4)
+    )
+    block = CompletedMasterBlock(0, successes)
+    assert len(block.successes) == 12
+
+    with pytest.raises(ValueError, match="complete accepted slots"):
+        CompletedMasterBlock(0, successes[:-1])
+
+
+def test_master_scheduler_uses_reserve_only_after_level_quota_exhaustion(
     tmp_path: Path,
 ) -> None:
-    """Break caught: a rollout starts before all twelve paired plans are frozen."""
     from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
         CompletedMasterBlock,
-        PlannedMasterBlock,
-        schedule_paired_master_blocks,
+        LevelQuotaExhausted,
+        schedule_success_quota_master_blocks,
     )
 
-    events = []
+    attempted = []
 
-    def plan(logical: int):
-        identities = _twelve(logical)
-        events.extend(("plan", identity) for identity in identities)
-        return PlannedMasterBlock(logical, identities)
-
-    def execute(block):
-        assert len([event for event in events if event[0] == "plan"]) % 12 == 0
-        events.extend(("execute", identity) for identity in block.plan_identities)
+    def collect(logical: int):
+        attempted.append(logical)
+        if logical == 0:
+            raise LevelQuotaExhausted("master 0 L2 could not fill quota")
         return CompletedMasterBlock(
-            block.logical_master_task_index,
-            _success_refs(block.logical_master_task_index),
+            logical,
+            tuple(
+                _ref(logical, level, draw=slot, slot=slot)
+                for level in (1, 2, 3)
+                for slot in range(4)
+            ),
         )
 
     published = []
-
-    def publish(blocks):
-        published.extend(blocks)
-        return tmp_path / "manifest.json"
-
-    result = schedule_paired_master_blocks(
+    result = schedule_success_quota_master_blocks(
         master_task_indices=(0, 1, 2),
-        target_block_count=3,
-        plan_block=plan,
-        execute_block=execute,
-        publish_blocks=publish,
-    )
-
-    assert result == tmp_path / "manifest.json"
-    assert [block.logical_master_task_index for block in published] == [0, 1, 2]
-    assert [event[1] for event in events if event[0] == "execute"] == (
-        list(_twelve(0)) + list(_twelve(1)) + list(_twelve(2))
-    )
-
-
-def test_failed_block_is_discarded_and_next_reserve_replaces_it(tmp_path: Path) -> None:
-    """Break caught: partial successes from a rejected block leak into final publication."""
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
-        BlockExecutionFailure,
-        CompletedMasterBlock,
-        PlannedMasterBlock,
-        schedule_paired_master_blocks,
-    )
-
-    executed = []
-
-    def plan(logical: int):
-        return PlannedMasterBlock(logical, _twelve(logical))
-
-    def execute(block):
-        executed.append(block.logical_master_task_index)
-        if block.logical_master_task_index == 0:
-            raise BlockExecutionFailure(
-                "grasp failed", partial_successes=block.plan_identities[:2]
-            )
-        return CompletedMasterBlock(
-            block.logical_master_task_index,
-            _success_refs(block.logical_master_task_index),
-        )
-
-    published = []
-    result = schedule_paired_master_blocks(
-        master_task_indices=(0, 1, 2, 3),
-        target_block_count=3,
-        plan_block=plan,
-        execute_block=execute,
+        target_block_count=2,
+        collect_block=collect,
         publish_blocks=lambda blocks: published.extend(blocks) or (tmp_path / "manifest.json"),
     )
 
     assert result == tmp_path / "manifest.json"
-    assert executed == [0, 1, 2, 3]
-    assert [block.logical_master_task_index for block in published] == [1, 2, 3]
-    assert all(
-        item.logical_master_task_index != 0
-        for block in published
-        for item in block.successes
-    )
+    assert attempted == [0, 1, 2]
+    assert [row.logical_master_task_index for row in published] == [1, 2]
 
 
-def test_planning_failure_produces_no_rollout_for_rejected_block(tmp_path: Path) -> None:
-    """Break caught: execution begins after a task-level planning group has failed."""
+def test_reserve_exhaustion_never_publishes() -> None:
     from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
-        BlockPlanningFailure,
-        CompletedMasterBlock,
-        PlannedMasterBlock,
-        schedule_paired_master_blocks,
-    )
-
-    executed = []
-
-    def plan(logical: int):
-        if logical == 0:
-            raise BlockPlanningFailure("no four-plan diversity")
-        return PlannedMasterBlock(logical, _twelve(logical))
-
-    def execute(block):
-        executed.append(block.logical_master_task_index)
-        return CompletedMasterBlock(
-            block.logical_master_task_index,
-            _success_refs(block.logical_master_task_index),
-        )
-
-    schedule_paired_master_blocks(
-        master_task_indices=(0, 1),
-        target_block_count=1,
-        plan_block=plan,
-        execute_block=execute,
-        publish_blocks=lambda _blocks: tmp_path / "manifest.json",
-    )
-    assert executed == [1]
-
-
-def test_reserve_exhaustion_never_invokes_publication() -> None:
-    """Break caught: an incomplete pilot is published after reserve exhaustion."""
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
-        BlockPlanningFailure,
-        schedule_paired_master_blocks,
+        LevelQuotaExhausted,
+        schedule_success_quota_master_blocks,
     )
 
     published = []
     with pytest.raises(RuntimeError, match="reserve"):
-        schedule_paired_master_blocks(
+        schedule_success_quota_master_blocks(
             master_task_indices=(0, 1),
             target_block_count=1,
-            plan_block=lambda _logical: (_ for _ in ()).throw(
-                BlockPlanningFailure("infeasible")
+            collect_block=lambda _logical: (_ for _ in ()).throw(
+                LevelQuotaExhausted("quota exhausted")
             ),
-            execute_block=lambda _block: None,
             publish_blocks=lambda blocks: published.append(blocks),
         )
     assert published == []
-
-
-def test_scheduler_rejects_malformed_completed_block() -> None:
-    """Break caught: fewer than twelve success payloads are treated as a complete block."""
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
-        CompletedMasterBlock,
-        PlannedMasterBlock,
-        schedule_paired_master_blocks,
-    )
-
-    with pytest.raises(ValueError, match="twelve"):
-        schedule_paired_master_blocks(
-            master_task_indices=(0,),
-            target_block_count=1,
-            plan_block=lambda logical: PlannedMasterBlock(logical, _twelve(logical)),
-            execute_block=lambda block: CompletedMasterBlock(
-                block.logical_master_task_index,
-                _success_refs(block.logical_master_task_index)[:-1],
-            ),
-            publish_blocks=lambda _blocks: Path("manifest.json"),
-        )

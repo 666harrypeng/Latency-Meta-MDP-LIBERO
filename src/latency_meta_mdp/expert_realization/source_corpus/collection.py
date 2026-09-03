@@ -25,6 +25,7 @@ from latency_meta_mdp.expert_realization.artifacts import (
 from latency_meta_mdp.expert_realization.contracts import (
     FailureClass,
     FormalRequestUniverse,
+    build_formal_realization_draw_request,
     build_formal_realization_requests,
 )
 from latency_meta_mdp.expert_realization.recording_contracts import json_thaw
@@ -187,19 +188,30 @@ def _validate_admitted_episode(
         raise ValueError("source episode formal config does not match request")
     if metadata.source_corpus_config_sha256 != source_config.sha256:
         raise ValueError("source episode storage config does not match source config")
-    expected_requests = build_formal_realization_requests(request, metadata.task_instance_id)
+    task = tasks_by_id.get(metadata.task_instance_id.canonical_json())
+    if task is None or metadata.task_instance_id != task.task_instance_id:
+        raise ValueError("source episode does not match exact task metadata")
     key = metadata.expert_realization_id.expert_realization_key
-    if key.realization_index >= len(expected_requests):
-        raise ValueError("source realization is outside the formal request")
-    expected_request = expected_requests[key.realization_index]
+    if metadata.schema_version == 3:
+        expected_request = build_formal_realization_draw_request(
+            request,
+            metadata.task_instance_id,
+            key.realization_index,
+        )
+        accepted_slot = metadata.accepted_slot
+    else:
+        expected_requests = build_formal_realization_requests(request, metadata.task_instance_id)
+        if key.realization_index >= len(expected_requests):
+            raise ValueError("source realization is outside the formal request")
+        expected_request = expected_requests[key.realization_index]
+        accepted_slot = key.realization_index
     if key != expected_request.to_expert_realization_key() or (
         metadata.strategy_family is not expected_request.assigned_family
     ):
         raise ValueError("source realization identity does not match formal request")
-    task = tasks_by_id.get(metadata.task_instance_id.canonical_json())
-    if task is None or metadata.task_instance_id != task.task_instance_id:
-        raise ValueError("source episode does not match exact task metadata")
-    return logical, level, key.realization_index
+    if type(accepted_slot) is not int:
+        raise ValueError("source accepted slot is invalid")
+    return logical, level, accepted_slot
 
 
 def _write_parquet(path: Path, table: Any, *, config: SourceCorpusConfig) -> None:
@@ -234,8 +246,14 @@ def publish_source_corpus(
         * len(request.config.levels)
         * request.config.realizations_per_task
     )
-    if collection_summary.requested_realizations != total_requested:
+    if source_config.schema_version == 2 and (
+        collection_summary.requested_realizations != total_requested
+    ):
         raise ValueError("collection summary requested count does not match formal universe")
+    if source_config.schema_version == 3 and (
+        collection_summary.requested_realizations < collection_summary.admitted_realizations
+    ):
+        raise ValueError("quota collection attempted fewer draws than it admitted")
     ordered_tasks = tuple(
         sorted(
             task_entries,
@@ -393,8 +411,8 @@ def publish_source_corpus(
                 "bytes": path.stat().st_size,
             }
         manifest = {
-            "schema_version": 2,
-            "format_id": "structured_expert_source_corpus_v2",
+            "schema_version": source_config.schema_version,
+            "format_id": f"structured_expert_source_corpus_v{source_config.schema_version}",
             "complete": True,
             "corpus_id": request.config.corpus_id,
             "request_sha256": request.request_sha256,

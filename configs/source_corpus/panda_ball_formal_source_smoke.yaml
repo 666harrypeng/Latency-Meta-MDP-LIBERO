@@ -1,5 +1,5 @@
 schema_version: 2
-corpus_id: panda-ball-structured-source-smoke-1x4-v2
+corpus_id: panda-ball-structured-source-quota-smoke-1x4-v1
 logical_task_index_start: 0
 task_instance_count: 1
 levels: [1, 2, 3]

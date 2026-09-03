@@ -14,7 +14,9 @@ from latency_meta_mdp.expert_realization.planner import (
     PlannerCandidateStatus,
 )
 from latency_meta_mdp.expert_realization.selector import (
+    DiversitySelectionError,
     SelectedReference,
+    discrete_frechet,
     freeze_selected_reference,
 )
 from latency_meta_mdp.expert_realization.source_corpus.config import (
@@ -34,37 +36,34 @@ class PlannerDeterminismError(RuntimeError):
     """An exact replay changed the selected planner result."""
 
 
-class BlockPlanningFailure(RuntimeError):
-    """A master block cannot produce all twelve frozen plans."""
+class DrawRejected(RuntimeError):
+    """One semantic realization draw failed an admission gate."""
+
+    def __init__(self, failure_class: str, reason: str) -> None:
+        if failure_class not in {
+            "planner_failure",
+            "task_failure",
+            "safety_failure",
+            "diversity_rejection",
+        }:
+            raise ValueError("failure_class is not a semantic draw rejection")
+        if type(reason) is not str or not reason:
+            raise ValueError("draw rejection reason must be non-empty")
+        self.failure_class = failure_class
+        self.reason = reason
+        super().__init__(reason)
 
 
-class BlockExecutionFailure(RuntimeError):
-    """A master block failed after producing zero or more scratch successes."""
-
-    def __init__(self, message: str, *, partial_successes: tuple[object, ...]) -> None:
-        self.partial_successes = partial_successes
-        super().__init__(message)
-
-
-@dataclass(frozen=True)
-class PlannedMasterBlock:
-    logical_master_task_index: int
-    plan_identities: tuple[object, ...]
-
-    def __post_init__(self) -> None:
-        if type(self.logical_master_task_index) is not int or (
-            self.logical_master_task_index < 0
-        ):
-            raise ValueError("logical master task index must be non-negative")
-        if type(self.plan_identities) is not tuple or len(self.plan_identities) != 12:
-            raise ValueError("planned master block requires exactly twelve plans")
+class LevelQuotaExhausted(RuntimeError):
+    """A task level could not fill its bounded successful-realization quota."""
 
 
 @dataclass(frozen=True)
 class SourceSuccessPayloadRef:
     logical_master_task_index: int
     level: int
-    realization_index: int
+    realization_draw_index: int
+    accepted_slot: int
     payload_path: Path
 
     def __post_init__(self) -> None:
@@ -72,12 +71,49 @@ class SourceSuccessPayloadRef:
             raise ValueError("success payload master task index must be non-negative")
         if self.level not in (1, 2, 3):
             raise ValueError("success payload level must be L1, L2, or L3")
-        if type(self.realization_index) is not int or not 0 <= self.realization_index < 4:
-            raise ValueError("success payload realization index must be in 0..3")
+        if type(self.realization_draw_index) is not int or self.realization_draw_index < 0:
+            raise ValueError("success payload draw index must be non-negative")
+        if type(self.accepted_slot) is not int or self.accepted_slot < 0:
+            raise ValueError("success payload accepted slot must be non-negative")
         path = Path(self.payload_path)
         if not path.is_absolute():
             raise ValueError("success payload path must be absolute")
         object.__setattr__(self, "payload_path", path)
+
+    @property
+    def realization_index(self) -> int:
+        """Compatibility alias for consumers that order final accepted episodes."""
+        return self.accepted_slot
+
+
+@dataclass(frozen=True)
+class CompletedLevelQuota:
+    logical_master_task_index: int
+    level: int
+    successes: tuple[SourceSuccessPayloadRef, ...]
+    next_draw_index: int
+
+    def __post_init__(self) -> None:
+        if type(self.logical_master_task_index) is not int or self.logical_master_task_index < 0:
+            raise ValueError("logical master task index must be non-negative")
+        if self.level not in (1, 2, 3):
+            raise ValueError("level quota must belong to L1, L2, or L3")
+        if type(self.successes) is not tuple or not self.successes:
+            raise ValueError("completed level quota requires successes")
+        if [row.accepted_slot for row in self.successes] != list(range(len(self.successes))):
+            raise ValueError("completed level quota requires dense accepted slots")
+        if any(
+            row.logical_master_task_index != self.logical_master_task_index
+            or row.level != self.level
+            for row in self.successes
+        ):
+            raise ValueError("level quota successes do not share their parent identity")
+        if len({row.realization_draw_index for row in self.successes}) != len(self.successes):
+            raise ValueError("level quota draw indices must be unique")
+        if type(self.next_draw_index) is not int or self.next_draw_index <= max(
+            row.realization_draw_index for row in self.successes
+        ):
+            raise ValueError("next draw index must follow every admitted draw")
 
 
 @dataclass(frozen=True)
@@ -90,23 +126,91 @@ class CompletedMasterBlock:
             self.logical_master_task_index < 0
         ):
             raise ValueError("logical master task index must be non-negative")
-        if (
-            type(self.successes) is not tuple
-            or len(self.successes) != 12
-            or any(not isinstance(value, SourceSuccessPayloadRef) for value in self.successes)
+        if type(self.successes) is not tuple or any(
+            not isinstance(value, SourceSuccessPayloadRef) for value in self.successes
         ):
-            raise ValueError("completed master block requires exactly twelve successes")
-        expected = {
-            (self.logical_master_task_index, level, realization)
+            raise ValueError(
+                "completed master block requires typed successes and complete accepted slots"
+            )
+        by_level = {
+            level: sorted(
+                row.accepted_slot for row in self.successes if row.level == level
+            )
             for level in (1, 2, 3)
-            for realization in range(4)
         }
-        actual = {
-            (value.logical_master_task_index, value.level, value.realization_index)
-            for value in self.successes
-        }
-        if actual != expected:
-            raise ValueError("completed master block success identities are incomplete")
+        counts = {len(slots) for slots in by_level.values()}
+        if (
+            len(counts) != 1
+            or counts == {0}
+            or any(slots != list(range(len(slots))) for slots in by_level.values())
+            or any(
+                row.logical_master_task_index != self.logical_master_task_index
+                for row in self.successes
+            )
+        ):
+            raise ValueError("completed master block requires complete accepted slots")
+
+
+def fill_level_success_quota(
+    *,
+    logical_master_task_index: int,
+    level: int,
+    realization_quota: int,
+    maximum_draws: int,
+    start_draw_index: int,
+    existing_successes: tuple[SourceSuccessPayloadRef, ...],
+    plan_draw: Callable[[int, tuple[SourceSuccessPayloadRef, ...]], object],
+    execute_draw: Callable[[object, int], SourceSuccessPayloadRef],
+    on_rejected: Callable[[int, str, str], None],
+) -> CompletedLevelQuota:
+    """Fill one level with successes while replacing only rejected semantic draws."""
+    for name, value in (
+        ("logical_master_task_index", logical_master_task_index),
+        ("level", level),
+        ("realization_quota", realization_quota),
+        ("maximum_draws", maximum_draws),
+        ("start_draw_index", start_draw_index),
+    ):
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+    if level not in (1, 2, 3) or realization_quota <= 0 or maximum_draws < realization_quota:
+        raise ValueError("level/quota/draw budget is invalid")
+    if not all(callable(value) for value in (plan_draw, execute_draw, on_rejected)):
+        raise TypeError("quota callbacks must be callable")
+    successes = list(existing_successes)
+    if [row.accepted_slot for row in successes] != list(range(len(successes))):
+        raise ValueError("existing successes must have dense accepted slots")
+    draw_index = start_draw_index
+    while len(successes) < realization_quota and draw_index < maximum_draws:
+        try:
+            planned = plan_draw(draw_index, tuple(successes))
+            accepted = execute_draw(planned, len(successes))
+        except DrawRejected as error:
+            on_rejected(draw_index, error.failure_class, error.reason)
+            draw_index += 1
+            continue
+        if not isinstance(accepted, SourceSuccessPayloadRef):
+            raise TypeError("execute_draw must return SourceSuccessPayloadRef")
+        if (
+            accepted.logical_master_task_index != logical_master_task_index
+            or accepted.level != level
+            or accepted.realization_draw_index != draw_index
+            or accepted.accepted_slot != len(successes)
+        ):
+            raise ValueError("execute_draw returned a mismatched success identity")
+        successes.append(accepted)
+        draw_index += 1
+    if len(successes) != realization_quota:
+        raise LevelQuotaExhausted(
+            f"master {logical_master_task_index} L{level} could not collect "
+            f"{realization_quota} successes within {maximum_draws} draws"
+        )
+    return CompletedLevelQuota(
+        logical_master_task_index=logical_master_task_index,
+        level=level,
+        successes=tuple(successes),
+        next_draw_index=draw_index,
+    )
 
 
 @dataclass(frozen=True)
@@ -140,6 +244,84 @@ class FirstQualifiedPlan:
             raise ValueError("semantic failure history must contain non-empty strings")
 
 
+def generate_single_draw_plan(
+    *,
+    realization_key: ExpertRealizationKey,
+    intent: object,
+    execution: SourceExecutionConfig,
+    run_candidate: Callable[[int], PlannerCandidate],
+    on_progress: Callable[[str], None],
+) -> FirstQualifiedPlan:
+    """Plan one semantic draw; only infrastructure failure repeats candidate zero."""
+    if not isinstance(realization_key, ExpertRealizationKey):
+        raise TypeError("realization_key must be ExpertRealizationKey")
+    if not isinstance(execution, SourceExecutionConfig):
+        raise TypeError("execution must be SourceExecutionConfig")
+    if execution.planner_candidates_per_draw != 1:
+        raise ValueError("one semantic draw requires exactly one planner candidate")
+    if not callable(run_candidate) or not callable(on_progress):
+        raise TypeError("planner runner and progress callback must be callable")
+    infrastructure_failures = 0
+    while True:
+        on_progress("candidate=0 start")
+        try:
+            candidate = run_candidate(0)
+        except PlannerInfrastructureError as error:
+            infrastructure_failures += 1
+            on_progress(f"candidate=0 infrastructure_retry={infrastructure_failures}")
+            if infrastructure_failures > execution.infrastructure_retry_limit:
+                raise PlannerInfrastructureError(
+                    "candidate 0 infrastructure retry limit exhausted"
+                ) from error
+            continue
+        break
+    if not isinstance(candidate, PlannerCandidate):
+        raise TypeError("planner runner must return PlannerCandidate")
+    if candidate.expert_realization_key != realization_key or candidate.candidate_index != 0:
+        raise ValueError("planner candidate identity does not match its draw")
+    if candidate.status is not PlannerCandidateStatus.SUCCESS:
+        on_progress(f"candidate=0 {candidate.status.value}")
+        raise PlanningAttemptsExhausted(
+            f"semantic draw {realization_key.realization_index} candidate 0 failed: "
+            f"{candidate.failure_reason}"
+        )
+    orientation = getattr(getattr(intent, "approach", None), "fixed_orientation_world", None)
+    on_progress("candidate=0 qualified frozen=true")
+    return FirstQualifiedPlan(
+        candidate=candidate,
+        reference=freeze_selected_reference(
+            candidate,
+            fixed_orientation_world=orientation,
+        ),
+        attempted_candidate_indices=(0,),
+        semantic_failures=(),
+    )
+
+
+def qualify_draw_diversity(
+    candidate_path: np.ndarray,
+    admitted_paths: tuple[np.ndarray, ...],
+    *,
+    minimum_frechet_m: float,
+) -> None:
+    """Reject one draw when its path duplicates an already admitted realization."""
+    candidate = np.asarray(candidate_path, dtype=np.float64)
+    if candidate.ndim != 2 or candidate.shape[1] != 3 or not np.isfinite(candidate).all():
+        raise ValueError("candidate path must be a finite [T,3] array")
+    if type(admitted_paths) is not tuple:
+        raise TypeError("admitted_paths must be a tuple")
+    if type(minimum_frechet_m) is not float or minimum_frechet_m <= 0.0:
+        raise ValueError("minimum_frechet_m must be a positive float")
+    for path in admitted_paths:
+        previous = np.asarray(path, dtype=np.float64)
+        if previous.ndim != 2 or previous.shape[1] != 3 or not np.isfinite(previous).all():
+            raise ValueError("admitted path must be a finite [T,3] array")
+        if discrete_frechet(candidate, previous) < minimum_frechet_m:
+            raise DiversitySelectionError(
+                f"semantic draw violates the {minimum_frechet_m * 1000:g} mm diversity gate"
+            )
+
+
 @dataclass(frozen=True)
 class PlannerCanaryResult:
     level: int
@@ -156,87 +338,6 @@ class PlannerCanaryResult:
             raise ValueError("canary requested seed must be uint64")
         if self.passed is not True:
             raise ValueError("published planner canary result must have passed")
-
-
-def generate_first_qualified_plan(
-    *,
-    realization_key: ExpertRealizationKey,
-    intent: object,
-    execution: SourceExecutionConfig,
-    run_candidate: Callable[[int], PlannerCandidate],
-    on_progress: Callable[[str], None],
-    start_candidate_index: int = 0,
-    prior_semantic_failures: tuple[str, ...] = (),
-) -> FirstQualifiedPlan:
-    """Generate candidates sequentially and stop at the first qualified result."""
-    if not isinstance(realization_key, ExpertRealizationKey):
-        raise TypeError("realization_key must be ExpertRealizationKey")
-    if not isinstance(execution, SourceExecutionConfig):
-        raise TypeError("execution must be SourceExecutionConfig")
-    if not callable(run_candidate) or not callable(on_progress):
-        raise TypeError("planner runner and progress callback must be callable")
-    if (
-        type(start_candidate_index) is not int
-        or not 0 <= start_candidate_index < execution.maximum_candidate_attempts_per_realization
-    ):
-        raise ValueError("start_candidate_index is outside the bounded candidate range")
-    if (
-        type(prior_semantic_failures) is not tuple
-        or len(prior_semantic_failures) != start_candidate_index
-        or any(type(value) is not str or not value for value in prior_semantic_failures)
-    ):
-        raise ValueError("prior semantic failures must match the resume candidate index")
-    orientation = getattr(getattr(intent, "approach", None), "fixed_orientation_world", None)
-    semantic_failures = list(prior_semantic_failures)
-    attempted_indices = list(range(start_candidate_index))
-    for candidate_index in range(
-        start_candidate_index,
-        execution.maximum_candidate_attempts_per_realization,
-    ):
-        infrastructure_failures = 0
-        while True:
-            on_progress(f"candidate={candidate_index} start")
-            try:
-                candidate = run_candidate(candidate_index)
-            except PlannerInfrastructureError as error:
-                infrastructure_failures += 1
-                on_progress(
-                    f"candidate={candidate_index} infrastructure_retry="
-                    f"{infrastructure_failures}"
-                )
-                if infrastructure_failures > execution.infrastructure_retry_limit:
-                    raise PlannerInfrastructureError(
-                        f"candidate {candidate_index} infrastructure retry limit exhausted"
-                    ) from error
-                continue
-            break
-        if not isinstance(candidate, PlannerCandidate):
-            raise TypeError("planner runner must return PlannerCandidate")
-        if candidate.expert_realization_key != realization_key or (
-            candidate.candidate_index != candidate_index
-        ):
-            raise ValueError("planner candidate identity does not match its request")
-        attempted_indices.append(candidate_index)
-        if candidate.status is PlannerCandidateStatus.SUCCESS:
-            on_progress(f"candidate={candidate_index} qualified frozen=true")
-            return FirstQualifiedPlan(
-                candidate=candidate,
-                reference=freeze_selected_reference(
-                    candidate,
-                    fixed_orientation_world=orientation,
-                ),
-                attempted_candidate_indices=tuple(attempted_indices),
-                semantic_failures=tuple(semantic_failures),
-            )
-        semantic_failures.append(
-            f"candidate={candidate_index} status={candidate.status.value}: "
-            f"{candidate.failure_reason}"
-        )
-        on_progress(f"candidate={candidate_index} {candidate.status.value}")
-    maximum = execution.maximum_candidate_attempts_per_realization - 1
-    raise PlanningAttemptsExhausted(
-        f"all bounded planner candidates 0..{maximum} failed qualification"
-    )
 
 
 def verify_level_planner_canary(
@@ -283,15 +384,14 @@ def verify_level_planner_canary(
     )
 
 
-def schedule_paired_master_blocks(
+def schedule_success_quota_master_blocks(
     *,
     master_task_indices: tuple[int, ...],
     target_block_count: int,
-    plan_block: Callable[[int], PlannedMasterBlock],
-    execute_block: Callable[[PlannedMasterBlock], CompletedMasterBlock],
+    collect_block: Callable[[int], CompletedMasterBlock],
     publish_blocks: Callable[[tuple[CompletedMasterBlock, ...]], Path],
 ) -> Path:
-    """Admit complete blocks in declared primary/reserve order."""
+    """Collect complete quota blocks and activate reserves only after quota exhaustion."""
     if (
         type(master_task_indices) is not tuple
         or not master_task_indices
@@ -305,28 +405,20 @@ def schedule_paired_master_blocks(
         or target_block_count > len(master_task_indices)
     ):
         raise ValueError("target_block_count is outside the declared master-task universe")
-    if not callable(plan_block) or not callable(execute_block) or not callable(publish_blocks):
-        raise TypeError("block planner, executor, and publisher must be callable")
+    if not callable(collect_block) or not callable(publish_blocks):
+        raise TypeError("block collector and publisher must be callable")
     admitted = []
     for logical_master_task_index in master_task_indices:
         if len(admitted) == target_block_count:
             break
         try:
-            planned = plan_block(logical_master_task_index)
-        except BlockPlanningFailure:
-            continue
-        if not isinstance(planned, PlannedMasterBlock) or (
-            planned.logical_master_task_index != logical_master_task_index
-        ):
-            raise ValueError("block planner returned a mismatched planned block")
-        try:
-            completed = execute_block(planned)
-        except BlockExecutionFailure:
+            completed = collect_block(logical_master_task_index)
+        except LevelQuotaExhausted:
             continue
         if not isinstance(completed, CompletedMasterBlock) or (
             completed.logical_master_task_index != logical_master_task_index
         ):
-            raise ValueError("block executor returned a mismatched completed block")
+            raise ValueError("block collector returned a mismatched completed block")
         admitted.append(completed)
     if len(admitted) != target_block_count:
         raise RuntimeError("formal source reserve blocks were exhausted before target admission")

@@ -495,6 +495,78 @@ class FormalRealizationRequest:
 
 
 @dataclass(frozen=True)
+class FormalRealizationDrawRequest:
+    """One semantic realization draw used to fill a per-level success quota."""
+
+    task_instance_id: TaskInstanceId
+    realization_draw_index: int
+    assigned_family: StrategyFamily
+    realization_namespace_sha256: str
+    realization_seed: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.task_instance_id, TaskInstanceId):
+            raise TypeError("task_instance_id must be a TaskInstanceId")
+        if type(self.realization_draw_index) is not int or self.realization_draw_index < 0:
+            raise ValueError("realization draw index must be a non-negative integer")
+        if not isinstance(self.assigned_family, StrategyFamily):
+            raise TypeError("assigned_family must be a StrategyFamily")
+        _require_sha256(
+            self.realization_namespace_sha256,
+            name="realization_namespace_sha256",
+        )
+        expected = derive_realization_seed(
+            self.task_instance_id,
+            self.realization_draw_index,
+            self.realization_namespace_sha256,
+        )
+        if type(self.realization_seed) is not int or self.realization_seed != expected:
+            raise ValueError("realization seed does not match draw identity")
+
+    @property
+    def realization_slot(self) -> int:
+        """Compatibility view for strategy code; this is the semantic draw index."""
+        return self.realization_draw_index
+
+    def to_expert_realization_key(self) -> ExpertRealizationKey:
+        return ExpertRealizationKey(
+            self.task_instance_id,
+            self.realization_draw_index,
+            self.realization_namespace_sha256,
+        )
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "task_instance_id": self.task_instance_id.to_mapping(),
+            "realization_draw_index": self.realization_draw_index,
+            "assigned_family": self.assigned_family.value,
+            "realization_namespace_sha256": self.realization_namespace_sha256,
+            "realization_seed": self.realization_seed,
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Any) -> FormalRealizationDrawRequest:
+        raw = _strict_identity_mapping(
+            mapping,
+            {
+                "task_instance_id",
+                "realization_draw_index",
+                "assigned_family",
+                "realization_namespace_sha256",
+                "realization_seed",
+            },
+            name=cls.__name__,
+        )
+        return cls(
+            task_instance_id=TaskInstanceId.from_mapping(raw["task_instance_id"]),
+            realization_draw_index=raw["realization_draw_index"],
+            assigned_family=StrategyFamily(raw["assigned_family"]),
+            realization_namespace_sha256=raw["realization_namespace_sha256"],
+            realization_seed=raw["realization_seed"],
+        )
+
+
+@dataclass(frozen=True)
 class RealizationUniverseIdentity:
     request_sha256: str
     task_instance_id: TaskInstanceId
@@ -607,6 +679,57 @@ def build_formal_realization_requests(
             ),
         )
         for assignment in universe.family_assignments[master.logical_task_index]
+    )
+
+
+def build_formal_realization_draw_request(
+    universe: FormalRequestUniverse,
+    task_instance_id: TaskInstanceId,
+    realization_draw_index: int,
+) -> FormalRealizationDrawRequest:
+    """Derive one level-aware semantic draw without a fixed-slot universe."""
+    if not isinstance(universe, FormalRequestUniverse):
+        raise TypeError("universe must be a FormalRequestUniverse")
+    if not isinstance(task_instance_id, TaskInstanceId):
+        raise TypeError("task_instance_id must be a TaskInstanceId")
+    if type(realization_draw_index) is not int or realization_draw_index < 0:
+        raise ValueError("realization draw index must be a non-negative integer")
+    if task_instance_id.level not in universe.config.levels:
+        raise ValueError("task level is outside the formal request")
+    matching = [
+        row
+        for row in universe.primary_tasks + universe.reserve_tasks
+        if row.master_task_seed == task_instance_id.task_instance_seed
+    ]
+    if len(matching) != 1:
+        raise ValueError("task instance seed does not identify one formal master task")
+    master = matching[0]
+    namespace = _mapping_sha256(
+        {
+            "request_sha256": universe.request_sha256,
+            "logical_task_index": master.logical_task_index,
+            "task_instance_id": task_instance_id.to_mapping(),
+            "kind": "success_quota_realization_draw",
+        }
+    )
+    family_index = _seed(
+        {
+            "realization_namespace_sha256": namespace,
+            "task_instance_id": task_instance_id.to_mapping(),
+            "realization_draw_index": realization_draw_index,
+            "kind": "iid_uniform_family_draw",
+        }
+    ) % len(universe.config.families)
+    return FormalRealizationDrawRequest(
+        task_instance_id=task_instance_id,
+        realization_draw_index=realization_draw_index,
+        assigned_family=StrategyFamily(universe.config.families[family_index]),
+        realization_namespace_sha256=namespace,
+        realization_seed=derive_realization_seed(
+            task_instance_id,
+            realization_draw_index,
+            namespace,
+        ),
     )
 
 

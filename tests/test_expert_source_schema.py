@@ -132,8 +132,8 @@ def test_schema_document_exposes_shape_unit_nullability_and_all_roles() -> None:
     )
 
     document = source_schema_document()
-    assert document["schema_version"] == 2
-    assert document["format_id"] == "structured_expert_source_parquet_v2"
+    assert document["schema_version"] == 3
+    assert document["format_id"] == "structured_expert_source_parquet_v3"
     fields = {row["name"]: row for row in document["source_frame_fields"]}
     assert fields["robot_qpos"] == {
         "name": "robot_qpos",
@@ -178,7 +178,8 @@ def test_central_metadata_schemas_are_relational_and_success_only() -> None:
         "task_instance_id",
         "logical_master_task_index",
         "level",
-        "realization_index",
+        "accepted_slot",
+        "realization_draw_index",
         "realization_seed",
         "strategy_family",
         "strategy_parameters_json",

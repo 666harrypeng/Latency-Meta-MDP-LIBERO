@@ -21,6 +21,7 @@ from latency_meta_mdp.expert_realization.source_corpus.contracts import (
 from latency_meta_mdp.expert_realization.source_corpus.parquet import EpisodeLocation
 from latency_meta_mdp.expert_realization.source_corpus.schema import (
     EPISODE_SCHEMA,
+    EPISODE_SCHEMA_V2,
     EVENT_SCHEMA,
     TASK_INSTANCE_SCHEMA,
     source_schema_document,
@@ -150,12 +151,20 @@ class SourceEpisodeMetadataEntry:
         if len(self.episode.physical_events) != len(required) or set(events) != required:
             raise ValueError("successful source episode has an invalid physical-event inventory")
         key = metadata.expert_realization_id.expert_realization_key
+        identity = (
+            {"realization_index": key.realization_index}
+            if metadata.schema_version == 2
+            else {
+                "accepted_slot": metadata.accepted_slot,
+                "realization_draw_index": metadata.realization_draw_index,
+            }
+        )
         return {
             "episode_id": metadata.episode_id,
             "task_instance_id": metadata.task_instance_id.canonical_json(),
             "logical_master_task_index": self.logical_master_task_index,
             "level": metadata.task_instance_id.level,
-            "realization_index": key.realization_index,
+            **identity,
             "realization_seed": key.realization_seed,
             "strategy_family": metadata.strategy_family.value,
             "strategy_parameters_json": _canonical_json(json_thaw(self.strategy_parameters)),
@@ -196,7 +205,11 @@ def build_episode_table(entries: tuple[SourceEpisodeMetadataEntry, ...]) -> pa.T
     identities = [row.episode.metadata.episode_id for row in rows]
     if len(set(identities)) != len(identities):
         raise ValueError("episode IDs must be unique")
-    return pa.Table.from_pylist([row.to_row() for row in rows], schema=EPISODE_SCHEMA)
+    versions = {row.episode.metadata.schema_version for row in rows}
+    if len(versions) != 1:
+        raise ValueError("episode metadata table cannot mix source schema versions")
+    schema = EPISODE_SCHEMA if versions == {3} else EPISODE_SCHEMA_V2
+    return pa.Table.from_pylist([row.to_row() for row in rows], schema=schema)
 
 
 def build_event_table(episodes: tuple[FormalSourceSynchronizedEpisode, ...]) -> pa.Table:
@@ -290,9 +303,13 @@ def build_provenance_document(
         }
         if actual != expected:
             raise ValueError("source episodes do not share one dataset-level provenance contract")
+    versions = {item.schema_version for item in values}
+    if len(versions) != 1:
+        raise ValueError("source episodes do not share one source schema version")
+    version = versions.pop()
     return {
-        "schema_version": 2,
-        "format_id": "structured_expert_source_provenance_v2",
+        "schema_version": version,
+        "format_id": f"structured_expert_source_provenance_v{version}",
         "motion_config_sha256_by_level": dict(sorted(motion_config_by_level.items())),
         **expected,
     }

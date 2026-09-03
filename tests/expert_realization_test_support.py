@@ -91,7 +91,14 @@ def strategy_config_and_keys(instance: object):
     return config, keys
 
 
-def make_formal_source_metadata(*, camera_height: int = 2, camera_width: int = 3):
+def make_formal_source_metadata(
+    *,
+    camera_height: int = 2,
+    camera_width: int = 3,
+    schema_version: int = 2,
+    accepted_slot: int = 0,
+    realization_draw_index: int = 0,
+):
     from latency_meta_mdp.expert_realization.contracts import (
         ExpertRealizationId,
         ExpertRealizationKey,
@@ -105,11 +112,17 @@ def make_formal_source_metadata(*, camera_height: int = 2, camera_width: int = 3
 
     task = TaskInstanceId(1, 4000, "a" * 64, "b" * 64)
     realization = ExpertRealizationId(
-        ExpertRealizationKey(task, 0, "c" * 64),
+        ExpertRealizationKey(task, realization_draw_index, "c" * 64),
         "d" * 64,
     )
+    kwargs = {}
+    if schema_version == 3:
+        kwargs = {
+            "accepted_slot": accepted_slot,
+            "realization_draw_index": realization_draw_index,
+        }
     return FormalSourceEpisodeMetadata(
-        schema_version=2,
+        schema_version=schema_version,
         record_profile="formal_source",
         episode_id="source-l1-task000-r000",
         corpus_id="panda-ball-structured-source-pilot",
@@ -142,6 +155,7 @@ def make_formal_source_metadata(*, camera_height: int = 2, camera_width: int = 3
         planner_candidates_sha256="9" * 64,
         selected_reference_sha256="a" * 64,
         implementation=ImplementationIdentity("1" * 40, "b" * 64, False),
+        **kwargs,
     )
 
 
@@ -286,7 +300,13 @@ def make_formal_source_records(metadata, *, boundary_count: int = 2):
 
 
 def make_formal_source_episode(
-    *, camera_height: int = 2, camera_width: int = 3, boundary_count: int = 2
+    *,
+    camera_height: int = 2,
+    camera_width: int = 3,
+    boundary_count: int = 2,
+    schema_version: int = 2,
+    accepted_slot: int = 0,
+    realization_draw_index: int = 0,
 ):
     from latency_meta_mdp.expert_realization.source_corpus.contracts import (
         FormalSourceSynchronizedEpisode,
@@ -295,6 +315,9 @@ def make_formal_source_episode(
     metadata = make_formal_source_metadata(
         camera_height=camera_height,
         camera_width=camera_width,
+        schema_version=schema_version,
+        accepted_slot=accepted_slot,
+        realization_draw_index=realization_draw_index,
     )
     boundaries, transitions, events = make_formal_source_records(
         metadata,

@@ -49,26 +49,17 @@ def test_dry_run_expands_exact_request_without_creating_paths(
     assert captured.out == ""
     summary = json.loads(captured.err)
     assert summary["mode"] == "dry_run"
-    assert summary["corpus_id"] == "panda-ball-structured-source-pilot-3x4-v3"
+    assert summary["corpus_id"] == "panda-ball-structured-source-quota-smoke-3x4-v1"
     assert summary["primary_master_task_indices"] == [0, 1, 2]
     assert summary["reserve_master_task_indices"] == [3, 4, 5, 6, 7, 8]
     assert summary["levels"] == [1, 2, 3]
     assert summary["realizations_per_task"] == 4
     assert summary["target_success_count"] == 36
-    assert summary["predeclared_realization_count"] == 108
-    assert summary["expected_planner_calls_if_candidate_zero_qualifies"] == 39
-    assert set(summary["family_assignments"]) == {
-        "0",
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-    }
-    assert all(len(rows) == 4 for rows in summary["family_assignments"].values())
+    assert summary["maximum_realization_draws_per_level"] == 16
+    assert summary["planner_candidates_per_draw"] == 1
+    assert summary["maximum_semantic_draw_count"] == 432
+    assert summary["minimum_planner_calls_if_first_four_draws_pass"] == 39
+    assert "family_assignments" not in summary
     assert len(summary["formal_config_sha256"]) == 64
     assert len(summary["formal_request_sha256"]) == 64
     assert len(summary["source_config_sha256"]) == 64

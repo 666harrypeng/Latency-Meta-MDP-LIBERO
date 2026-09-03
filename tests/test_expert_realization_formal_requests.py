@@ -142,6 +142,78 @@ def test_formal_realization_requests_bind_task_family_namespace_and_unique_seed(
     assert tuple(type(row).from_mapping(row.to_mapping()) for row in requests) == requests
 
 
+def test_success_quota_draw_requests_are_level_aware_stable_and_unbounded_by_quota() -> None:
+    """Break caught: replacement draws repeat slots or share identity across levels."""
+    from latency_meta_mdp.expert_realization.contracts import (
+        FormalRealizationDrawRequest,
+        build_formal_realization_draw_request,
+    )
+
+    universe = _build()
+    task_l1 = TaskInstanceId(
+        level=1,
+        task_instance_seed=universe.primary_tasks[0].master_task_seed,
+        motion_profile_sha256="a" * 64,
+        initial_state_sha256="b" * 64,
+    )
+    task_l3 = TaskInstanceId(
+        level=3,
+        task_instance_seed=universe.primary_tasks[0].master_task_seed,
+        motion_profile_sha256="c" * 64,
+        initial_state_sha256="d" * 64,
+    )
+
+    l1 = tuple(
+        build_formal_realization_draw_request(universe, task_l1, index)
+        for index in (0, 4, 15)
+    )
+    l3 = tuple(
+        build_formal_realization_draw_request(universe, task_l3, index)
+        for index in (0, 4, 15)
+    )
+
+    assert all(isinstance(row, FormalRealizationDrawRequest) for row in l1 + l3)
+    assert [row.realization_draw_index for row in l1] == [0, 4, 15]
+    assert len({row.realization_seed for row in l1 + l3}) == 6
+    assert tuple(
+        build_formal_realization_draw_request(universe, task_l1, index)
+        for index in (0, 4, 15)
+    ) == l1
+    assert tuple(row.assigned_family for row in l1) != tuple(row.assigned_family for row in l3)
+    assert all(
+        row.to_expert_realization_key().realization_index == row.realization_draw_index
+        for row in l1 + l3
+    )
+    assert tuple(FormalRealizationDrawRequest.from_mapping(row.to_mapping()) for row in l1) == l1
+
+
+def test_success_quota_draw_request_rejects_invalid_identity() -> None:
+    from latency_meta_mdp.expert_realization.contracts import (
+        FormalRealizationDrawRequest,
+        build_formal_realization_draw_request,
+    )
+
+    universe = _build()
+    task = TaskInstanceId(
+        level=2,
+        task_instance_seed=universe.primary_tasks[0].master_task_seed,
+        motion_profile_sha256="a" * 64,
+        initial_state_sha256="b" * 64,
+    )
+    with pytest.raises(ValueError, match="draw index"):
+        build_formal_realization_draw_request(universe, task, -1)
+
+    valid = build_formal_realization_draw_request(universe, task, 5)
+    with pytest.raises(ValueError, match="seed"):
+        FormalRealizationDrawRequest(
+            task_instance_id=valid.task_instance_id,
+            realization_draw_index=valid.realization_draw_index,
+            assigned_family=valid.assigned_family,
+            realization_namespace_sha256=valid.realization_namespace_sha256,
+            realization_seed=0,
+        )
+
+
 @pytest.mark.parametrize(
     ("existing", "requested", "valid"),
     [

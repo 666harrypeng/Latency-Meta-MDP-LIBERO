@@ -73,10 +73,11 @@ class SourceCorpusConfig:
             "parquet_compression",
         ):
             _normalized_text(getattr(self, name), name=name)
-        if self.schema_version != 2:
-            raise ValueError("schema_version must equal 2")
-        if self.format_id != "structured_expert_source_parquet_v2":
-            raise ValueError("format_id must equal structured_expert_source_parquet_v2")
+        if self.schema_version not in (2, 3):
+            raise ValueError("schema_version must equal 2 or 3")
+        expected_format = f"structured_expert_source_parquet_v{self.schema_version}"
+        if self.format_id != expected_format:
+            raise ValueError(f"format_id must equal {expected_format}")
         if self.image_encoding != "lossless_png":
             raise ValueError("image_encoding must equal lossless_png")
         if not 0 <= self.png_compress_level <= 9:
@@ -190,8 +191,8 @@ class MasterTaskSplitPlan:
 class SourceExecutionConfig:
     schema_version: int
     execution_id: str
-    candidate_policy: str
-    maximum_candidate_attempts_per_realization: int
+    planner_candidates_per_draw: int
+    maximum_realization_draws_per_level: int
     infrastructure_retry_limit: int
     determinism_canaries_per_level: int
     maximum_formal_ticks: int
@@ -200,22 +201,23 @@ class SourceExecutionConfig:
     def __post_init__(self) -> None:
         for name in (
             "schema_version",
-            "maximum_candidate_attempts_per_realization",
+            "planner_candidates_per_draw",
+            "maximum_realization_draws_per_level",
             "infrastructure_retry_limit",
             "determinism_canaries_per_level",
             "maximum_formal_ticks",
         ):
             _integer(getattr(self, name), name=name)
-        for name in ("execution_id", "candidate_policy", "admission_unit"):
+        for name in ("execution_id", "admission_unit"):
             _normalized_text(getattr(self, name), name=name)
-        if self.schema_version != 1:
-            raise ValueError("schema_version must equal 1")
-        if self.execution_id != "panda-ball-formal-source-sequential-first-qualified-v1":
+        if self.schema_version != 2:
+            raise ValueError("schema_version must equal 2")
+        if self.execution_id != "panda-ball-formal-source-success-quota-v1":
             raise ValueError("execution_id is not the reviewed formal source execution")
-        if self.candidate_policy != "sequential_first_qualified":
-            raise ValueError("candidate_policy must equal sequential_first_qualified")
-        if self.maximum_candidate_attempts_per_realization != 8:
-            raise ValueError("maximum_candidate_attempts_per_realization must equal 8")
+        if self.planner_candidates_per_draw != 1:
+            raise ValueError("planner_candidates_per_draw must equal 1")
+        if self.maximum_realization_draws_per_level != 16:
+            raise ValueError("maximum_realization_draws_per_level must equal 16")
         if self.infrastructure_retry_limit != 2:
             raise ValueError("infrastructure_retry_limit must equal 2")
         if self.determinism_canaries_per_level != 1:

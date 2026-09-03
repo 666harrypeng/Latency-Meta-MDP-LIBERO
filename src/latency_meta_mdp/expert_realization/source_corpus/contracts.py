@@ -81,10 +81,12 @@ class FormalSourceEpisodeMetadata:
     planner_candidates_sha256: str
     selected_reference_sha256: str
     implementation: ImplementationIdentity
+    accepted_slot: int | None = None
+    realization_draw_index: int | None = None
 
     def __post_init__(self) -> None:
-        if type(self.schema_version) is not int or self.schema_version != 2:
-            raise ValueError("schema_version must equal 2")
+        if type(self.schema_version) is not int or self.schema_version not in (2, 3):
+            raise ValueError("schema_version must equal 2 or 3")
         if self.record_profile != "formal_source":
             raise ValueError("record_profile must equal formal_source")
         _text(self.episode_id, name="episode_id", safe_id=True)
@@ -102,6 +104,18 @@ class FormalSourceEpisodeMetadata:
             self.frozen_plan_set_manifest_sha256
         ):
             raise ValueError("realization plan-set identity does not match source metadata")
+        if self.schema_version == 2:
+            if self.accepted_slot is not None or self.realization_draw_index is not None:
+                raise ValueError("schema 2 source metadata cannot carry quota identities")
+        else:
+            if type(self.accepted_slot) is not int or self.accepted_slot < 0:
+                raise ValueError("accepted_slot must be a non-negative integer")
+            if (
+                type(self.realization_draw_index) is not int
+                or self.realization_draw_index < 0
+                or self.realization_draw_index != key.realization_index
+            ):
+                raise ValueError("realization_draw_index must match the expert realization key")
         if self.task_id != "dynamic_grasp_lift":
             raise ValueError("unsupported task_id")
         _text(self.instruction, name="instruction")
@@ -129,6 +143,9 @@ class FormalSourceEpisodeMetadata:
 
     def to_mapping(self) -> dict[str, Any]:
         result = {item.name: getattr(self, item.name) for item in fields(self)}
+        if self.schema_version == 2:
+            result.pop("accepted_slot")
+            result.pop("realization_draw_index")
         result["task_instance_id"] = self.task_instance_id.to_mapping()
         result["expert_realization_id"] = self.expert_realization_id.to_mapping()
         result["strategy_family"] = self.strategy_family.value
@@ -137,11 +154,20 @@ class FormalSourceEpisodeMetadata:
 
     @classmethod
     def from_mapping(cls, mapping: Any) -> FormalSourceEpisodeMetadata:
+        if type(mapping) is not dict:
+            raise TypeError("FormalSourceEpisodeMetadata must be a mapping")
+        schema_version = mapping.get("schema_version")
+        optional = {"accepted_slot", "realization_draw_index"}
+        expected = {item.name for item in fields(cls)}
+        if schema_version == 2:
+            expected -= optional
         raw = _strict(
             mapping,
-            {item.name for item in fields(cls)},
+            expected,
             name=cls.__name__,
         ).copy()
+        if schema_version == 2:
+            raw.update(accepted_slot=None, realization_draw_index=None)
         raw["task_instance_id"] = TaskInstanceId.from_mapping(raw["task_instance_id"])
         raw["expert_realization_id"] = ExpertRealizationId.from_mapping(
             raw["expert_realization_id"]

@@ -70,10 +70,10 @@ def select_review_episodes(
                 for row in corpus._episodes.values()
                 if row["level"] == selected_level
             ),
-            key=lambda row: (
-                row["logical_master_task_index"],
-                row["realization_index"],
-            ),
+        key=lambda row: (
+            row["logical_master_task_index"],
+            row.get("accepted_slot", row.get("realization_index")),
+        ),
         )
         start, stop = (0, len(rows)) if episode_range is None else episode_range
         if stop > len(rows):
@@ -183,6 +183,9 @@ def _encode_level(
                 for value in frames["phase_id"].to_pylist()
             )
             metadata = episode.metadata
+            accepted_slot = metadata.get(
+                "accepted_slot", metadata.get("realization_index")
+            )
             rendered = _review_frames(
                 agentview_rgb=agent,
                 wrist_rgb=wrist,
@@ -190,7 +193,7 @@ def _encode_level(
                 label=(
                     f"L{metadata['level']} episode_index={canonical_start + offset:04d} "
                     f"task={metadata['logical_master_task_index']:06d} "
-                    f"realization={metadata['realization_index']:04d} "
+                    f"realization={accepted_slot:04d} "
                     f"family={metadata['strategy_family']}"
                 ),
             )
