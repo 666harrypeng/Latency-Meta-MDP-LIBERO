@@ -17,7 +17,7 @@ def test_formal_source_metadata_has_no_pilot_or_attempt_identity() -> None:
     assert metadata.record_profile == "formal_source"
     assert mapping["formal_corpus_config_sha256"] == "e" * 64
     assert mapping["source_corpus_config_sha256"] == "f" * 64
-    assert mapping["master_task_split_plan_sha256"] == "0" * 64
+    assert "master_task_split_plan_sha256" not in mapping
     assert (
         metadata.expert_realization_id.expert_realization_key.realization_namespace_sha256
         != metadata.structured_expert_config_sha256

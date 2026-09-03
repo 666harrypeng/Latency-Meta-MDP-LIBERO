@@ -23,10 +23,9 @@ def _request():
 
 
 def test_formal_collection_identity_binds_every_scientific_input() -> None:
-    """Break caught: resume accepts changed split, execution, gate, lock, or implementation."""
+    """Break caught: resume accepts changed execution, gate, lock, or implementation."""
     from latency_meta_mdp.expert_realization.recording_contracts import ImplementationIdentity
     from latency_meta_mdp.expert_realization.source_corpus.config import (
-        load_master_task_split_plan,
         load_source_corpus_config,
         load_source_execution_config,
     )
@@ -39,9 +38,6 @@ def test_formal_collection_identity_binds_every_scientific_input() -> None:
         formal_request=_request(),
         source_config=load_source_corpus_config(
             root / "configs/source_corpus/panda_ball_source_parquet.yaml"
-        ),
-        split_plan=load_master_task_split_plan(
-            root / "configs/source_corpus/panda_ball_formal_source_pilot_split.yaml"
         ),
         execution_config=load_source_execution_config(
             root / "configs/source_corpus/panda_ball_formal_source_execution.yaml"
@@ -56,7 +52,6 @@ def test_formal_collection_identity_binds_every_scientific_input() -> None:
         "format_id",
         "formal_request_sha256",
         "source_config_sha256",
-        "split_plan_sha256",
         "execution_config_sha256",
         "qualification_gate_sha256",
         "planner_environment_sha256",

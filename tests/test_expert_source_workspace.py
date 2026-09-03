@@ -10,7 +10,7 @@ def _universe(*, corpus_id: str = "panda-ball-source-workspace-test"):
     from latency_meta_mdp.expert_realization.contracts import build_formal_request_universe
 
     config = FormalCorpusConfig(
-        schema_version=1,
+        schema_version=2,
         corpus_id=corpus_id,
         logical_task_index_start=0,
         task_instance_count=1,
@@ -25,7 +25,7 @@ def _universe(*, corpus_id: str = "panda-ball-source-workspace-test"):
         family_allocation="iid_uniform_seeded",
         reserve_task_instance_count=1,
         require_complete_realization_block=True,
-        split_unit="master_task_index",
+        group_unit="logical_master_task_index",
     )
     return build_formal_request_universe(
         config,

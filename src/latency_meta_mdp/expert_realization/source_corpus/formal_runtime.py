@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections import Counter
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -13,7 +12,6 @@ from typing import Any
 from latency_meta_mdp.expert_realization.contracts import FormalRequestUniverse
 from latency_meta_mdp.expert_realization.recording_contracts import ImplementationIdentity
 from latency_meta_mdp.expert_realization.source_corpus.config import (
-    MasterTaskSplitPlan,
     SourceCorpusConfig,
     SourceExecutionConfig,
 )
@@ -45,7 +43,6 @@ def build_formal_collection_identity(
     *,
     formal_request: FormalRequestUniverse,
     source_config: SourceCorpusConfig,
-    split_plan: MasterTaskSplitPlan,
     execution_config: SourceExecutionConfig,
     qualification_gate_sha256: str,
     planner_environment_sha256: str,
@@ -55,18 +52,8 @@ def build_formal_collection_identity(
         raise TypeError("formal_request must be FormalRequestUniverse")
     if not isinstance(source_config, SourceCorpusConfig):
         raise TypeError("source_config must be SourceCorpusConfig")
-    if not isinstance(split_plan, MasterTaskSplitPlan):
-        raise TypeError("split_plan must be MasterTaskSplitPlan")
     if not isinstance(execution_config, SourceExecutionConfig):
         raise TypeError("execution_config must be SourceExecutionConfig")
-    if split_plan.corpus_id != formal_request.config.corpus_id:
-        raise ValueError("split plan does not match formal request corpus")
-    split_plan.require_exact_indices(
-        tuple(
-            task.logical_task_index
-            for task in formal_request.primary_tasks + formal_request.reserve_tasks
-        )
-    )
     for name, value in (
         ("qualification_gate_sha256", qualification_gate_sha256),
         ("planner_environment_sha256", planner_environment_sha256),
@@ -80,7 +67,6 @@ def build_formal_collection_identity(
         "format_id": "formal_source_collection_identity_v1",
         "formal_request_sha256": formal_request.request_sha256,
         "source_config_sha256": source_config.sha256,
-        "split_plan_sha256": split_plan.sha256,
         "execution_config_sha256": execution_config.sha256,
         "qualification_gate_sha256": qualification_gate_sha256,
         "planner_environment_sha256": planner_environment_sha256,
@@ -111,7 +97,6 @@ def collect_formal_source(
     project_root: Path,
     formal_request: FormalRequestUniverse,
     source_config: SourceCorpusConfig,
-    split_plan: MasterTaskSplitPlan,
     execution_config: SourceExecutionConfig,
     work_root: Path,
     output_root: Path,
@@ -138,8 +123,6 @@ def collect_formal_source(
         raise TypeError("formal_request must be FormalRequestUniverse")
     if not isinstance(source_config, SourceCorpusConfig):
         raise TypeError("source_config must be SourceCorpusConfig")
-    if not isinstance(split_plan, MasterTaskSplitPlan):
-        raise TypeError("split_plan must be MasterTaskSplitPlan")
     if not isinstance(execution_config, SourceExecutionConfig):
         raise TypeError("execution_config must be SourceExecutionConfig")
     if type(resume) is not bool or not callable(on_progress):
@@ -182,7 +165,6 @@ def collect_formal_source(
     collection_identity = build_formal_collection_identity(
         formal_request=formal_request,
         source_config=source_config,
-        split_plan=split_plan,
         execution_config=execution_config,
         qualification_gate_sha256=_sha_file(qualification_gate_path),
         planner_environment_sha256=planner_environment_sha,
@@ -223,7 +205,6 @@ def collect_formal_source(
             block,
             formal_request=formal_request,
             source_config=source_config,
-            split_plan=split_plan,
             execution_config=execution_config,
             workspace=workspace,
             structured=structured,
@@ -240,11 +221,6 @@ def collect_formal_source(
             for item in formal_request.primary_tasks + formal_request.reserve_tasks
         ),
         target_block_count=formal_request.config.task_instance_count,
-        target_block_counts=Counter(
-            split_plan.split_for(item.logical_task_index)
-            for item in formal_request.primary_tasks
-        ),
-        split_for=split_plan.split_for,
         plan_block=plan_block,
         execute_block=execute_block,
         publish_blocks=lambda blocks: publish_completed_blocks(
@@ -252,7 +228,6 @@ def collect_formal_source(
             project_root=root,
             formal_request=formal_request,
             source_config=source_config,
-            split_plan=split_plan,
             workspace=workspace,
             output_root=output_root,
         ),

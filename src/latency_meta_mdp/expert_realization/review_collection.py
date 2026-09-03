@@ -87,7 +87,7 @@ class BehaviorReviewRequest:
 
     def to_formal_config(self) -> FormalCorpusConfig:
         return FormalCorpusConfig(
-            schema_version=1,
+            schema_version=2,
             corpus_id=self.corpus_id,
             logical_task_index_start=self.logical_task_index_start,
             task_instance_count=self.task_instance_count,
@@ -97,7 +97,7 @@ class BehaviorReviewRequest:
             family_allocation=self.family_allocation,
             reserve_task_instance_count=self.reserve_task_instance_count,
             require_complete_realization_block=True,
-            split_unit="master_task_index",
+            group_unit="logical_master_task_index",
         )
 
 

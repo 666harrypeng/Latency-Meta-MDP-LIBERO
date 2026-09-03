@@ -7,7 +7,7 @@ import pytest
 from expert_realization_test_support import make_formal_source_episode
 
 
-def _task_entry(*, logical_index: int = 0, split: str = "train"):
+def _task_entry(*, logical_index: int = 0):
     from latency_meta_mdp.expert_realization.contracts import TaskInstanceId
     from latency_meta_mdp.expert_realization.source_corpus.metadata import (
         SourceTaskMetadataEntry,
@@ -25,7 +25,6 @@ def _task_entry(*, logical_index: int = 0, split: str = "train"):
         task_instance_id=task_id,
         corpus_id="panda-ball-structured-source-pilot",
         logical_master_task_index=logical_index,
-        split=split,
         instruction="Grasp the moving ball and lift it.",
         motion_profile_json=motion.decode(),
         initial_state_npz=initial,
@@ -33,7 +32,7 @@ def _task_entry(*, logical_index: int = 0, split: str = "train"):
     )
 
 
-def _episode_entry(*, episode_id: str = "source-l1-task000-r000", split: str = "train"):
+def _episode_entry(*, episode_id: str = "source-l1-task000-r000"):
     from dataclasses import replace
 
     from latency_meta_mdp.expert_realization.source_corpus.metadata import (
@@ -47,7 +46,6 @@ def _episode_entry(*, episode_id: str = "source-l1-task000-r000", split: str = "
     return SourceEpisodeMetadataEntry(
         episode=episode,
         logical_master_task_index=0,
-        split=split,
         strategy_parameters={"prediction_lead_seconds": 0.12},
         selected_planner_fingerprint="c" * 64,
         qualification={"eligible": True, "failures": []},
@@ -73,13 +71,12 @@ def test_task_instance_table_centralizes_exact_task_payloads() -> None:
     assert table.schema == TASK_INSTANCE_SCHEMA
     assert table.num_rows == 1
     assert table["logical_master_task_index"].to_pylist() == [0]
-    assert table["split"].to_pylist() == ["train"]
     assert table["admitted_realization_count"].to_pylist() == [4]
     assert table["initial_state_npz"][0].as_py() == b"exact-initial-state-npz"
 
 
-def test_task_metadata_rejects_hash_split_and_identity_drift() -> None:
-    """Break caught: centralized task metadata accepts corrupt bytes or group leakage."""
+def test_task_metadata_rejects_hash_and_identity_drift() -> None:
+    """Break caught: centralized task metadata accepts corrupt identity payloads."""
     from dataclasses import replace
 
     entry = _task_entry()
@@ -87,8 +84,6 @@ def test_task_metadata_rejects_hash_split_and_identity_drift() -> None:
         replace(entry, motion_profile_json='{"changed":true}\n')
     with pytest.raises(ValueError, match="initial state hash"):
         replace(entry, initial_state_npz=b"changed")
-    with pytest.raises(ValueError, match="split"):
-        replace(entry, split="holdout")
 
 
 def test_episode_table_is_success_only_and_locates_one_row_group() -> None:
@@ -173,10 +168,10 @@ def test_schema_and_provenance_documents_are_centralized_and_model_agnostic() ->
     schema = build_schema_document()
     provenance = build_provenance_document((episode.metadata,))
 
-    assert schema["format_id"] == "structured_expert_source_parquet_v1"
+    assert schema["format_id"] == "structured_expert_source_parquet_v2"
     assert provenance == {
-        "schema_version": 1,
-        "format_id": "structured_expert_source_provenance_v1",
+        "schema_version": 2,
+        "format_id": "structured_expert_source_provenance_v2",
         "corpus_id": "panda-ball-structured-source-pilot",
         "record_profile": "formal_source",
         "task_id": "dynamic_grasp_lift",
@@ -191,7 +186,6 @@ def test_schema_and_provenance_documents_are_centralized_and_model_agnostic() ->
         "expert_id": "panda_ball_smooth_approach_canonical_grasp_v2",
         "formal_corpus_config_sha256": "e" * 64,
         "source_corpus_config_sha256": "f" * 64,
-        "master_task_split_plan_sha256": "0" * 64,
         "task_config_sha256": "1" * 64,
         "motion_config_sha256_by_level": {"1": "2" * 64},
         "runtime_config_sha256": "3" * 64,

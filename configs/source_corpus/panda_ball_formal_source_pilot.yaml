@@ -1,5 +1,5 @@
-schema_version: 1
-corpus_id: panda-ball-structured-source-pilot-3x4-v2
+schema_version: 2
+corpus_id: panda-ball-structured-source-pilot-3x4-v3
 logical_task_index_start: 0
 task_instance_count: 3
 levels: [1, 2, 3]
@@ -12,4 +12,4 @@ families:
 family_allocation: iid_uniform_seeded
 reserve_task_instance_count: 6
 require_complete_realization_block: true
-split_unit: master_task_index
+group_unit: logical_master_task_index

@@ -1,4 +1,4 @@
-"""Strict storage and master-task split contracts for the formal source corpus."""
+"""Strict storage and derived-split contracts for the formal source corpus."""
 
 from __future__ import annotations
 
@@ -56,7 +56,6 @@ class SourceCorpusConfig:
     parquet_compression_level: int
     target_shard_bytes: int
     episode_row_group: bool
-    split_unit: str
 
     def __post_init__(self) -> None:
         for name in (
@@ -72,13 +71,12 @@ class SourceCorpusConfig:
             "format_id",
             "image_encoding",
             "parquet_compression",
-            "split_unit",
         ):
             _normalized_text(getattr(self, name), name=name)
-        if self.schema_version != 1:
-            raise ValueError("schema_version must equal 1")
-        if self.format_id != "structured_expert_source_parquet_v1":
-            raise ValueError("format_id must equal structured_expert_source_parquet_v1")
+        if self.schema_version != 2:
+            raise ValueError("schema_version must equal 2")
+        if self.format_id != "structured_expert_source_parquet_v2":
+            raise ValueError("format_id must equal structured_expert_source_parquet_v2")
         if self.image_encoding != "lossless_png":
             raise ValueError("image_encoding must equal lossless_png")
         if not 0 <= self.png_compress_level <= 9:
@@ -91,8 +89,6 @@ class SourceCorpusConfig:
             raise ValueError("target_shard_bytes must be in [64 MiB, 1 GiB]")
         if self.episode_row_group is not True:
             raise ValueError("episode_row_group must be true")
-        if self.split_unit != "master_task_index":
-            raise ValueError("split_unit must equal master_task_index")
 
     def to_mapping(self) -> dict[str, Any]:
         return {item.name: getattr(self, item.name) for item in fields(self)}

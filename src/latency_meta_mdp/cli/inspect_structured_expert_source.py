@@ -17,11 +17,6 @@ def _parser() -> argparse.ArgumentParser:
 
 def _summary(corpus: Any) -> dict[str, Any]:
     manifest = corpus.manifest
-    split_episode_counts = {
-        f"level_{level}_{split}": len(corpus.episode_ids(level=level, split=split))
-        for level in (1, 2, 3)
-        for split in ("train", "validation")
-    }
     return {
         "root": str(corpus.root),
         "corpus_id": manifest.corpus_id,
@@ -30,7 +25,6 @@ def _summary(corpus: Any) -> dict[str, Any]:
         "level_task_instance_count": manifest.level_task_instance_count,
         "episode_count": manifest.episode_count,
         "episodes_by_level": dict(manifest.episodes_by_level),
-        "split_episode_counts": split_episode_counts,
         "frame_count": manifest.frame_count,
         "shard_count": manifest.shard_count,
         "artifact_bytes": sum(row["bytes"] for row in manifest.artifacts.values()),

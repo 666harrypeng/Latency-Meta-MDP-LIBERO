@@ -25,11 +25,14 @@ from latency_meta_mdp.expert_realization.source_corpus.config import (
 )
 from latency_meta_mdp.expert_realization.source_corpus.schema import (
     EPISODE_SCHEMA,
+    EPISODE_SCHEMA_V1_SPLIT,
     EVENT_SCHEMA,
     SOURCE_FRAME_FIELDS,
     SOURCE_FRAME_SCHEMA,
     TASK_INSTANCE_SCHEMA,
+    TASK_INSTANCE_SCHEMA_V1_SPLIT,
     SourceFieldRole,
+    legacy_split_source_schema_document,
     source_schema_document,
 )
 
@@ -81,7 +84,7 @@ class SourceCorpusManifest:
     corpus_id: str
     request_sha256: str
     source_config_sha256: str
-    split_plan_sha256: str
+    split_plan_sha256: str | None
     admitted_master_task_indices: tuple[int, ...]
     master_task_count: int
     level_task_instance_count: int
@@ -90,9 +93,21 @@ class SourceCorpusManifest:
     frame_count: int
     shard_count: int
     artifacts: Mapping[str, Mapping[str, Any]]
+    format_id: str = "structured_expert_source_corpus_v2"
 
     @classmethod
     def from_mapping(cls, mapping: Any) -> SourceCorpusManifest:
+        if type(mapping) is not dict:
+            raise TypeError("source manifest must be a mapping")
+        format_id = mapping.get("format_id")
+        if format_id == "structured_expert_source_corpus_v1":
+            version_fields = {"split_plan_sha256"}
+            schema_version = 1
+        elif format_id == "structured_expert_source_corpus_v2":
+            version_fields = set()
+            schema_version = 2
+        else:
+            raise ValueError("source manifest is not a complete supported corpus")
         raw = _strict(
             mapping,
             {
@@ -102,7 +117,6 @@ class SourceCorpusManifest:
                 "corpus_id",
                 "request_sha256",
                 "source_config_sha256",
-                "split_plan_sha256",
                 "admitted_master_task_indices",
                 "master_task_count",
                 "level_task_instance_count",
@@ -111,20 +125,25 @@ class SourceCorpusManifest:
                 "frame_count",
                 "shard_count",
                 "artifacts",
-            },
+            }
+            | version_fields,
             name="source manifest",
         )
         if (
-            raw["schema_version"] != 1
-            or raw["format_id"] != "structured_expert_source_corpus_v1"
+            raw["schema_version"] != schema_version
             or raw["complete"] is not True
         ):
             raise ValueError("source manifest is not a complete supported corpus")
         if type(raw["corpus_id"]) is not str or not raw["corpus_id"]:
             raise ValueError("source manifest corpus_id is invalid")
-        for name in ("request_sha256", "source_config_sha256", "split_plan_sha256"):
+        for name in ("request_sha256", "source_config_sha256"):
             if type(raw[name]) is not str or _SHA256.fullmatch(raw[name]) is None:
                 raise ValueError(f"source manifest {name} is invalid")
+        split_sha = raw.get("split_plan_sha256")
+        if split_sha is not None and (
+            type(split_sha) is not str or _SHA256.fullmatch(split_sha) is None
+        ):
+            raise ValueError("source manifest split_plan_sha256 is invalid")
         indices = raw["admitted_master_task_indices"]
         if (
             type(indices) is not list
@@ -169,7 +188,7 @@ class SourceCorpusManifest:
             corpus_id=raw["corpus_id"],
             request_sha256=raw["request_sha256"],
             source_config_sha256=raw["source_config_sha256"],
-            split_plan_sha256=raw["split_plan_sha256"],
+            split_plan_sha256=split_sha,
             admitted_master_task_indices=tuple(indices),
             master_task_count=raw["master_task_count"],
             level_task_instance_count=raw["level_task_instance_count"],
@@ -178,7 +197,12 @@ class SourceCorpusManifest:
             frame_count=raw["frame_count"],
             shard_count=raw["shard_count"],
             artifacts=MappingProxyType(frozen_artifacts),
+            format_id=format_id,
         )
+
+    @property
+    def legacy_split(self) -> bool:
+        return self.format_id == "structured_expert_source_corpus_v1"
 
 
 @dataclass(frozen=True)
@@ -199,16 +223,19 @@ class VerifiedSourceCorpus:
         self.manifest = manifest
         self._episodes = MappingProxyType({row["episode_id"]: row for row in episode_rows})
 
-    def episode_ids(self, *, level: int, split: str) -> tuple[str, ...]:
+    def episode_ids(self, *, level: int, split: str | None = None) -> tuple[str, ...]:
         if type(level) is not int or level not in (1, 2, 3):
             raise ValueError("level must be one of 1, 2, or 3")
-        if split not in {"train", "validation"}:
-            raise ValueError("split must be train or validation")
+        if split is not None and split not in {"train", "validation"}:
+            raise ValueError("split must be train, validation, or None")
+        if split is not None and any("split" not in row for row in self._episodes.values()):
+            raise ValueError("canonical source corpus has no embedded split")
         return tuple(
             sorted(
                 row["episode_id"]
                 for row in self._episodes.values()
-                if row["level"] == level and row["split"] == split
+                if row["level"] == level
+                and (split is None or row["split"] == split)
             )
         )
 
@@ -271,13 +298,17 @@ def _verify_inventory(root: Path, manifest: SourceCorpusManifest) -> None:
             raise ValueError(f"source artifact hash mismatch: {relative}")
 
 
-def _load_metadata_tables(root: Path) -> tuple[pa.Table, pa.Table, pa.Table]:
+def _load_metadata_tables(
+    root: Path, *, legacy_split: bool
+) -> tuple[pa.Table, pa.Table, pa.Table]:
     tasks = pq.read_table(root / "meta/task_instances.parquet")
     episodes = pq.read_table(root / "meta/episodes.parquet")
     events = pq.read_table(root / "meta/events.parquet")
-    if tasks.schema != TASK_INSTANCE_SCHEMA:
+    expected_tasks = TASK_INSTANCE_SCHEMA_V1_SPLIT if legacy_split else TASK_INSTANCE_SCHEMA
+    expected_episodes = EPISODE_SCHEMA_V1_SPLIT if legacy_split else EPISODE_SCHEMA
+    if tasks.schema != expected_tasks:
         raise ValueError("task metadata schema is invalid")
-    if episodes.schema != EPISODE_SCHEMA:
+    if episodes.schema != expected_episodes:
         raise ValueError("episode metadata schema is invalid")
     if events.schema != EVENT_SCHEMA:
         raise ValueError("event metadata schema is invalid")
@@ -341,7 +372,7 @@ def _validate_relations(
     *,
     root: Path,
     manifest: SourceCorpusManifest,
-    split_plan: MasterTaskSplitPlan,
+    split_plan: MasterTaskSplitPlan | None,
     tasks: pa.Table,
     episodes: pa.Table,
     events: pa.Table,
@@ -354,7 +385,7 @@ def _validate_relations(
     if len(episode_rows) != manifest.episode_count:
         raise ValueError("source episode metadata count does not match manifest")
     task_by_id: dict[str, dict[str, Any]] = {}
-    split_by_master: dict[int, str] = {}
+    master_indices: set[int] = set()
     for row in task_rows:
         serialized_id = row["task_instance_id"]
         task_id = TaskInstanceId.from_mapping(json.loads(serialized_id))
@@ -372,15 +403,13 @@ def _validate_relations(
         if hashlib.sha256(row["initial_state_npz"]).hexdigest() != task_id.initial_state_sha256:
             raise ValueError("task initial state payload hash does not match identity")
         logical = row["logical_master_task_index"]
-        if row["split"] != split_plan.split_for(logical):
+        if split_plan is not None and row["split"] != split_plan.split_for(logical):
             raise ValueError("task metadata split join is invalid")
-        previous = split_by_master.setdefault(logical, row["split"])
-        if previous != row["split"]:
-            raise ValueError("master task appears in multiple splits")
+        master_indices.add(logical)
         if serialized_id in task_by_id:
             raise ValueError("task metadata contains duplicate identities")
         task_by_id[serialized_id] = row
-    if set(split_by_master) != set(manifest.admitted_master_task_indices):
+    if master_indices != set(manifest.admitted_master_task_indices):
         raise ValueError("admitted master-task inventory does not match task metadata")
     episode_ids = [row["episode_id"] for row in episode_rows]
     if len(set(episode_ids)) != len(episode_ids):
@@ -391,11 +420,11 @@ def _validate_relations(
         task = task_by_id.get(row["task_instance_id"])
         if task is None:
             raise ValueError("episode metadata has no task join")
-        if (
-            row["logical_master_task_index"] != task["logical_master_task_index"]
-            or row["level"] != task["level"]
-            or row["split"] != task["split"]
+        if row["logical_master_task_index"] != task["logical_master_task_index"] or (
+            row["level"] != task["level"]
         ):
+            raise ValueError("episode metadata task join is invalid")
+        if split_plan is not None and row["split"] != task["split"]:
             raise ValueError("episode metadata split join is invalid")
         try:
             strategy = json.loads(row["strategy_parameters_json"])
@@ -481,27 +510,52 @@ def load_verified_source_corpus(root: Path) -> VerifiedSourceCorpus:
         _load_json(root / "manifest.json", name="source manifest")
     )
     _verify_inventory(root, manifest)
-    if _load_json(root / "schema.json", name="source schema") != source_schema_document():
+    expected_schema = (
+        legacy_split_source_schema_document()
+        if manifest.legacy_split
+        else source_schema_document()
+    )
+    if _load_json(root / "schema.json", name="source schema") != expected_schema:
         raise ValueError("source schema document does not match the canonical schema")
     provenance = _load_json(root / "provenance.json", name="source provenance")
-    for field in ("formal_request", "source_config", "split_plan"):
+    required_provenance = {"formal_request", "source_config"}
+    if manifest.legacy_split:
+        required_provenance.add("split_plan")
+    for field in required_provenance:
         if field not in provenance:
             raise ValueError(f"source provenance is missing {field}")
     request = FormalRequestUniverse.from_mapping(provenance["formal_request"])
-    source_config = SourceCorpusConfig.from_mapping(provenance["source_config"])
-    split_plan = MasterTaskSplitPlan.from_mapping(provenance["split_plan"])
+    split_plan = None
+    if manifest.legacy_split:
+        legacy_config = provenance["source_config"]
+        payload = json.dumps(
+            legacy_config, sort_keys=True, separators=(",", ":")
+        ).encode()
+        if (
+            type(legacy_config) is not dict
+            or legacy_config.get("format_id") != "structured_expert_source_parquet_v1"
+            or legacy_config.get("split_unit") != "master_task_index"
+            or hashlib.sha256(payload).hexdigest() != manifest.source_config_sha256
+        ):
+            raise ValueError("legacy source storage config does not match manifest")
+        split_plan = MasterTaskSplitPlan.from_mapping(provenance["split_plan"])
+    else:
+        source_config = SourceCorpusConfig.from_mapping(provenance["source_config"])
+        if source_config.sha256 != manifest.source_config_sha256:
+            raise ValueError("source storage config does not match manifest")
     if request.request_sha256 != manifest.request_sha256:
         raise ValueError("source request identity does not match manifest")
-    if source_config.sha256 != manifest.source_config_sha256:
-        raise ValueError("source storage config does not match manifest")
-    if split_plan.sha256 != manifest.split_plan_sha256:
+    if split_plan is not None and split_plan.sha256 != manifest.split_plan_sha256:
         raise ValueError("source split plan does not match manifest")
-    if request.config.corpus_id != manifest.corpus_id or split_plan.corpus_id != manifest.corpus_id:
+    if request.config.corpus_id != manifest.corpus_id or (
+        split_plan is not None and split_plan.corpus_id != manifest.corpus_id
+    ):
         raise ValueError("source corpus identity is inconsistent")
     requested_indices = tuple(
         task.logical_task_index for task in request.primary_tasks + request.reserve_tasks
     )
-    split_plan.require_exact_indices(requested_indices)
+    if split_plan is not None:
+        split_plan.require_exact_indices(requested_indices)
     if manifest.master_task_count != request.config.task_instance_count:
         raise ValueError("source master-task count does not match formal request")
     expected_task_instances = manifest.master_task_count * len(request.config.levels)
@@ -516,7 +570,9 @@ def load_verified_source_corpus(root: Path) -> VerifiedSourceCorpus:
         or summary.get("admitted_realizations") != manifest.episode_count
     ):
         raise ValueError("collection summary does not match source manifest")
-    tasks, episodes, events = _load_metadata_tables(root)
+    tasks, episodes, events = _load_metadata_tables(
+        root, legacy_split=manifest.legacy_split
+    )
     episode_rows = _validate_relations(
         root=root,
         manifest=manifest,

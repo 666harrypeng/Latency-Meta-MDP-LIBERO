@@ -27,10 +27,7 @@ from latency_meta_mdp.expert_realization.contracts import (
     build_formal_realization_requests,
 )
 from latency_meta_mdp.expert_realization.recording_contracts import json_thaw
-from latency_meta_mdp.expert_realization.source_corpus.config import (
-    MasterTaskSplitPlan,
-    SourceCorpusConfig,
-)
+from latency_meta_mdp.expert_realization.source_corpus.config import SourceCorpusConfig
 from latency_meta_mdp.expert_realization.source_corpus.contracts import (
     FormalSourceSynchronizedEpisode,
 )
@@ -122,7 +119,6 @@ def _validate_admitted_inventory(
     *,
     request: FormalRequestUniverse,
     source_config: SourceCorpusConfig,
-    split_plan: MasterTaskSplitPlan,
     task_entries: tuple[SourceTaskMetadataEntry, ...],
     admitted_episodes: tuple[AdmittedSourceEpisode, ...],
 ) -> tuple[int, ...]:
@@ -130,12 +126,7 @@ def _validate_admitted_inventory(
         raise TypeError("request must be FormalRequestUniverse")
     if not isinstance(source_config, SourceCorpusConfig):
         raise TypeError("source_config must be SourceCorpusConfig")
-    if not isinstance(split_plan, MasterTaskSplitPlan):
-        raise TypeError("split_plan must be MasterTaskSplitPlan")
-    if split_plan.corpus_id != request.config.corpus_id:
-        raise ValueError("split plan corpus does not match formal request")
     all_tasks = request.primary_tasks + request.reserve_tasks
-    split_plan.require_exact_indices(tuple(task.logical_task_index for task in all_tasks))
     if type(task_entries) is not tuple or any(
         not isinstance(entry, SourceTaskMetadataEntry) for entry in task_entries
     ):
@@ -161,8 +152,6 @@ def _validate_admitted_inventory(
             raise ValueError("source episode formal config does not match request")
         if metadata.source_corpus_config_sha256 != source_config.sha256:
             raise ValueError("source episode storage config does not match source config")
-        if metadata.master_task_split_plan_sha256 != split_plan.sha256:
-            raise ValueError("source episode split identity does not match split plan")
         expected_requests = build_formal_realization_requests(
             request,
             metadata.task_instance_id,
@@ -180,8 +169,6 @@ def _validate_admitted_inventory(
             raise ValueError("source episode has no admitted task metadata")
         if metadata.task_instance_id != task.task_instance_id:
             raise ValueError("source episode does not match exact task metadata")
-        if split_plan.split_for(logical) != task.split:
-            raise ValueError("source task metadata does not match split plan")
         episodes_by_task[(logical, level)].append(admitted)
     complete_blocks = []
     candidate_indices = sorted({logical for logical, _level in tasks_by_key})
@@ -198,10 +185,8 @@ def _validate_admitted_inventory(
             ):
                 complete = False
                 break
-            if task.corpus_id != request.config.corpus_id or (
-                task.split != split_plan.split_for(logical)
-            ):
-                raise ValueError("source task metadata does not match split plan")
+            if task.corpus_id != request.config.corpus_id:
+                raise ValueError("source task metadata does not match formal request")
             if task.task_instance_id.task_instance_seed != request_tasks[logical].master_task_seed:
                 raise ValueError("source task seed does not match formal request")
             slots = sorted(
@@ -240,7 +225,6 @@ def publish_source_corpus(
     target: Path,
     request: FormalRequestUniverse,
     source_config: SourceCorpusConfig,
-    split_plan: MasterTaskSplitPlan,
     task_entries: tuple[SourceTaskMetadataEntry, ...],
     admitted_episodes: tuple[AdmittedSourceEpisode, ...],
     collection_summary: CollectionSummary,
@@ -250,7 +234,6 @@ def publish_source_corpus(
     complete_blocks = _validate_admitted_inventory(
         request=request,
         source_config=source_config,
-        split_plan=split_plan,
         task_entries=task_entries,
         admitted_episodes=admitted_episodes,
     )
@@ -316,16 +299,12 @@ def publish_source_corpus(
                         config=source_config,
                     )
                 location = writer.add_episode(admitted.episode)
-                split = split_plan.split_for(
-                    admitted.episode.metadata.logical_master_task_index
-                )
                 indexed_entries.append(
                     SourceEpisodeMetadataEntry(
                         episode=admitted.episode,
                         logical_master_task_index=(
                             admitted.episode.metadata.logical_master_task_index
                         ),
-                        split=split,
                         strategy_parameters=admitted.strategy_parameters,
                         selected_planner_fingerprint=(
                             admitted.selected_planner_fingerprint
@@ -371,7 +350,6 @@ def publish_source_corpus(
             {
                 "formal_request": request.to_mapping(),
                 "source_config": source_config.to_mapping(),
-                "split_plan": split_plan.to_mapping(),
             }
         )
         _write_file_fsynced(
@@ -393,13 +371,12 @@ def publish_source_corpus(
             item.episode.metadata.task_instance_id.level for item in ordered_admitted
         )
         manifest = {
-            "schema_version": 1,
-            "format_id": "structured_expert_source_corpus_v1",
+            "schema_version": 2,
+            "format_id": "structured_expert_source_corpus_v2",
             "complete": True,
             "corpus_id": request.config.corpus_id,
             "request_sha256": request.request_sha256,
             "source_config_sha256": source_config.sha256,
-            "split_plan_sha256": split_plan.sha256,
             "admitted_master_task_indices": list(complete_blocks),
             "master_task_count": len(complete_blocks),
             "level_task_instance_count": len(ordered_tasks),

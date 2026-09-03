@@ -18,10 +18,8 @@ from latency_meta_mdp.expert_realization.contracts import (
     build_formal_request_universe,
 )
 from latency_meta_mdp.expert_realization.source_corpus.config import (
-    MasterTaskSplitPlan,
     SourceCorpusConfig,
     SourceExecutionConfig,
-    load_master_task_split_plan,
     load_source_corpus_config,
     load_source_execution_config,
 )
@@ -33,7 +31,6 @@ class CollectionInputs:
     project_root: Path
     formal_request: FormalRequestUniverse
     source_config: SourceCorpusConfig
-    split_plan: MasterTaskSplitPlan
     execution_config: SourceExecutionConfig
     work_root: Path
     output_root: Path
@@ -41,7 +38,6 @@ class CollectionInputs:
     resume: bool
     dry_run: bool
     formal_config_sha256: str
-    split_config_sha256: str
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -50,7 +46,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--formal-config", type=Path, required=True)
     parser.add_argument("--execution-config", type=Path, required=True)
     parser.add_argument("--source-config", type=Path, required=True)
-    parser.add_argument("--split-config", type=Path, required=True)
     parser.add_argument("--work-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--planner-python", type=Path, required=True)
@@ -86,7 +81,6 @@ def load_collection_inputs(argv: list[str] | None = None) -> CollectionInputs:
     formal_path = _absolute(project_root, args.formal_config)
     execution_path = _absolute(project_root, args.execution_config)
     source_path = _absolute(project_root, args.source_config)
-    split_path = _absolute(project_root, args.split_config)
     structured = StructuredStrategyConfig.from_path(
         project_root / "configs/expert_realization/panda_ball_structured.yaml"
     )
@@ -97,15 +91,7 @@ def load_collection_inputs(argv: list[str] | None = None) -> CollectionInputs:
         structured_expert_config_sha256=structured.source_sha256,
     )
     source_config = load_source_corpus_config(source_path)
-    split_plan = load_master_task_split_plan(split_path)
     execution_config = load_source_execution_config(execution_path)
-    requested_indices = tuple(
-        row.logical_task_index
-        for row in formal_request.primary_tasks + formal_request.reserve_tasks
-    )
-    split_plan.require_exact_indices(requested_indices)
-    if split_plan.corpus_id != formal_request.config.corpus_id:
-        raise ValueError("split plan does not match formal request corpus")
     work_root = _absolute(project_root, args.work_root)
     output_root = _absolute(project_root, args.output_root)
     _require_separate_roots(work_root, output_root)
@@ -114,7 +100,6 @@ def load_collection_inputs(argv: list[str] | None = None) -> CollectionInputs:
         project_root=project_root,
         formal_request=formal_request,
         source_config=source_config,
-        split_plan=split_plan,
         execution_config=execution_config,
         work_root=work_root,
         output_root=output_root,
@@ -122,7 +107,6 @@ def load_collection_inputs(argv: list[str] | None = None) -> CollectionInputs:
         resume=args.resume,
         dry_run=args.dry_run,
         formal_config_sha256=formal_config_sha256,
-        split_config_sha256=hashlib.sha256(split_path.read_bytes()).hexdigest(),
     )
 
 
@@ -141,8 +125,6 @@ def _dry_run_summary(inputs: CollectionInputs) -> dict[str, Any]:
         "formal_config_sha256": inputs.formal_config_sha256,
         "formal_request_sha256": request.request_sha256,
         "source_config_sha256": inputs.source_config.sha256,
-        "split_config_sha256": inputs.split_config_sha256,
-        "split_plan_sha256": inputs.split_plan.sha256,
         "execution_config_sha256": inputs.execution_config.sha256,
         "primary_master_task_indices": [row.logical_task_index for row in request.primary_tasks],
         "reserve_master_task_indices": [row.logical_task_index for row in request.reserve_tasks],
@@ -184,7 +166,6 @@ def main(
         project_root=inputs.project_root,
         formal_request=inputs.formal_request,
         source_config=inputs.source_config,
-        split_plan=inputs.split_plan,
         execution_config=inputs.execution_config,
         work_root=inputs.work_root,
         output_root=inputs.output_root,

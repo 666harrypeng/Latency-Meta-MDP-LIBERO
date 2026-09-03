@@ -9,20 +9,18 @@ import yaml
 SOURCE_CONFIG = Path("configs/source_corpus/panda_ball_source_parquet.yaml")
 FORMAL_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_pilot.yaml")
 EXECUTION_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_execution.yaml")
-FORMAL_SPLIT_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_pilot_split.yaml")
 
 
 def _valid_source_mapping() -> dict[str, object]:
     return {
-        "schema_version": 1,
-        "format_id": "structured_expert_source_parquet_v1",
+        "schema_version": 2,
+        "format_id": "structured_expert_source_parquet_v2",
         "image_encoding": "lossless_png",
         "png_compress_level": 6,
         "parquet_compression": "zstd",
         "parquet_compression_level": 3,
         "target_shard_bytes": 268_435_456,
         "episode_row_group": True,
-        "split_unit": "master_task_index",
     }
 
 
@@ -65,7 +63,7 @@ def test_source_config_loads_the_canonical_lossless_parquet_contract() -> None:
 
     assert config.to_mapping() == _valid_source_mapping()
     assert config.target_shard_bytes == 256 * 1024 * 1024
-    assert config.sha256 == "29cdad2739059d24d9ab978dfa6a20430265baaf0dfd9a23ab046ea1651a8e38"
+    assert config.sha256 == "87d847ad295725c8e3223d8d35a6d372300ce683bc3bf38b7a076e968b2eb324"
 
 
 @pytest.mark.parametrize(
@@ -82,7 +80,6 @@ def test_source_config_loads_the_canonical_lossless_parquet_contract() -> None:
         (lambda row: row.update(target_shard_bytes=64 * 1024 * 1024 - 1), "target_shard"),
         (lambda row: row.update(target_shard_bytes=1024 * 1024 * 1024 + 1), "target_shard"),
         (lambda row: row.update(episode_row_group=False), "episode_row_group"),
-        (lambda row: row.update(split_unit="episode"), "split_unit"),
     ],
 )
 def test_source_config_rejects_storage_semantic_drift(
@@ -196,13 +193,11 @@ def test_formal_collection_configs_lock_36_successes_and_sequential_planning() -
     """Break caught: pilot size, retry policy, or paired admission silently drifts."""
     from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
     from latency_meta_mdp.expert_realization.source_corpus.config import (
-        load_master_task_split_plan,
         load_source_execution_config,
     )
 
     formal = load_formal_corpus_config(FORMAL_CONFIG)
     execution = load_source_execution_config(EXECUTION_CONFIG)
-    split = load_master_task_split_plan(FORMAL_SPLIT_CONFIG)
 
     assert formal.task_instance_count == 3
     assert formal.reserve_task_instance_count == 6
@@ -210,10 +205,6 @@ def test_formal_collection_configs_lock_36_successes_and_sequential_planning() -
     assert formal.realizations_per_task == 4
     assert formal.primary_trajectory_count == 36
     assert execution.to_mapping() == _valid_execution_mapping()
-    assert split.train_master_task_indices == (0, 1, 3, 4, 6, 7)
-    assert split.validation_master_task_indices == (2, 5, 8)
-    assert split.corpus_id == formal.corpus_id
-    split.require_exact_indices(formal.primary_task_indices + formal.reserve_task_indices)
 
 
 @pytest.mark.parametrize(

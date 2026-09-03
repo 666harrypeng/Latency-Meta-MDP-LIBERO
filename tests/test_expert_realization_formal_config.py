@@ -10,7 +10,7 @@ FORMAL_CONFIG = Path("configs/collection/panda_ball_structured_formal.yaml")
 
 def _valid_mapping() -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "corpus_id": "panda-ball-structured-formal-v1",
         "logical_task_index_start": 0,
         "task_instance_count": 100,
@@ -25,7 +25,7 @@ def _valid_mapping() -> dict[str, object]:
         "family_allocation": "iid_uniform_seeded",
         "reserve_task_instance_count": 20,
         "require_complete_realization_block": True,
-        "split_unit": "master_task_index",
+        "group_unit": "logical_master_task_index",
     }
 
 
@@ -110,7 +110,7 @@ def test_three_realizations_per_task_is_a_valid_general_request(tmp_path: Path) 
             lambda row: row.update(require_complete_realization_block=False),
             "complete_realization",
         ),
-        (lambda row: row.update(split_unit="trajectory"), "split_unit"),
+        (lambda row: row.update(group_unit="trajectory"), "group_unit"),
     ],
 )
 def test_formal_config_rejects_semantic_and_scalar_drift(

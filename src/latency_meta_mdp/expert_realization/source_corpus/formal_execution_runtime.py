@@ -12,7 +12,6 @@ from typing import Any
 from latency_meta_mdp.expert_realization.contracts import FormalRequestUniverse
 from latency_meta_mdp.expert_realization.recording_contracts import ImplementationIdentity
 from latency_meta_mdp.expert_realization.source_corpus.config import (
-    MasterTaskSplitPlan,
     SourceCorpusConfig,
     SourceExecutionConfig,
 )
@@ -41,7 +40,6 @@ def _episode_metadata(
     *,
     formal_request: FormalRequestUniverse,
     source_config: SourceCorpusConfig,
-    split_plan: MasterTaskSplitPlan,
     structured: Any,
     curobo_config_sha256: str,
     implementation: ImplementationIdentity,
@@ -56,7 +54,7 @@ def _episode_metadata(
     candidate = planned.first_plan.candidate
     key = request.to_expert_realization_key()
     return FormalSourceEpisodeMetadata(
-        schema_version=1,
+        schema_version=2,
         record_profile="formal_source",
         episode_id=(
             f"source-L{planned.level}-task{planned.logical_master_task_index:06d}-"
@@ -79,7 +77,6 @@ def _episode_metadata(
         strategy_family=request.assigned_family,
         formal_corpus_config_sha256=formal_request.corpus_config_sha256,
         source_corpus_config_sha256=source_config.sha256,
-        master_task_split_plan_sha256=split_plan.sha256,
         task_config_sha256=task.task_config_sha256,
         motion_config_sha256=task.motion_config_sha256,
         runtime_config_sha256=task.runtime_config_sha256,
@@ -101,7 +98,6 @@ def execute_formal_master_block(
     *,
     formal_request: FormalRequestUniverse,
     source_config: SourceCorpusConfig,
-    split_plan: MasterTaskSplitPlan,
     execution_config: SourceExecutionConfig,
     workspace: Any,
     structured: Any,
@@ -227,7 +223,6 @@ def execute_formal_master_block(
                 item,
                 formal_request=formal_request,
                 source_config=source_config,
-                split_plan=split_plan,
                 structured=structured,
                 curobo_config_sha256=curobo_config_sha256,
                 implementation=implementation,
@@ -320,7 +315,6 @@ def publish_completed_blocks(
     project_root: Path,
     formal_request: FormalRequestUniverse,
     source_config: SourceCorpusConfig,
-    split_plan: MasterTaskSplitPlan,
     workspace: Any,
     output_root: Path,
 ) -> Path:
@@ -386,7 +380,6 @@ def publish_completed_blocks(
                     task_instance_id=task.task_instance_id,
                     corpus_id=formal_request.config.corpus_id,
                     logical_master_task_index=logical,
-                    split=split_plan.split_for(logical),
                     instruction=task.instruction,
                     motion_profile_json=task.motion_profile_bytes.decode("utf-8"),
                     initial_state_npz=task.initial_state_bytes,
@@ -421,7 +414,6 @@ def publish_completed_blocks(
         target=output_root,
         request=formal_request,
         source_config=source_config,
-        split_plan=split_plan,
         task_entries=tuple(task_entries),
         admitted_episodes=tuple(admitted),
         collection_summary=summary,

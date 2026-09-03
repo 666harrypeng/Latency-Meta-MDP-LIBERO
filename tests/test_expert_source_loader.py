@@ -13,7 +13,7 @@ from test_expert_source_collection import _admitted, _publication_fixture, _summ
 def _publish(tmp_path: Path, *, boundary_count: int = 2) -> Path:
     from latency_meta_mdp.expert_realization.source_corpus.collection import publish_source_corpus
 
-    request, split, config, task, episode = _publication_fixture(
+    request, config, task, episode = _publication_fixture(
         boundary_count=boundary_count
     )
     target = tmp_path / "source"
@@ -21,7 +21,6 @@ def _publish(tmp_path: Path, *, boundary_count: int = 2) -> Path:
         target=target,
         request=request,
         source_config=config,
-        split_plan=split,
         task_entries=(task,),
         admitted_episodes=(_admitted(episode),),
         collection_summary=_summary(),
@@ -49,7 +48,7 @@ def test_verified_loader_indexes_and_reads_one_episode_row_group(tmp_path: Path)
     corpus = load_verified_source_corpus(_publish(tmp_path))
 
     assert corpus.manifest.episode_count == 1
-    assert corpus.episode_ids(level=1, split="train") == ("source-l1-task000-r000",)
+    assert corpus.episode_ids(level=1) == ("source-l1-task000-r000",)
     episode = corpus.read_episode("source-l1-task000-r000")
     assert episode.frames.num_rows == 2
     assert episode.frames["formal_tick"].to_pylist() == [0, 1]
@@ -110,7 +109,7 @@ def test_loader_rejects_extra_missing_and_hash_drift_files(tmp_path: Path) -> No
         load_verified_source_corpus(changed)
 
 
-def test_loader_rejects_metadata_schema_split_and_row_group_drift(tmp_path: Path) -> None:
+def test_loader_rejects_metadata_schema_task_join_and_row_group_drift(tmp_path: Path) -> None:
     """Break caught: self-consistent file hashes hide relational/schema corruption."""
     from latency_meta_mdp.expert_realization.source_corpus.loader import (
         load_verified_source_corpus,
@@ -126,15 +125,15 @@ def test_loader_rejects_metadata_schema_split_and_row_group_drift(tmp_path: Path
     with pytest.raises(ValueError, match="episode metadata schema"):
         load_verified_source_corpus(schema_root)
 
-    split_root = _publish(tmp_path / "split")
-    episodes_path = split_root / "meta/episodes.parquet"
+    join_root = _publish(tmp_path / "join")
+    episodes_path = join_root / "meta/episodes.parquet"
     table = pq.read_table(episodes_path)
-    index = table.schema.get_field_index("split")
-    table = table.set_column(index, table.schema.field(index), pa.array(["validation"]))
+    index = table.schema.get_field_index("logical_master_task_index")
+    table = table.set_column(index, table.schema.field(index), pa.array([1], type=pa.int64()))
     pq.write_table(table, episodes_path)
-    _refresh_manifest_entry(split_root, "meta/episodes.parquet")
-    with pytest.raises(ValueError, match="split join"):
-        load_verified_source_corpus(split_root)
+    _refresh_manifest_entry(join_root, "meta/episodes.parquet")
+    with pytest.raises(ValueError, match="task join"):
+        load_verified_source_corpus(join_root)
 
     group_root = _publish(tmp_path / "row-group")
     episodes_path = group_root / "meta/episodes.parquet"

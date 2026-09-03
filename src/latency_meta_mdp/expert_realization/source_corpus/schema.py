@@ -185,7 +185,7 @@ SOURCE_FRAME_FIELDS = (
 
 SOURCE_FRAME_SCHEMA = pa.schema([item.arrow_field for item in SOURCE_FRAME_FIELDS])
 
-TASK_INSTANCE_SCHEMA = pa.schema(
+TASK_INSTANCE_SCHEMA_V1_SPLIT = pa.schema(
     [
         pa.field("task_instance_id", pa.string(), nullable=False),
         pa.field("corpus_id", pa.string(), nullable=False),
@@ -202,7 +202,7 @@ TASK_INSTANCE_SCHEMA = pa.schema(
     ]
 )
 
-EPISODE_SCHEMA = pa.schema(
+EPISODE_SCHEMA_V1_SPLIT = pa.schema(
     [
         pa.field("episode_id", pa.string(), nullable=False),
         pa.field("task_instance_id", pa.string(), nullable=False),
@@ -229,6 +229,14 @@ EPISODE_SCHEMA = pa.schema(
     ]
 )
 
+TASK_INSTANCE_SCHEMA = pa.schema(
+    [field for field in TASK_INSTANCE_SCHEMA_V1_SPLIT if field.name != "split"]
+)
+
+EPISODE_SCHEMA = pa.schema(
+    [field for field in EPISODE_SCHEMA_V1_SPLIT if field.name != "split"]
+)
+
 EVENT_SCHEMA = pa.schema(
     [
         pa.field("episode_id", pa.string(), nullable=False),
@@ -250,10 +258,21 @@ def fields_for_role(role: SourceFieldRole) -> tuple[str, ...]:
 
 def source_schema_document() -> dict[str, Any]:
     return {
-        "schema_version": 1,
-        "format_id": "structured_expert_source_parquet_v1",
+        "schema_version": 2,
+        "format_id": "structured_expert_source_parquet_v2",
         "source_frame_fields": [item.to_mapping() for item in SOURCE_FRAME_FIELDS],
         "task_instance_fields": list(TASK_INSTANCE_SCHEMA.names),
         "episode_fields": list(EPISODE_SCHEMA.names),
+        "event_fields": list(EVENT_SCHEMA.names),
+    }
+
+
+def legacy_split_source_schema_document() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "format_id": "structured_expert_source_parquet_v1",
+        "source_frame_fields": [item.to_mapping() for item in SOURCE_FRAME_FIELDS],
+        "task_instance_fields": list(TASK_INSTANCE_SCHEMA_V1_SPLIT.names),
+        "episode_fields": list(EPISODE_SCHEMA_V1_SPLIT.names),
         "event_fields": list(EVENT_SCHEMA.names),
     }

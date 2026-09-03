@@ -40,18 +40,11 @@ def _normalized_text(value: Any, *, name: str) -> str:
     return value
 
 
-def _split(value: Any) -> str:
-    if value not in {"train", "validation"}:
-        raise ValueError("split must be train or validation")
-    return value
-
-
 @dataclass(frozen=True)
 class SourceTaskMetadataEntry:
     task_instance_id: TaskInstanceId
     corpus_id: str
     logical_master_task_index: int
-    split: str
     instruction: str
     motion_profile_json: str
     initial_state_npz: bytes
@@ -62,7 +55,6 @@ class SourceTaskMetadataEntry:
             raise TypeError("task_instance_id must be a TaskInstanceId")
         _normalized_text(self.corpus_id, name="corpus_id")
         _normalized_text(self.instruction, name="instruction")
-        _split(self.split)
         if type(self.logical_master_task_index) is not int or self.logical_master_task_index < 0:
             raise ValueError("logical_master_task_index must be non-negative")
         if type(self.motion_profile_json) is not str:
@@ -91,7 +83,6 @@ class SourceTaskMetadataEntry:
             "logical_master_task_index": self.logical_master_task_index,
             "task_instance_seed": self.task_instance_id.task_instance_seed,
             "level": self.task_instance_id.level,
-            "split": self.split,
             "instruction": self.instruction,
             "motion_profile_sha256": self.task_instance_id.motion_profile_sha256,
             "initial_state_sha256": self.task_instance_id.initial_state_sha256,
@@ -105,7 +96,6 @@ class SourceTaskMetadataEntry:
 class SourceEpisodeMetadataEntry:
     episode: FormalSourceSynchronizedEpisode
     logical_master_task_index: int
-    split: str
     strategy_parameters: Mapping[str, Any]
     selected_planner_fingerprint: str
     qualification: Mapping[str, Any]
@@ -120,7 +110,6 @@ class SourceEpisodeMetadataEntry:
             or self.logical_master_task_index != self.episode.metadata.logical_master_task_index
         ):
             raise ValueError("logical_master_task_index does not match episode metadata")
-        _split(self.split)
         for name in ("strategy_parameters", "qualification"):
             value = getattr(self, name)
             if not isinstance(value, Mapping):
@@ -166,7 +155,6 @@ class SourceEpisodeMetadataEntry:
             "task_instance_id": metadata.task_instance_id.canonical_json(),
             "logical_master_task_index": self.logical_master_task_index,
             "level": metadata.task_instance_id.level,
-            "split": self.split,
             "realization_index": key.realization_index,
             "realization_seed": key.realization_seed,
             "strategy_family": metadata.strategy_family.value,
@@ -258,7 +246,6 @@ _PROVENANCE_FIELDS = (
     "expert_id",
     "formal_corpus_config_sha256",
     "source_corpus_config_sha256",
-    "master_task_split_plan_sha256",
     "task_config_sha256",
     "runtime_config_sha256",
     "controller_config_sha256",
@@ -304,8 +291,8 @@ def build_provenance_document(
         if actual != expected:
             raise ValueError("source episodes do not share one dataset-level provenance contract")
     return {
-        "schema_version": 1,
-        "format_id": "structured_expert_source_provenance_v1",
+        "schema_version": 2,
+        "format_id": "structured_expert_source_provenance_v2",
         "motion_config_sha256_by_level": dict(sorted(motion_config_by_level.items())),
         **expected,
     }

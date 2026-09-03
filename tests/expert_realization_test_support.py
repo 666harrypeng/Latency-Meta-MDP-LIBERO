@@ -109,7 +109,7 @@ def make_formal_source_metadata(*, camera_height: int = 2, camera_width: int = 3
         "d" * 64,
     )
     return FormalSourceEpisodeMetadata(
-        schema_version=1,
+        schema_version=2,
         record_profile="formal_source",
         episode_id="source-l1-task000-r000",
         corpus_id="panda-ball-structured-source-pilot",
@@ -129,7 +129,6 @@ def make_formal_source_metadata(*, camera_height: int = 2, camera_width: int = 3
         strategy_family=StrategyFamily.CANONICAL_DIRECT,
         formal_corpus_config_sha256="e" * 64,
         source_corpus_config_sha256="f" * 64,
-        master_task_split_plan_sha256="0" * 64,
         task_config_sha256="1" * 64,
         motion_config_sha256="2" * 64,
         runtime_config_sha256="3" * 64,

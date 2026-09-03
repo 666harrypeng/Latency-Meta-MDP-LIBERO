@@ -23,8 +23,6 @@ def _collection_args(tmp_path: Path, *, planner: Path) -> list[str]:
         "configs/source_corpus/panda_ball_formal_source_execution.yaml",
         "--source-config",
         "configs/source_corpus/panda_ball_source_parquet.yaml",
-        "--split-config",
-        "configs/source_corpus/panda_ball_formal_source_pilot_split.yaml",
         "--work-root",
         str(tmp_path / "work"),
         "--output-root",
@@ -51,7 +49,7 @@ def test_dry_run_expands_exact_request_without_creating_paths(
     assert captured.out == ""
     summary = json.loads(captured.err)
     assert summary["mode"] == "dry_run"
-    assert summary["corpus_id"] == "panda-ball-structured-source-pilot-3x4-v2"
+    assert summary["corpus_id"] == "panda-ball-structured-source-pilot-3x4-v3"
     assert summary["primary_master_task_indices"] == [0, 1, 2]
     assert summary["reserve_master_task_indices"] == [3, 4, 5, 6, 7, 8]
     assert summary["levels"] == [1, 2, 3]
@@ -74,7 +72,6 @@ def test_dry_run_expands_exact_request_without_creating_paths(
     assert len(summary["formal_config_sha256"]) == 64
     assert len(summary["formal_request_sha256"]) == 64
     assert len(summary["source_config_sha256"]) == 64
-    assert len(summary["split_config_sha256"]) == 64
     assert len(summary["execution_config_sha256"]) == 64
     assert not work.exists()
     assert not output.exists()
@@ -216,7 +213,7 @@ def test_inspection_cli_emits_verified_corpus_summary(
         corpus_id="demo",
         request_sha256="a" * 64,
         source_config_sha256="b" * 64,
-        split_plan_sha256="c" * 64,
+        split_plan_sha256=None,
         admitted_master_task_indices=(0, 1, 3),
         master_task_count=3,
         level_task_instance_count=9,
@@ -234,12 +231,11 @@ def test_inspection_cli_emits_verified_corpus_summary(
     )
     rows = tuple(
         {
-            "episode_id": f"episode-{level}-{split}",
+            "episode_id": f"episode-{level}-{index}",
             "level": level,
-            "split": split,
         }
         for level in (1, 2, 3)
-        for split in ("train", "validation")
+        for index in range(2)
     )
     corpus = VerifiedSourceCorpus(root=tmp_path / "corpus", manifest=manifest, episode_rows=rows)
 
@@ -256,14 +252,6 @@ def test_inspection_cli_emits_verified_corpus_summary(
         "master_task_count": 3,
         "root": str(tmp_path / "corpus"),
         "shard_count": 3,
-        "split_episode_counts": {
-            "level_1_train": 1,
-            "level_1_validation": 1,
-            "level_2_train": 1,
-            "level_2_validation": 1,
-            "level_3_train": 1,
-            "level_3_validation": 1,
-        },
     }
 
 

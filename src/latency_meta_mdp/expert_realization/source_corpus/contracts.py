@@ -68,7 +68,6 @@ class FormalSourceEpisodeMetadata:
     strategy_family: StrategyFamily
     formal_corpus_config_sha256: str
     source_corpus_config_sha256: str
-    master_task_split_plan_sha256: str
     task_config_sha256: str
     motion_config_sha256: str
     runtime_config_sha256: str
@@ -84,8 +83,8 @@ class FormalSourceEpisodeMetadata:
     implementation: ImplementationIdentity
 
     def __post_init__(self) -> None:
-        if type(self.schema_version) is not int or self.schema_version != 1:
-            raise ValueError("schema_version must equal 1")
+        if type(self.schema_version) is not int or self.schema_version != 2:
+            raise ValueError("schema_version must equal 2")
         if self.record_profile != "formal_source":
             raise ValueError("record_profile must equal formal_source")
         _text(self.episode_id, name="episode_id", safe_id=True)

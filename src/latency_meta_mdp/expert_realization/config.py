@@ -527,7 +527,7 @@ class FormalCorpusConfig:
     family_allocation: str
     reserve_task_instance_count: int
     require_complete_realization_block: bool
-    split_unit: str
+    group_unit: str
 
     def __post_init__(self) -> None:
         for name in (
@@ -538,7 +538,7 @@ class FormalCorpusConfig:
             "reserve_task_instance_count",
         ):
             _require_int(getattr(self, name), name=name)
-        for name in ("corpus_id", "family_allocation", "split_unit"):
+        for name in ("corpus_id", "family_allocation", "group_unit"):
             _require_str(getattr(self, name), name=name)
         _require_bool(
             self.require_complete_realization_block,
@@ -554,8 +554,8 @@ class FormalCorpusConfig:
             name="families",
             check=lambda item: _require_str(item, name="family"),
         )
-        if self.schema_version != 1:
-            raise ValueError("formal schema_version must equal 1")
+        if self.schema_version not in (1, 2):
+            raise ValueError("formal schema_version must equal 1 or 2")
         if not self.corpus_id or self.corpus_id.strip() != self.corpus_id:
             raise ValueError("corpus_id must be a non-empty normalized string")
         if self.logical_task_index_start < 0:
@@ -578,8 +578,13 @@ class FormalCorpusConfig:
             raise ValueError("family_allocation must equal iid_uniform_seeded")
         if self.require_complete_realization_block is not True:
             raise ValueError("require_complete_realization_block must be true")
-        if self.split_unit != "master_task_index":
-            raise ValueError("split_unit must equal master_task_index")
+        expected_group = (
+            "master_task_index"
+            if self.schema_version == 1
+            else "logical_master_task_index"
+        )
+        if self.group_unit != expected_group:
+            raise ValueError(f"group_unit must equal {expected_group}")
 
     @property
     def primary_task_indices(self) -> tuple[int, ...]:
@@ -615,16 +620,24 @@ class FormalCorpusConfig:
             "family_allocation": self.family_allocation,
             "reserve_task_instance_count": self.reserve_task_instance_count,
             "require_complete_realization_block": self.require_complete_realization_block,
-            "split_unit": self.split_unit,
+            (
+                "split_unit" if self.schema_version == 1 else "group_unit"
+            ): self.group_unit,
         }
 
     @classmethod
     def from_mapping(cls, mapping: Any) -> FormalCorpusConfig:
-        raw = _strict_mapping(
-            mapping,
-            set(cls.__dataclass_fields__),
-            name="formal corpus",
-        ).copy()
+        if type(mapping) is not dict:
+            raise TypeError("formal corpus must be a mapping")
+        schema_version = mapping.get("schema_version")
+        unit_field = (
+            "split_unit"
+            if type(schema_version) is int and schema_version == 1
+            else "group_unit"
+        )
+        expected = set(cls.__dataclass_fields__) - {"group_unit"}
+        raw = _strict_mapping(mapping, expected | {unit_field}, name="formal corpus").copy()
+        raw["group_unit"] = raw.pop(unit_field)
         if type(raw["levels"]) is not list or type(raw["families"]) is not list:
             raise TypeError("formal corpus levels/families must be JSON lists")
         raw["levels"] = tuple(raw["levels"])
@@ -633,7 +646,9 @@ class FormalCorpusConfig:
 
 
 def load_formal_corpus_config(path: Path) -> FormalCorpusConfig:
-    raw = _load_mapping(path, set(FormalCorpusConfig.__dataclass_fields__), name="formal corpus")
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    if type(raw) is not dict:
+        raise ValueError("formal corpus config must be a YAML mapping")
     _yaml_tuple(
         raw["levels"],
         name="levels",
