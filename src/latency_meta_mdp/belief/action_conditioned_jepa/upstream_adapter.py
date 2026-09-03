@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import torch
+import torch.nn.functional as F
 import yaml
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from latency_meta_mdp.artifacts import sha256_file
 
@@ -102,6 +105,12 @@ class UpstreamPrimitiveBundle:
     modulate: Callable[..., Any]
     rotate_queries_or_keys: Callable[..., Any]
     trunc_normal: Callable[..., Any]
+
+
+@dataclass(frozen=True)
+class DualViewUpstreamTypes:
+    coordinate_attention_type: type[Any]
+    coordinate_adaln_block_type: type[Any]
 
 
 @dataclass(frozen=True)
@@ -198,6 +207,147 @@ def load_upstream_primitives(
         rotate_queries_or_keys=modules.rotate_queries_or_keys,
         trunc_normal=tensors.trunc_normal_,
     )
+
+
+def build_dual_view_upstream_types(
+    primitives: UpstreamPrimitiveBundle,
+) -> DualViewUpstreamTypes:
+    """Derive only coordinate-aware forwards from the verified upstream classes."""
+
+    if not isinstance(primitives, UpstreamPrimitiveBundle):
+        raise TypeError("primitives must be an UpstreamPrimitiveBundle")
+    rotate = primitives.rotate_queries_or_keys
+    modulate = primitives.modulate
+    attention_base = primitives.rope_attention_type
+    block_base = primitives.fw_adaln_block_type
+    backends = [
+        SDPBackend.MATH,
+        SDPBackend.EFFICIENT_ATTENTION,
+        SDPBackend.FLASH_ATTENTION,
+        SDPBackend.CUDNN_ATTENTION,
+    ]
+
+    class DualViewCoordinateRoPEAttention(attention_base):
+        def forward(self, x, *, coordinates, attn_mask=None):
+            batch_size, token_count, channels = x.shape
+            if (
+                not isinstance(coordinates, torch.Tensor)
+                or coordinates.ndim != 3
+                or coordinates.shape[-1] != 3
+                or coordinates.numel() // 3 != token_count
+            ):
+                raise ValueError("RoPE coordinates must have shape [T,K,3] aligned with tokens")
+            positions = coordinates.reshape(token_count, 3).to(
+                device=x.device,
+                dtype=x.dtype,
+            )
+            qkv = (
+                self.qkv(x)
+                .unflatten(-1, (3, self.num_heads, -1))
+                .permute(2, 0, 3, 1, 4)
+            )
+            query, key, value = qkv[0], qkv[1], qkv[2]
+            offset = 0
+            rotated_query = []
+            rotated_key = []
+            for coordinate_index, width in enumerate((self.d_dim, self.h_dim, self.w_dim)):
+                rotated_query.append(
+                    rotate(
+                        query[..., offset : offset + width],
+                        pos=positions[:, coordinate_index],
+                    )
+                )
+                rotated_key.append(
+                    rotate(
+                        key[..., offset : offset + width],
+                        pos=positions[:, coordinate_index],
+                    )
+                )
+                offset += width
+            if offset < self.head_dim:
+                rotated_query.append(query[..., offset:])
+                rotated_key.append(key[..., offset:])
+            query = torch.cat(rotated_query, dim=-1)
+            key = torch.cat(rotated_key, dim=-1)
+            if attn_mask is not None:
+                if tuple(attn_mask.shape) != (token_count, token_count):
+                    raise ValueError("attention mask shape does not match coordinate tokens")
+                with sdpa_kernel(backends):
+                    attended = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=self.proj_drop_prob,
+                        is_causal=self.is_causal,
+                        attn_mask=attn_mask,
+                    )
+            else:
+                weights = (query @ key.transpose(-2, -1)) * self.scale
+                weights = self.attn_drop(weights.softmax(dim=-1))
+                attended = weights @ value
+            attended = attended.transpose(1, 2).reshape(
+                batch_size,
+                token_count,
+                channels,
+            )
+            return self.proj_drop(self.proj(attended))
+
+    class DualViewFWAdaLNBlock(block_base):
+        def forward(
+            self,
+            x,
+            z,
+            *,
+            coordinates,
+            attn_mask,
+            tokens_per_time,
+        ):
+            if (
+                type(tokens_per_time) is not int
+                or tokens_per_time <= 0
+                or x.shape[1] != z.shape[1] * tokens_per_time
+            ):
+                raise ValueError("AdaLN token/time alignment is invalid")
+            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                self.adaLN_modulation(z)
+                .repeat_interleave(tokens_per_time, dim=1)
+                .chunk(6, dim=2)
+            )
+            attended = self.attn(
+                modulate(self.norm1(x), shift_msa, scale_msa),
+                coordinates=coordinates,
+                attn_mask=attn_mask,
+            )
+            x = x + self.drop_path(attended * gate_msa)
+            return x + self.drop_path(
+                gate_mlp * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+            )
+
+    DualViewCoordinateRoPEAttention.__name__ = "DualViewCoordinateRoPEAttention"
+    DualViewCoordinateRoPEAttention.__qualname__ = "DualViewCoordinateRoPEAttention"
+    DualViewFWAdaLNBlock.__name__ = "DualViewFWAdaLNBlock"
+    DualViewFWAdaLNBlock.__qualname__ = "DualViewFWAdaLNBlock"
+    return DualViewUpstreamTypes(
+        coordinate_attention_type=DualViewCoordinateRoPEAttention,
+        coordinate_adaln_block_type=DualViewFWAdaLNBlock,
+    )
+
+
+def adapt_upstream_block_for_coordinates(
+    block: Any,
+    *,
+    types: DualViewUpstreamTypes,
+) -> Any:
+    """Promote an already initialized upstream block without replacing its parameters."""
+
+    if not isinstance(types, DualViewUpstreamTypes):
+        raise TypeError("types must be DualViewUpstreamTypes")
+    required = ("attn", "adaLN_modulation", "norm1", "norm2", "mlp", "drop_path")
+    if any(not hasattr(block, name) for name in required):
+        raise TypeError("block does not satisfy the upstream FWAdaLN contract")
+    block.__class__ = types.coordinate_adaln_block_type
+    block.attn.__class__ = types.coordinate_attention_type
+    return block
 
 
 def verify_checkpoint_mirror(

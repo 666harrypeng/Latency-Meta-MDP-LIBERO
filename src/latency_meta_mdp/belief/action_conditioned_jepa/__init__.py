@@ -21,10 +21,14 @@ from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
     load_jepa_proprio_normalization,
     write_jepa_proprio_normalization,
 )
+from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    ActionConditionedJepaPredictor,
+)
 
 __all__ = [
     "ActionConditionedJepaConfig",
     "ActionConditionedJepaCorpus",
+    "ActionConditionedJepaPredictor",
     "FutureLatentRollout",
     "JepaEpisodeRecord",
     "JepaLaunchSupportContract",
