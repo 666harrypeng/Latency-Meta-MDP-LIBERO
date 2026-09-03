@@ -30,7 +30,7 @@ packages = ["src/latency_meta_mdp"]
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
-  "integration: requires the isolated expert-realization CuRobo runtime",
+  "integration: requires local formal artifacts or an isolated external runtime",
 ]
 
 [tool.ruff]

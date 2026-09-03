@@ -281,7 +281,17 @@ class VerifiedSourceCorpus:
                 raise KeyError(f"unknown source field: {name}")
             if not set(specs[name].roles) & set(allowed_roles):
                 raise PermissionError(f"source field is not allowed: {name}")
-        return self.read_episode(episode_id).frames.select(fields)
+        if episode_id not in self._episodes:
+            raise KeyError(f"unknown source episode: {episode_id}")
+        metadata = self._episodes[episode_id]
+        parquet = pq.ParquetFile(self.root / metadata["data_shard"])
+        frames = parquet.read_row_group(
+            metadata["row_group_index"],
+            columns=list(fields),
+        )
+        if frames.num_rows != metadata["row_count"]:
+            raise ValueError("source episode row count changed after verification")
+        return frames
 
 
 def _verify_inventory(root: Path, manifest: SourceCorpusManifest) -> None:

@@ -86,6 +86,36 @@ def test_verified_loader_enforces_typed_field_role_allowlists(tmp_path: Path) ->
         )
 
 
+def test_read_fields_projects_parquet_columns_before_loading(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Break caught: numeric model views silently read both compressed camera streams."""
+    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+        load_verified_source_corpus,
+    )
+    from latency_meta_mdp.expert_realization.source_corpus.schema import SourceFieldRole
+
+    corpus = load_verified_source_corpus(_publish(tmp_path))
+    observed: list[tuple[str, ...] | None] = []
+    original = pq.ParquetFile.read_row_group
+
+    def recording_read_row_group(parquet, row_group, *, columns=None, **kwargs):
+        observed.append(None if columns is None else tuple(columns))
+        return original(parquet, row_group, columns=columns, **kwargs)
+
+    monkeypatch.setattr(pq.ParquetFile, "read_row_group", recording_read_row_group)
+    fields = ("formal_tick", "robot_qpos", "expert_action")
+    table = corpus.read_fields(
+        "source-l1-task000-r000",
+        fields=fields,
+        allowed_roles=frozenset({SourceFieldRole.IDENTITY, SourceFieldRole.DEPLOYMENT_INPUT}),
+    )
+
+    assert table.column_names == list(fields)
+    assert observed == [fields]
+
+
 def test_loader_rejects_extra_missing_and_hash_drift_files(tmp_path: Path) -> None:
     """Break caught: a partial or contaminated corpus is accepted as complete."""
     from latency_meta_mdp.expert_realization.source_corpus.loader import (
