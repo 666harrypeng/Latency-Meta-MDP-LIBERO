@@ -609,10 +609,10 @@ def load_verified_source_corpus(root: Path) -> VerifiedSourceCorpus:
     if manifest.episode_count != expected_episodes:
         raise ValueError("source episode count does not match formal request")
     summary = _load_json(root / "meta/collection_summary.json", name="collection summary")
-    if (
-        summary.get("format_id") != "structured_expert_collection_summary_v1"
-        or summary.get("admitted_realizations") != manifest.episode_count
-    ):
+    if summary.get("format_id") not in {
+        "structured_expert_collection_summary_v1",
+        "structured_expert_quota_collection_summary_v2",
+    } or summary.get("admitted_realizations") != manifest.episode_count:
         raise ValueError("collection summary does not match source manifest")
     tasks, episodes, events = _load_metadata_tables(
         root, schema_version=manifest.schema_version

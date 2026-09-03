@@ -370,3 +370,32 @@ def test_collection_summary_is_aggregate_only_and_monotonic() -> None:
     )
     with pytest.raises(TypeError):
         summary.failures_by_class["task_failure"] = 1  # type: ignore[index]
+
+
+def test_quota_collection_summary_names_draw_and_family_accounting_explicitly() -> None:
+    from latency_meta_mdp.expert_realization.source_corpus.collection import CollectionSummary
+
+    summary = CollectionSummary(
+        requested_realizations=14,
+        planned_realizations=14,
+        executed_attempts=12,
+        successful_realizations=12,
+        admitted_realizations=12,
+        failures_by_class={"diversity_rejection": 2},
+        attempted_family_counts={"canonical_direct": 5, "lateral_arc": 9},
+        admitted_family_counts={"canonical_direct": 4, "lateral_arc": 8},
+    )
+
+    assert summary.to_mapping() == {
+        "schema_version": 2,
+        "format_id": "structured_expert_quota_collection_summary_v2",
+        "semantic_draws_attempted": 14,
+        "planner_qualified_draws": 14,
+        "rollout_attempts": 12,
+        "task_successful_draws": 12,
+        "admitted_realizations": 12,
+        "failures_by_class": {"diversity_rejection": 2},
+        "attempted_family_counts": {"canonical_direct": 5, "lateral_arc": 9},
+        "admitted_family_counts": {"canonical_direct": 4, "lateral_arc": 8},
+        "draws_per_admitted_realization": 14 / 12,
+    }

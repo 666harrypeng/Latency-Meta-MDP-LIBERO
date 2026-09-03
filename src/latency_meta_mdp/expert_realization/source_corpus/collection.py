@@ -25,6 +25,7 @@ from latency_meta_mdp.expert_realization.artifacts import (
 from latency_meta_mdp.expert_realization.contracts import (
     FailureClass,
     FormalRequestUniverse,
+    StrategyFamily,
     build_formal_realization_draw_request,
     build_formal_realization_requests,
 )
@@ -61,6 +62,8 @@ class CollectionSummary:
     successful_realizations: int
     admitted_realizations: int
     failures_by_class: Mapping[str, int]
+    attempted_family_counts: Mapping[str, int] | None = None
+    admitted_family_counts: Mapping[str, int] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -88,8 +91,50 @@ class CollectionSummary:
         if any(type(value) is not int or value < 0 for value in failures.values()):
             raise ValueError("failure class counts must be non-negative integers")
         object.__setattr__(self, "failures_by_class", MappingProxyType(failures))
+        family_values = {value.value for value in StrategyFamily}
+        family_counts = (self.attempted_family_counts, self.admitted_family_counts)
+        if (family_counts[0] is None) != (family_counts[1] is None):
+            raise ValueError("quota family counts must be provided together")
+        if family_counts[0] is not None:
+            frozen = []
+            for name, value, expected_total in (
+                ("attempted_family_counts", family_counts[0], self.requested_realizations),
+                ("admitted_family_counts", family_counts[1], self.admitted_realizations),
+            ):
+                if not isinstance(value, Mapping):
+                    raise TypeError(f"{name} must be a mapping")
+                detached = dict(value)
+                if any(key not in family_values for key in detached) or any(
+                    type(count) is not int or count < 0 for count in detached.values()
+                ):
+                    raise ValueError(f"{name} contains invalid family counts")
+                if sum(detached.values()) != expected_total:
+                    raise ValueError(f"{name} does not match its aggregate total")
+                frozen.append(MappingProxyType(detached))
+            object.__setattr__(self, "attempted_family_counts", frozen[0])
+            object.__setattr__(self, "admitted_family_counts", frozen[1])
 
     def to_mapping(self) -> dict[str, Any]:
+        if self.attempted_family_counts is not None:
+            return {
+                "schema_version": 2,
+                "format_id": "structured_expert_quota_collection_summary_v2",
+                "semantic_draws_attempted": self.requested_realizations,
+                "planner_qualified_draws": self.planned_realizations,
+                "rollout_attempts": self.executed_attempts,
+                "task_successful_draws": self.successful_realizations,
+                "admitted_realizations": self.admitted_realizations,
+                "failures_by_class": dict(sorted(self.failures_by_class.items())),
+                "attempted_family_counts": dict(
+                    sorted(self.attempted_family_counts.items())
+                ),
+                "admitted_family_counts": dict(
+                    sorted(self.admitted_family_counts.items())
+                ),
+                "draws_per_admitted_realization": (
+                    self.requested_realizations / self.admitted_realizations
+                ),
+            }
         return {
             "schema_version": 1,
             "format_id": "structured_expert_collection_summary_v1",

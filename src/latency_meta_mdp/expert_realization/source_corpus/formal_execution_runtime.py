@@ -471,16 +471,26 @@ def publish_completed_blocks(
         in {"planner_failure", "task_failure", "safety_failure", "diversity_rejection"}
     )
     executed = sum(
-        row.status in {"task_failure", "safety_failure", "diversity_rejection", "accepted"}
+        row.status in {"task_failure", "safety_failure", "accepted"}
+        or (row.status == "diversity_rejection" and row.plan_path is not None)
+        for row in draws
+    )
+    task_successes = sum(
+        row.status == "accepted"
+        or (row.status == "diversity_rejection" and row.plan_path is not None)
         for row in draws
     )
     summary = CollectionSummary(
         requested_realizations=len(draws),
-        planned_realizations=sum(row.plan_path is not None for row in draws),
+        planned_realizations=sum(row.status != "planner_failure" for row in draws),
         executed_attempts=executed,
-        successful_realizations=sum(row.status == "accepted" for row in draws),
+        successful_realizations=task_successes,
         admitted_realizations=len(success_refs),
         failures_by_class=dict(failures),
+        attempted_family_counts=dict(Counter(row.family for row in draws)),
+        admitted_family_counts=dict(
+            Counter(row.family for row in draws if row.status == "accepted")
+        ),
     )
 
     def admitted_stream():
