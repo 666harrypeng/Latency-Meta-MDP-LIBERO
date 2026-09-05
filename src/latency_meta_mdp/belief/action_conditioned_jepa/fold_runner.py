@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -133,6 +134,40 @@ def format_temporal_training_progress(
         f"examples={examples_seen} loss={total_loss:.6f} "
         f"grad_norm={gradient_norm:.6f} lr={learning_rate:g} wd={weight_decay:g} "
         f"elapsed={elapsed_seconds:.1f}s"
+    )
+
+
+def build_temporal_training_loader(
+    *,
+    dataset,
+    batches: tuple[tuple[int, ...], ...],
+    num_workers: int,
+    collate_fn: Callable,
+) -> DataLoader:
+    return DataLoader(
+        dataset,
+        batch_sampler=batches,
+        num_workers=num_workers,
+        pin_memory=num_workers > 0,
+        persistent_workers=False,
+        collate_fn=collate_fn,
+    )
+
+
+def build_temporal_evaluation_loader(
+    *,
+    dataset,
+    batch_size: int,
+    collate_fn: Callable,
+) -> DataLoader:
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False,
+        persistent_workers=False,
+        collate_fn=collate_fn,
     )
 
 
@@ -279,16 +314,11 @@ def _evaluate_dataset(
     model: torch.nn.Module,
     dataset,
     batch_size: int,
-    num_workers: int,
     device: torch.device,
 ) -> dict[str, object]:
-    loader = DataLoader(
-        dataset,
+    loader = build_temporal_evaluation_loader(
+        dataset=dataset,
         batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-        persistent_workers=num_workers > 0,
         collate_fn=collate_temporal_jepa_evaluation_samples,
     )
     model.eval()
@@ -308,16 +338,11 @@ def _evaluate_deployed_dataset(
     model: torch.nn.Module,
     dataset,
     batch_size: int,
-    num_workers: int,
     device: torch.device,
 ) -> dict[str, object]:
-    loader = DataLoader(
-        dataset,
+    loader = build_temporal_evaluation_loader(
+        dataset=dataset,
         batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-        persistent_workers=num_workers > 0,
         collate_fn=collate_temporal_jepa_deployed_evaluation_samples,
     )
     model.eval()
@@ -551,12 +576,10 @@ def execute_temporal_fold_job(
             epoch=epoch,
             optimizer_steps_per_epoch=preflight.optimizer_steps_per_epoch,
         )
-        loader = DataLoader(
-            fit_corpus,
-            batch_sampler=batches,
+        loader = build_temporal_training_loader(
+            dataset=fit_corpus,
+            batches=batches,
             num_workers=num_workers,
-            pin_memory=True,
-            persistent_workers=num_workers > 0,
             collate_fn=collate_temporal_jepa_samples,
         )
 
@@ -606,6 +629,7 @@ def execute_temporal_fold_job(
             total_optimizer_steps=total_optimizer_steps,
             optimizer_step_callback=log_step,
         )
+        del loader
         progress = result.progress
         epoch_payload: dict[str, object] = {
             "epoch": progress.completed_epochs,
@@ -625,14 +649,12 @@ def execute_temporal_fold_job(
                 model=model,
                 dataset=monitor_dataset,
                 batch_size=min(microbatch_size, 8),
-                num_workers=num_workers,
                 device=target_device,
             )
             epoch_payload["deployed_d20_monitor"] = _evaluate_deployed_dataset(
                 model=model,
                 dataset=deployed_monitor_dataset,
                 batch_size=min(microbatch_size, 4),
-                num_workers=num_workers,
                 device=target_device,
             )
         _write_epoch_metrics(
@@ -691,14 +713,12 @@ def execute_temporal_fold_job(
                 model=model,
                 dataset=development_corpus,
                 batch_size=min(microbatch_size, 8),
-                num_workers=num_workers,
                 device=target_device,
             ),
             "deployed_d20": _evaluate_deployed_dataset(
                 model=model,
                 dataset=deployed_development_corpus,
                 batch_size=min(microbatch_size, 4),
-                num_workers=num_workers,
                 device=target_device,
             ),
         }
