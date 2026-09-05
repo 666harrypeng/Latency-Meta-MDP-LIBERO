@@ -74,6 +74,7 @@ class TemporalJepaTrainingConfig:
     monitor_contexts_per_episode: int
     checkpoint_period_epochs: int
     milestone_epochs: tuple[int, int, int]
+    console_progress_period_optimizer_steps: int
 
     def __post_init__(self) -> None:
         if self.schema_version != 1 or self.config_id != "l3_temporal_selection_jepa_wm_recipe":
@@ -122,6 +123,8 @@ class TemporalJepaTrainingConfig:
             raise ValueError("training monitoring/checkpoint protocol is invalid")
         if self.milestone_epochs != (20, 40, 50):
             raise ValueError("training milestone epochs are invalid")
+        if self.console_progress_period_optimizer_steps != 5:
+            raise ValueError("training console progress period is invalid")
 
 
 @dataclass(frozen=True)

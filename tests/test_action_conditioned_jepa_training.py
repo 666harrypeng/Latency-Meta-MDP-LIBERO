@@ -129,6 +129,7 @@ def test_training_config_matches_upstream_metaworld_optimizer_semantics() -> Non
     assert config.monitor_contexts_per_episode == 4
     assert config.checkpoint_period_epochs == 1
     assert config.milestone_epochs == (20, 40, 50)
+    assert config.console_progress_period_optimizer_steps == 5
 
 
 def test_optimizer_excludes_bias_and_norm_and_reproduces_upstream_schedules() -> None:

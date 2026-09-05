@@ -89,6 +89,53 @@ class TemporalFoldPreflight:
         return asdict(self)
 
 
+def should_emit_temporal_training_progress(
+    *,
+    epoch_step: int,
+    optimizer_steps_per_epoch: int,
+    period: int,
+) -> bool:
+    if (
+        type(epoch_step) is not int
+        or type(optimizer_steps_per_epoch) is not int
+        or type(period) is not int
+        or optimizer_steps_per_epoch <= 0
+        or period <= 0
+        or not 1 <= epoch_step <= optimizer_steps_per_epoch
+    ):
+        raise ValueError("console progress cadence is invalid")
+    return epoch_step == 1 or epoch_step == optimizer_steps_per_epoch or epoch_step % period == 0
+
+
+def format_temporal_training_progress(
+    *,
+    temporal_config_id: str,
+    fold_index: int,
+    model_seed: int,
+    epoch: int,
+    max_epochs: int,
+    epoch_step: int,
+    optimizer_steps_per_epoch: int,
+    global_optimizer_step: int,
+    total_optimizer_steps: int,
+    examples_seen: int,
+    total_loss: float,
+    gradient_norm: float,
+    learning_rate: float,
+    weight_decay: float,
+    elapsed_seconds: float,
+) -> str:
+    return (
+        "[action-conditioned-jepa] "
+        f"config={temporal_config_id} fold={fold_index} seed={model_seed} "
+        f"epoch={epoch}/{max_epochs} epoch_step={epoch_step}/{optimizer_steps_per_epoch} "
+        f"global_step={global_optimizer_step}/{total_optimizer_steps} "
+        f"examples={examples_seen} loss={total_loss:.6f} "
+        f"grad_norm={gradient_norm:.6f} lr={learning_rate:g} wd={weight_decay:g} "
+        f"elapsed={elapsed_seconds:.1f}s"
+    )
+
+
 def build_temporal_fold_preflight(
     *,
     project_root: Path,
@@ -331,6 +378,23 @@ def execute_temporal_fold_job(
     if enable_wandb and preflight.wandb_api_key != "SET":
         raise RuntimeError("WANDB_API_KEY is UNSET")
 
+    target_epochs = preflight.max_epochs
+    if qualification_max_epochs is not None:
+        target_epochs = min(target_epochs, qualification_max_epochs)
+    print(
+        "[action-conditioned-jepa] stage=preflight status=complete "
+        f"config={preflight.temporal_config_id} fold={preflight.fold_index} "
+        f"seed={preflight.model_seed} device={preflight.device} "
+        f"microbatch={preflight.microbatch_size} "
+        f"accumulation={preflight.gradient_accumulation_steps} "
+        f"epochs={target_epochs} steps_per_epoch={preflight.optimizer_steps_per_epoch}",
+        flush=True,
+    )
+    print(
+        "[action-conditioned-jepa] stage=input_verification status=start",
+        flush=True,
+    )
+
     root = Path(project_root).resolve()
     target = Path(output_dir).absolute()
     temporal_path = Path(temporal_config_path)
@@ -413,6 +477,11 @@ def execute_temporal_fold_job(
         deployed_development_corpus,
         [monitor_positions[value] for value in monitor_indices],
     )
+    print(
+        "[action-conditioned-jepa] stage=input_verification status=complete "
+        f"fit_contexts={len(fit_corpus)} development_contexts={len(development_corpus)}",
+        flush=True,
+    )
 
     torch.manual_seed(model_seed)
     torch.cuda.manual_seed_all(model_seed)
@@ -466,9 +535,6 @@ def execute_temporal_fold_job(
             allow_val_change=False,
         )
 
-    target_epochs = training.max_epochs
-    if qualification_max_epochs is not None:
-        target_epochs = min(target_epochs, qualification_max_epochs)
     total_optimizer_steps = preflight.optimizer_steps_per_epoch * training.max_epochs
     started = time.perf_counter()
     history = load_completed_temporal_jepa_history(
@@ -476,6 +542,7 @@ def execute_temporal_fold_job(
         completed_epochs=progress.completed_epochs,
     )
     for epoch in range(progress.completed_epochs, target_epochs):
+        epoch_started = time.perf_counter()
         batches = build_epoch_microbatch_indices(
             dataset_size=len(fit_corpus),
             logical_global_batch_size=training.logical_global_batch_size,
@@ -494,6 +561,32 @@ def execute_temporal_fold_job(
         )
 
         def log_step(values: dict[str, float | int]) -> None:
+            epoch_step = int(values["optimizer_step"]) - progress.optimizer_steps
+            if should_emit_temporal_training_progress(
+                epoch_step=epoch_step,
+                optimizer_steps_per_epoch=preflight.optimizer_steps_per_epoch,
+                period=training.console_progress_period_optimizer_steps,
+            ):
+                print(
+                    format_temporal_training_progress(
+                        temporal_config_id=config.temporal_sampling.config_id,
+                        fold_index=fold_index,
+                        model_seed=model_seed,
+                        epoch=epoch + 1,
+                        max_epochs=target_epochs,
+                        epoch_step=epoch_step,
+                        optimizer_steps_per_epoch=preflight.optimizer_steps_per_epoch,
+                        global_optimizer_step=int(values["optimizer_step"]),
+                        total_optimizer_steps=total_optimizer_steps,
+                        examples_seen=int(values["examples_seen"]),
+                        total_loss=float(values["total_loss"]),
+                        gradient_norm=float(values["gradient_norm"]),
+                        learning_rate=float(values["learning_rate"]),
+                        weight_decay=float(values["weight_decay"]),
+                        elapsed_seconds=time.perf_counter() - epoch_started,
+                    ),
+                    flush=True,
+                )
             if (
                 wandb_run is not None
                 and int(values["optimizer_step"]) % wandb_config.log_every_optimizer_steps == 0

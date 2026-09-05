@@ -18,3 +18,4 @@ monitor_period_epochs: 5
 monitor_contexts_per_episode: 4
 checkpoint_period_epochs: 1
 milestone_epochs: [20, 40, 50]
+console_progress_period_optimizer_steps: 5
