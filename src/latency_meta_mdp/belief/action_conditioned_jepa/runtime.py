@@ -1,4 +1,4 @@
-"""Online K6 history aligned exactly with the offline JEPA data contract."""
+"""Online 50 Hz history sampled for any admitted JEPA temporal configuration."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from collections import deque
 
 import torch
 
+from latency_meta_mdp.belief.action_conditioned_jepa.config import JepaTemporalSampling
 from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
 from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
     JepaProprioNormalization,
@@ -13,22 +14,38 @@ from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
 
 
 class JepaRuntimeHistory:
-    """One-client ring buffer of six real boundaries and five executed controls."""
+    """One-client 50 Hz ring buffer sampled at a config-bound model stride."""
 
-    def __init__(self, proprio_normalization: JepaProprioNormalization) -> None:
+    def __init__(
+        self,
+        proprio_normalization: JepaProprioNormalization,
+        *,
+        temporal_sampling: JepaTemporalSampling,
+    ) -> None:
         if not isinstance(proprio_normalization, JepaProprioNormalization):
             raise TypeError("proprio_normalization must be JepaProprioNormalization")
+        if not isinstance(temporal_sampling, JepaTemporalSampling):
+            raise TypeError("temporal_sampling must be JepaTemporalSampling")
         self.normalization = proprio_normalization
-        self._vision: deque[torch.Tensor] = deque(maxlen=6)
-        self._proprio: deque[torch.Tensor] = deque(maxlen=6)
-        self._controls: deque[torch.Tensor] = deque(maxlen=5)
+        self.temporal_sampling = temporal_sampling
+        source_boundaries = temporal_sampling.history_span_ticks + 1
+        self._vision: deque[torch.Tensor] = deque(maxlen=source_boundaries)
+        self._proprio: deque[torch.Tensor] = deque(maxlen=source_boundaries)
+        self._controls: deque[torch.Tensor] = deque(
+            maxlen=temporal_sampling.history_span_ticks
+        )
         self._device: torch.device | None = None
         self._mean = torch.tensor(proprio_normalization.mean, dtype=torch.float32)
         self._scale = torch.tensor(proprio_normalization.scale, dtype=torch.float32)
 
     @property
     def ready(self) -> bool:
-        return len(self._vision) == 6 and len(self._proprio) == 6 and len(self._controls) == 5
+        required_boundaries = self.temporal_sampling.history_span_ticks + 1
+        return (
+            len(self._vision) == required_boundaries
+            and len(self._proprio) == required_boundaries
+            and len(self._controls) == self.temporal_sampling.history_span_ticks
+        )
 
     def append_boundary(
         self,
@@ -79,7 +96,7 @@ class JepaRuntimeHistory:
 
     def build_launch_context(self, executable_controls: torch.Tensor) -> LaunchContextBatch:
         if not self.ready:
-            raise RuntimeError("JEPA Belief requires six real boundaries before launch")
+            raise RuntimeError("JEPA Belief requires the complete real history before launch")
         if (
             not isinstance(executable_controls, torch.Tensor)
             or tuple(executable_controls.shape) != (20, 7)
@@ -90,9 +107,25 @@ class JepaRuntimeHistory:
             or bool((executable_controls > 1.0).any())
         ):
             raise ValueError("runtime executable controls must be controller-native float32[20,7]")
+        stride = self.temporal_sampling.model_stride_ticks
+        history_count = self.temporal_sampling.history_observation_count
+        vision = tuple(self._vision)[::stride]
+        proprio = tuple(self._proprio)[::stride]
+        if len(vision) != history_count or len(proprio) != history_count:
+            raise RuntimeError("runtime history sampling disagrees with the temporal contract")
+        past_controls = torch.stack(tuple(self._controls)).reshape(
+            history_count - 1,
+            stride,
+            7,
+        )
+        future_controls = executable_controls.detach().clone().reshape(
+            self.temporal_sampling.native_rollout_steps,
+            stride,
+            7,
+        )
         return LaunchContextBatch(
-            vision_history=torch.stack(tuple(self._vision)).unsqueeze(0),
-            proprio_history=torch.stack(tuple(self._proprio)).unsqueeze(0),
-            executed_controls=torch.stack(tuple(self._controls)).unsqueeze(0),
-            executable_controls=executable_controls.detach().clone().unsqueeze(0),
+            vision_history=torch.stack(vision).unsqueeze(0),
+            proprio_history=torch.stack(proprio).unsqueeze(0),
+            executed_controls=past_controls.unsqueeze(0),
+            executable_controls=future_controls.unsqueeze(0),
         )

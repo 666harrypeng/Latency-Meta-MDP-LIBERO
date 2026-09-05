@@ -1,0 +1,9 @@
+schema_version: 1
+config_id: action_conditioned_jepa_wandb
+enabled: true
+project: latency-meta-mdp-action-conditioned-jepa
+group: l3-temporal-selection
+api_key_env: WANDB_API_KEY
+resume: allow
+log_every_optimizer_steps: 10
+log_media: false

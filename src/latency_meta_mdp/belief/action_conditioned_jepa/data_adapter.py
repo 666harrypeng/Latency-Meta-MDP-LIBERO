@@ -99,7 +99,7 @@ class JepaSampleIndex:
         if type(self.episode_id) is not str or not self.episode_id:
             raise ValueError("JEPA sample episode_id cannot be empty")
         if type(self.source_tick) is not int or self.source_tick < _HISTORY_TICKS - 1:
-            raise ValueError("JEPA sample source_tick lacks K6 history")
+            raise ValueError("dense-reference JEPA sample lacks six-boundary history")
 
 
 @dataclass(frozen=True)
@@ -128,7 +128,7 @@ class JepaEpisodeRecord:
         if self.split not in {"train", "validation"}:
             raise ValueError("JEPA episode split must be train or validation")
         if type(self.terminal_tick) is not int or self.terminal_tick < _HISTORY_TICKS:
-            raise ValueError("JEPA episode is too short for K6 history")
+            raise ValueError("JEPA episode is too short for dense-reference history")
         if not isinstance(self.cache, EpisodeVisionFeatureCache) or not isinstance(
             self.cache.features, np.memmap
         ):
@@ -429,13 +429,14 @@ class JepaTrainingSample:
         return LaunchContextBatch(
             vision_history=self.vision_history.unsqueeze(0),
             proprio_history=self.proprio_history.unsqueeze(0),
-            executed_controls=self.executed_controls.unsqueeze(0),
-            executable_controls=self.executable_controls.unsqueeze(0),
+            executed_controls=self.executed_controls.unsqueeze(0).unsqueeze(2),
+            executable_controls=self.executable_controls.unsqueeze(0).unsqueeze(2),
         )
 
     @property
     def future_rollout(self) -> FutureLatentRollout:
         return FutureLatentRollout(
+            native_delay_ticks=torch.arange(1, 21, dtype=torch.int64),
             future_visual_latents=self.future_visual_latents.unsqueeze(0),
             future_proprio=self.future_proprio.unsqueeze(0),
         )

@@ -9,6 +9,9 @@ MODEL_PATH = Path("configs/belief/action_conditioned_jepa/model.yaml")
 L1_PATH = Path("configs/belief/action_conditioned_jepa/l1.yaml")
 L2_PATH = Path("configs/belief/action_conditioned_jepa/l2.yaml")
 L3_PATH = Path("configs/belief/action_conditioned_jepa/l3.yaml")
+DENSE_TEMPORAL_PATH = Path(
+    "configs/belief/action_conditioned_jepa/dense_20ms_history_100ms.yaml"
+)
 
 
 def test_l3_config_resolves_locked_architecture() -> None:
@@ -19,6 +22,7 @@ def test_l3_config_resolves_locked_architecture() -> None:
     config = load_action_conditioned_jepa_config(
         model_path=MODEL_PATH,
         level_path=L3_PATH,
+        temporal_sampling_path=DENSE_TEMPORAL_PATH,
     )
 
     assert config.model_config_id == "action_conditioned_jepa_return_belief"
@@ -26,6 +30,10 @@ def test_l3_config_resolves_locked_architecture() -> None:
     assert config.level == 3
     assert config.formal_tick_us == 20_000
     assert config.history_ticks == 6
+    assert config.history_span_ticks == 5
+    assert config.model_stride_ticks == 1
+    assert config.native_rollout_steps == 20
+    assert config.macro_action_dim == 7
     assert config.executed_control_ticks == 5
     assert config.maximum_delay_ticks == 20
     assert config.prediction_horizon == 50
@@ -57,17 +65,17 @@ def test_l3_config_resolves_locked_architecture() -> None:
     assert config.future_proprio_output == "physical_si"
     assert config.one_step_context == "teacher_forced"
     assert config.rollout_context == "predicted_stop_gradient"
-    assert config.rollout_endpoint_sampling == "stratified_uniform_2_20"
+    assert config.rollout_training == "two_step_last_gradient_tbptt"
     assert config.visual_loss_weight == 1.0
     assert config.proprio_loss_weight == 1.0
     assert config.public_latent_dtype == "float16"
     assert config.internal_compute_dtype == "bfloat16"
-    assert config.temporal_contract.contract_id == "h50_e25_d20_k6_v1"
+    assert config.source_protocol.protocol_id == "h50_e25_d20_control_50hz"
     assert config.action_contract.contract_id == "panda_osc_pose_delta_v1"
     assert config.vision_encoder.encoder_id == "dinov3_vits16_lvd1689m_224_v1"
     assert config.upstream_reference.reference_id == "jepa_wms_adaln_depth6_metaworld"
-    assert config.launch_support.minimum_cursor == 5
-    assert config.launch_support.maximum_cursor == 25
+    assert config.launch_support.required_history_ticks == 5
+    assert config.launch_support.latest_launch_cursor == 25
     assert config.launch_support.remaining_controls_at_latest_cursor == 25
 
 
@@ -77,7 +85,11 @@ def test_level_configs_change_only_level_identity() -> None:
     )
 
     configs = tuple(
-        load_action_conditioned_jepa_config(model_path=MODEL_PATH, level_path=path)
+        load_action_conditioned_jepa_config(
+            model_path=MODEL_PATH,
+            level_path=path,
+            temporal_sampling_path=DENSE_TEMPORAL_PATH,
+        )
         for path in (L1_PATH, L2_PATH, L3_PATH)
     )
 
@@ -112,7 +124,11 @@ def test_model_config_rejects_latency_law_inside_predictor(tmp_path: Path) -> No
     )
 
     with pytest.raises(ValueError, match="fields"):
-        load_action_conditioned_jepa_config(model_path=path, level_path=L3_PATH)
+        load_action_conditioned_jepa_config(
+            model_path=path,
+            level_path=L3_PATH,
+            temporal_sampling_path=DENSE_TEMPORAL_PATH,
+        )
 
 
 def test_level_config_rejects_training_or_model_fields(tmp_path: Path) -> None:
@@ -127,34 +143,42 @@ def test_level_config_rejects_training_or_model_fields(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="fields"):
-        load_action_conditioned_jepa_config(model_path=MODEL_PATH, level_path=path)
+        load_action_conditioned_jepa_config(
+            model_path=MODEL_PATH,
+            level_path=path,
+            temporal_sampling_path=DENSE_TEMPORAL_PATH,
+        )
 
 
-def test_launch_support_is_derived_from_h50_e25_d20_k6() -> None:
+def test_launch_support_separates_history_readiness_from_buffer_cursor() -> None:
+    """Catches using active-buffer cursor as a proxy for model history availability."""
+
     from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
         JepaLaunchSupportContract,
     )
 
     contract = JepaLaunchSupportContract(
-        minimum_cursor=5,
-        maximum_cursor=25,
+        required_history_ticks=10,
+        latest_launch_cursor=25,
         prediction_horizon=50,
         maximum_delay_ticks=20,
     )
 
     assert contract.remaining_controls_at_latest_cursor == 25
-    assert contract.is_belief_ready(5)
-    assert contract.is_belief_ready(25)
-    assert not contract.is_belief_ready(4)
-    assert not contract.is_belief_ready(26)
-    contract.require_supported_launch_cursor(5)
-    contract.require_supported_launch_cursor(25)
-    with pytest.raises(ValueError, match="availability interval"):
-        contract.require_supported_launch_cursor(4)
+    assert not contract.is_belief_ready(available_history_ticks=9)
+    assert contract.is_belief_ready(available_history_ticks=10)
+    assert contract.is_supported_launch_cursor(0)
+    assert contract.is_supported_launch_cursor(25)
+    assert not contract.is_supported_launch_cursor(26)
+    contract.require_supported_launch(cursor=0, available_history_ticks=10)
+    with pytest.raises(ValueError, match="history"):
+        contract.require_supported_launch(cursor=0, available_history_ticks=9)
+    with pytest.raises(ValueError, match="cursor"):
+        contract.require_supported_launch(cursor=26, available_history_ticks=10)
     with pytest.raises(ValueError, match="buffer coverage"):
         JepaLaunchSupportContract(
-            minimum_cursor=5,
-            maximum_cursor=31,
+            required_history_ticks=10,
+            latest_launch_cursor=31,
             prediction_horizon=50,
             maximum_delay_ticks=20,
         )
@@ -168,12 +192,10 @@ def test_resolved_config_cannot_drift_from_public_tensor_contract() -> None:
     config = load_action_conditioned_jepa_config(
         model_path=MODEL_PATH,
         level_path=L3_PATH,
+        temporal_sampling_path=DENSE_TEMPORAL_PATH,
     )
-    temporal = replace(
-        config.temporal_contract,
-        contract_id="h50_e25_d19_k6_v1",
-        maximum_delay_ticks=19,
-    )
-
-    with pytest.raises(ValueError, match="public tensor contract"):
-        replace(config, temporal_contract=temporal)
+    with pytest.raises(ValueError, match="H50/E25/D20"):
+        replace(
+            config.source_protocol,
+            maximum_delay_ticks=19,
+        )

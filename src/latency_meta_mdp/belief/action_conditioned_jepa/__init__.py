@@ -2,7 +2,11 @@
 
 from latency_meta_mdp.belief.action_conditioned_jepa.config import (
     ActionConditionedJepaConfig,
+    JepaSourceProtocol,
+    JepaTemporalSampling,
     load_action_conditioned_jepa_config,
+    load_jepa_source_protocol,
+    load_jepa_temporal_sampling,
 )
 from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
     FutureLatentRollout,
@@ -43,6 +47,8 @@ __all__ = [
     "JepaLaunchSupportContract",
     "JepaProprioNormalization",
     "JepaRuntimeHistory",
+    "JepaSourceProtocol",
+    "JepaTemporalSampling",
     "JepaSampleIndex",
     "JepaTrainingSample",
     "LaunchContextBatch",
@@ -53,6 +59,8 @@ __all__ = [
     "load_action_conditioned_jepa_config",
     "load_action_conditioned_jepa_corpus",
     "load_jepa_proprio_normalization",
+    "load_jepa_source_protocol",
+    "load_jepa_temporal_sampling",
     "load_return_latent_belief",
     "weighted_future_proprio",
     "weighted_future_visual_latents",

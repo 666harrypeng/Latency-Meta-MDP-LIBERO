@@ -1,0 +1,7 @@
+schema_version: 1
+config_id: dense_20ms_history_100ms
+model_stride_ticks: 1
+history_observation_count: 6
+native_rollout_steps: 20
+training_rollout_steps: 2
+latency_quantizer: nearest_native_anchor_upper_tie

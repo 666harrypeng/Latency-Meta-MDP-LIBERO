@@ -24,6 +24,9 @@ def _config():
     return load_action_conditioned_jepa_config(
         model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
         level_path=Path("configs/belief/action_conditioned_jepa/l3.yaml"),
+        temporal_sampling_path=Path(
+            "configs/belief/action_conditioned_jepa/dense_20ms_history_100ms.yaml"
+        ),
     )
 
 
@@ -42,11 +45,15 @@ def _normalization() -> JepaProprioNormalization:
 
 
 def _context(*, device: str = "cpu") -> LaunchContextBatch:
-    controls = torch.linspace(-0.5, 0.5, 20, device=device).view(1, 20, 1).repeat(1, 1, 7)
+    controls = (
+        torch.linspace(-0.5, 0.5, 20, device=device)
+        .view(1, 20, 1, 1)
+        .repeat(1, 1, 1, 7)
+    )
     return LaunchContextBatch(
         vision_history=torch.zeros(1, 6, 2, 196, 384, dtype=torch.float16, device=device),
         proprio_history=torch.zeros(1, 6, 16, dtype=torch.float32, device=device),
-        executed_controls=torch.zeros(1, 5, 7, dtype=torch.float32, device=device),
+        executed_controls=torch.zeros(1, 5, 1, 7, dtype=torch.float32, device=device),
         executable_controls=controls.to(torch.float32),
     )
 
@@ -211,7 +218,7 @@ def test_ar20_rollout_cannot_read_unexecuted_control_suffix(monkeypatch) -> None
         executed_controls,
         outgoing_control,
     ):
-        effect = outgoing_control[:, :1]
+        effect = outgoing_control[:, 0, :1]
         visual = vision_history[:, -1].to(torch.float32) + effect[:, None, None, :]
         proprio = proprio_history[:, -1] + effect
         return visual, proprio
@@ -231,8 +238,8 @@ def test_ar20_rollout_cannot_read_unexecuted_control_suffix(monkeypatch) -> None
         executable_controls=changed_controls,
     )
 
-    base = model.rollout_d20(context)
-    other = model.rollout_d20(changed)
+    base = model.rollout_native(context)
+    other = model.rollout_native(changed)
 
     torch.testing.assert_close(
         base.future_visual_latents[:, :7],
@@ -285,7 +292,7 @@ def test_exact_predictor_cuda_forward_gradient_and_ar20() -> None:
     with torch.autocast("cuda", dtype=torch.bfloat16):
         endpoint = model.rollout_endpoint_for_loss(context, horizon=2)
     assert all(torch.isfinite(value).all() for value in endpoint)
-    rollout = model.rollout_d20(context)
+    rollout = model.rollout_native(context)
     assert rollout.future_visual_latents.dtype == torch.float16
     assert rollout.future_proprio.dtype == torch.float32
     rollout.validate_finite()
@@ -361,3 +368,93 @@ def test_complete_single_view_predictor_matches_upstream() -> None:
         actual = project.forward_single_view_compat(vision, controls)
 
     torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-4)
+
+
+def test_stride4_predictor_uses_one_shared_model_path_and_macro_action_width() -> None:
+    """Catches a separate coarse predictor or an action encoder that sees only one micro-control."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+        ActionConditionedJepaPredictor,
+    )
+
+    config = load_action_conditioned_jepa_config(
+        model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
+        level_path=Path("configs/belief/action_conditioned_jepa/l3.yaml"),
+        temporal_sampling_path=Path(
+            "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml"
+        ),
+    )
+    model = ActionConditionedJepaPredictor(
+        config=config,
+        proprio_normalization=_normalization(),
+        project_root=Path.cwd(),
+        primitives=_primitives(),
+    )
+
+    assert model.config.history_ticks == 3
+    assert model.backbone.action_encoder.in_features == 28
+    assert model.coordinates.shape == (3, 393, 3)
+    assert model.attention_mask.shape == (3 * 393, 3 * 393)
+
+
+def test_macro_rollout_cannot_read_later_control_blocks(monkeypatch) -> None:
+    """Catches a native anchor depending on controls after its physical-time endpoint."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+        load_action_conditioned_jepa_config,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
+    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+        ActionConditionedJepaPredictor,
+    )
+
+    config = load_action_conditioned_jepa_config(
+        model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
+        level_path=Path("configs/belief/action_conditioned_jepa/l3.yaml"),
+        temporal_sampling_path=Path(
+            "configs/belief/action_conditioned_jepa/stride2_40ms_history_120ms.yaml"
+        ),
+    )
+    model = ActionConditionedJepaPredictor(
+        config=config,
+        proprio_normalization=_normalization(),
+        project_root=Path.cwd(),
+        primitives=_primitives(),
+    )
+
+    def scripted_predict_next(
+        self,
+        *,
+        vision_history,
+        proprio_history,
+        executed_controls,
+        outgoing_control,
+    ):
+        effect = outgoing_control.sum(dim=(1, 2), keepdim=False)[:, None]
+        visual = vision_history[:, -1].to(torch.float32) + effect[:, None, None, :]
+        proprio = proprio_history[:, -1] + effect
+        return visual, proprio
+
+    monkeypatch.setattr(model, "predict_next", MethodType(scripted_predict_next, model))
+    future = torch.arange(20, dtype=torch.float32).reshape(1, 10, 2, 1).repeat(1, 1, 1, 7)
+    context = LaunchContextBatch(
+        vision_history=torch.zeros(1, 4, 2, 196, 384, dtype=torch.float16),
+        proprio_history=torch.zeros(1, 4, 16, dtype=torch.float32),
+        executed_controls=torch.zeros(1, 3, 2, 7, dtype=torch.float32),
+        executable_controls=future,
+    )
+    changed_future = future.clone()
+    changed_future[:, 4:].mul_(-1)
+    changed = LaunchContextBatch(
+        vision_history=context.vision_history,
+        proprio_history=context.proprio_history,
+        executed_controls=context.executed_controls,
+        executable_controls=changed_future,
+    )
+
+    base = model.rollout_native(context)
+    other = model.rollout_native(changed)
+
+    assert torch.equal(base.native_delay_ticks, torch.arange(2, 21, 2, dtype=torch.int64))
+    torch.testing.assert_close(base.future_proprio[:, :4], other.future_proprio[:, :4])
+    assert not torch.equal(base.future_proprio[:, 4:], other.future_proprio[:, 4:])

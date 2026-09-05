@@ -15,6 +15,7 @@ import torch
 from safetensors.torch import load as load_safetensors
 from safetensors.torch import save as save_safetensors
 
+from latency_meta_mdp.belief.action_conditioned_jepa.config import JepaTemporalSampling
 from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
     FutureLatentRollout,
     ReturnLatentBeliefBatch,
@@ -40,6 +41,67 @@ _MANIFEST_FIELDS = {
 }
 
 
+def quantize_d20_probabilities(
+    *,
+    probabilities: torch.Tensor,
+    sampling: JepaTemporalSampling,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Aggregate an authoritative D20 PMF onto model-native anchors without dropping mass."""
+
+    if not isinstance(probabilities, torch.Tensor):
+        raise TypeError("probabilities must be a torch.Tensor")
+    if not isinstance(sampling, JepaTemporalSampling):
+        raise TypeError("sampling must be a JepaTemporalSampling")
+    if probabilities.ndim != 2 or probabilities.shape[1] != sampling.maximum_delay_ticks:
+        raise ValueError("probabilities must have shape [B,20]")
+    if probabilities.dtype != torch.float32:
+        raise ValueError("probabilities must use float32")
+    valid = (
+        probabilities.shape[0] > 0
+        and bool(torch.isfinite(probabilities).all())
+        and bool((probabilities >= 0).all())
+        and bool(
+            torch.allclose(
+                probabilities.sum(dim=1),
+                torch.ones(
+                    probabilities.shape[0],
+                    dtype=torch.float32,
+                    device=probabilities.device,
+                ),
+                atol=1e-6,
+                rtol=0.0,
+            )
+        )
+    )
+    if not valid:
+        raise ValueError("probabilities must be finite, nonnegative, and sum to one")
+
+    anchors = torch.tensor(
+        sampling.native_future_offsets,
+        dtype=torch.int64,
+        device=probabilities.device,
+    )
+    if sampling.model_stride_ticks == 1:
+        return anchors, probabilities
+    delays = torch.arange(
+        1,
+        sampling.maximum_delay_ticks + 1,
+        dtype=torch.int64,
+        device=probabilities.device,
+    )
+    distances = torch.abs(delays[:, None] - anchors[None, :])
+    reverse_assignment = torch.argmin(torch.flip(distances, dims=(1,)), dim=1)
+    assignment = anchors.numel() - 1 - reverse_assignment
+    macro = torch.zeros(
+        probabilities.shape[0],
+        anchors.numel(),
+        dtype=torch.float32,
+        device=probabilities.device,
+    )
+    macro.scatter_add_(1, assignment[None].expand(probabilities.shape[0], -1), probabilities)
+    return anchors, macro
+
+
 def _require_sha256(value: str, *, name: str) -> str:
     if type(value) is not str or _SHA256.fullmatch(value) is None:
         raise ValueError(f"{name} must be a lowercase SHA-256 digest")
@@ -49,17 +111,24 @@ def _require_sha256(value: str, *, name: str) -> str:
 def assemble_return_latent_belief(
     rollout: FutureLatentRollout,
     probabilities: torch.Tensor,
+    *,
+    sampling: JepaTemporalSampling,
 ) -> ReturnLatentBeliefBatch:
-    """Attach a valid D20 PMF without recomputing or copying fixed-delay futures."""
+    """Attach a quantized D20 PMF without recomputing or copying native futures."""
 
     if not isinstance(rollout, FutureLatentRollout):
         raise TypeError("rollout must be a FutureLatentRollout")
     if not isinstance(probabilities, torch.Tensor):
         raise TypeError("probabilities must be a torch.Tensor")
-    delay_ticks = torch.arange(1, 21, dtype=torch.int64, device=rollout.device)
+    delay_ticks, macro_probabilities = quantize_d20_probabilities(
+        probabilities=probabilities,
+        sampling=sampling,
+    )
+    if not torch.equal(delay_ticks, rollout.native_delay_ticks):
+        raise ValueError("rollout native delays disagree with temporal sampling")
     return ReturnLatentBeliefBatch(
         delay_ticks=delay_ticks,
-        delay_probabilities=probabilities,
+        delay_probabilities=macro_probabilities,
         future_visual_latents=rollout.future_visual_latents,
         future_proprio=rollout.future_proprio,
     )
@@ -123,7 +192,7 @@ def write_return_latent_belief(
             "format_id": _FORMAT_ID,
             "latency_law_sha256": law_sha,
             "batch_size": belief.batch_size,
-            "delay_count": belief.maximum_delay_ticks,
+            "delay_count": belief.native_delay_count,
             "visual_shape": list(belief.future_visual_latents.shape),
             "proprio_shape": list(belief.future_proprio.shape),
             "artifacts": {
@@ -189,7 +258,7 @@ def load_return_latent_belief(output_dir: Path) -> LoadedReturnLatentBelief:
     )
     if (
         manifest["batch_size"] != belief.batch_size
-        or manifest["delay_count"] != belief.maximum_delay_ticks
+        or manifest["delay_count"] != belief.native_delay_count
         or manifest["visual_shape"] != list(belief.future_visual_latents.shape)
         or manifest["proprio_shape"] != list(belief.future_proprio.shape)
     ):

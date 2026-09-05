@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
 from latency_meta_mdp.vision_feature_cache import EpisodeVisionFeatureCache
 
@@ -294,6 +295,256 @@ def test_corpus_rejects_normalization_from_another_source_or_split(tmp_path: Pat
         )
 
 
+def test_shared_temporal_indices_use_the_strictest_history_for_all_candidates(
+    tmp_path: Path,
+) -> None:
+    """Catches candidate-specific launch occupancy entering configuration selection."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+        load_jepa_temporal_sampling,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+        build_shared_temporal_indices,
+    )
+
+    root = Path("configs/belief/action_conditioned_jepa")
+    samplings = tuple(
+        load_jepa_temporal_sampling(root / name)
+        for name in (
+            "dense_20ms_history_100ms.yaml",
+            "stride2_40ms_history_120ms.yaml",
+            "stride4_80ms_history_160ms.yaml",
+            "stride5_100ms_history_200ms.yaml",
+        )
+    )
+    record = _record(tmp_path, terminal_tick=30)
+
+    indices = build_shared_temporal_indices(records=(record,), samplings=samplings)
+
+    assert tuple(index.source_tick for index in indices) == tuple(range(10, 30))
+    assert all(index.episode_id == record.episode_id for index in indices)
+    assert indices[0].boundary_disposition == "recorded_complete"
+    assert indices[-1].boundary_disposition == "certified_absorbing_extension"
+
+
+def test_stride2_temporal_sample_preserves_macro_control_order_and_absorbing_tail(
+    tmp_path: Path,
+) -> None:
+    """Catches strided endpoint sampling that drops intervening controls or pads nonphysically."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+        load_jepa_temporal_sampling,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+        SharedJepaSampleIndex,
+        materialize_temporal_jepa_sample,
+    )
+
+    sampling = load_jepa_temporal_sampling(
+        Path("configs/belief/action_conditioned_jepa/stride2_40ms_history_120ms.yaml")
+    )
+    record = _record(tmp_path, terminal_tick=30)
+    sample = materialize_temporal_jepa_sample(
+        record=record,
+        index=SharedJepaSampleIndex(
+            level=3,
+            split="train",
+            episode_id=record.episode_id,
+            source_tick=20,
+            boundary_disposition="certified_absorbing_extension",
+        ),
+        sampling=sampling,
+        normalization=_normalization(record),
+    )
+
+    np.testing.assert_array_equal(sample.history_ticks, np.array([14, 16, 18, 20]))
+    np.testing.assert_array_equal(
+        sample.past_macro_control_ticks,
+        np.array([[14, 15], [16, 17], [18, 19]]),
+    )
+    np.testing.assert_array_equal(
+        sample.future_macro_control_ticks,
+        np.arange(20, 40).reshape(10, 2),
+    )
+    np.testing.assert_array_equal(sample.native_target_ticks, np.arange(22, 41, 2))
+    np.testing.assert_array_equal(sample.native_target_rows, np.minimum(np.arange(22, 41, 2), 30))
+    np.testing.assert_array_equal(sample.target_absorbing, np.arange(22, 41, 2) > 30)
+    assert sample.vision_history.shape == (4, 2, 196, 384)
+    assert sample.past_macro_controls.shape == (3, 2, 7)
+    assert sample.future_macro_controls.shape == (10, 2, 7)
+    assert sample.future_visual_latents.shape == (10, 2, 196, 384)
+    assert sample.future_proprio.shape == (10, 16)
+    assert sample.launch_context.executed_controls.shape == (1, 3, 2, 7)
+    assert sample.launch_context.executable_controls.shape == (1, 10, 2, 7)
+    assert torch.equal(
+        sample.future_rollout.native_delay_ticks,
+        torch.arange(2, 21, 2, dtype=torch.int64),
+    )
+    np.testing.assert_array_equal(
+        sample.future_macro_controls[:5],
+        record.controls[20:30].reshape(5, 2, 7),
+    )
+    np.testing.assert_array_equal(
+        sample.future_macro_controls[5:, :, :6].numpy(),
+        np.zeros((5, 2, 6), dtype=np.float32),
+    )
+    np.testing.assert_array_equal(
+        sample.future_macro_controls[5:, :, 6].numpy(),
+        np.full((5, 2), record.last_real_gripper_command, dtype=np.float32),
+    )
+    absorbing_rows = np.flatnonzero(sample.target_absorbing).tolist()
+    np.testing.assert_array_equal(
+        sample.future_proprio[absorbing_rows, 7:14].numpy(),
+        np.zeros((5, 7), dtype=np.float32),
+    )
+
+
+def test_temporal_sample_rejects_wrong_boundary_disposition(tmp_path: Path) -> None:
+    """Catches labeling a truncated terminal future as fully recorded."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+        load_jepa_temporal_sampling,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+        SharedJepaSampleIndex,
+        materialize_temporal_jepa_sample,
+    )
+
+    record = _record(tmp_path, terminal_tick=30)
+    sampling = load_jepa_temporal_sampling(
+        Path("configs/belief/action_conditioned_jepa/stride5_100ms_history_200ms.yaml")
+    )
+
+    with pytest.raises(ValueError, match="boundary disposition"):
+        materialize_temporal_jepa_sample(
+            record=record,
+            index=SharedJepaSampleIndex(
+                level=3,
+                split="train",
+                episode_id=record.episode_id,
+                source_tick=20,
+                boundary_disposition="recorded_complete",
+            ),
+            sampling=sampling,
+            normalization=_normalization(record),
+        )
+
+
+def test_temporal_corpus_filters_fold_episodes_and_collates_dynamic_batch(
+    tmp_path: Path,
+) -> None:
+    """Catches loading development episodes into fit or returning fixed dense tensor shapes."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+        load_jepa_temporal_sampling,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+        compute_jepa_proprio_normalization,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+        TemporalJepaCorpus,
+        build_shared_temporal_indices,
+        collate_temporal_jepa_evaluation_samples,
+        collate_temporal_jepa_samples,
+    )
+
+    first = _record(tmp_path, episode_id="fit", terminal_tick=30)
+    second = _record(tmp_path, episode_id="development", terminal_tick=30)
+    normalization = compute_jepa_proprio_normalization(
+        records=(first,),
+        source_manifest_sha256="a" * 64,
+        split_manifest_sha256="b" * 64,
+    )
+    sampling = load_jepa_temporal_sampling(
+        Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+    )
+    indices = build_shared_temporal_indices(
+        records=(first, second),
+        samplings=(sampling,),
+    )
+    corpus = TemporalJepaCorpus(
+        records=(first, second),
+        indices=indices,
+        episode_ids=(first.episode_id,),
+        partition="fit",
+        sampling=sampling,
+        normalization=normalization,
+    )
+    development = TemporalJepaCorpus(
+        records=(second,),
+        indices=indices,
+        episode_ids=(second.episode_id,),
+        partition="development",
+        sampling=sampling,
+        normalization=normalization,
+    )
+
+    assert len(corpus) == 22
+    assert len(development) == 22
+    assert {index.episode_id for index in corpus.indices} == {"fit"}
+    batch = collate_temporal_jepa_samples((corpus[0], corpus[1]))
+    assert batch.context.vision_history.shape == (2, 3, 2, 196, 384)
+    assert batch.context.executed_controls.shape == (2, 2, 4, 7)
+    assert batch.context.executable_controls.shape == (2, 5, 4, 7)
+    assert batch.target_visual_latents.shape == (2, 2, 2, 196, 384)
+    assert batch.target_proprio_normalized.shape == (2, 2, 16)
+    assert batch.target_proprio_physical.shape == (2, 2, 16)
+    assert batch.target_absorbing.shape == (2, 2)
+    singleton = collate_temporal_jepa_samples([corpus[0]])
+    assert singleton.batch_size == 1
+    moved = singleton.to(torch.device("cpu"))
+    assert moved.indices == singleton.indices
+    assert moved.context.device == torch.device("cpu")
+    evaluation = collate_temporal_jepa_evaluation_samples([corpus[0], corpus[1]])
+    assert evaluation.target_visual_latents.shape == (2, 5, 2, 196, 384)
+    assert evaluation.target_proprio_physical.shape == (2, 5, 16)
+    assert evaluation.target_absorbing.shape == (2, 5)
+    assert evaluation.to(torch.device("cpu")).context.device == torch.device("cpu")
+
+
+def test_deployed_evaluation_view_materializes_dense_d20_only_for_evaluation(
+    tmp_path: Path,
+) -> None:
+    """Catches evaluating a coarse rollout only at native anchors and hiding quantization error."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+        load_jepa_temporal_sampling,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+        TemporalJepaCorpus,
+        TemporalJepaDeployedEvaluationCorpus,
+        build_shared_temporal_indices,
+        collate_temporal_jepa_deployed_evaluation_samples,
+    )
+
+    record = _record(tmp_path, episode_id="development", terminal_tick=30)
+    normalization_source = _record(tmp_path, episode_id="fit", terminal_tick=30)
+    normalization = _normalization(normalization_source)
+    sampling = load_jepa_temporal_sampling(
+        Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+    )
+    indices = build_shared_temporal_indices(records=(record,), samplings=(sampling,))
+    native = TemporalJepaCorpus(
+        records=(record,),
+        indices=indices,
+        episode_ids=(record.episode_id,),
+        partition="development",
+        sampling=sampling,
+        normalization=normalization,
+    )
+    deployed = TemporalJepaDeployedEvaluationCorpus(native)
+
+    sample = deployed[0]
+    assert sample.native_sample.future_visual_latents.shape[0] == 5
+    assert sample.dense_target_visual_latents.shape == (20, 2, 196, 384)
+    assert sample.dense_target_proprio_physical.shape == (20, 16)
+    np.testing.assert_array_equal(sample.dense_delay_ticks, np.arange(1, 21))
+    batch = collate_temporal_jepa_deployed_evaluation_samples((sample,))
+    assert batch.native_delay_ticks.tolist() == [4, 8, 12, 16, 20]
+    assert batch.dense_target_visual_latents.shape == (1, 20, 2, 196, 384)
+    assert batch.to(torch.device("cpu")).context.device == torch.device("cpu")
+
+
 @pytest.mark.integration
 def test_formal_source_cache_split_join_for_one_episode_per_level() -> None:
     from latency_meta_mdp.belief.action_conditioned_jepa.config import (
@@ -322,6 +573,10 @@ def test_formal_source_cache_split_join_for_one_episode_per_level() -> None:
     config = load_action_conditioned_jepa_config(
         model_path=root / "configs/belief/action_conditioned_jepa/model.yaml",
         level_path=root / "configs/belief/action_conditioned_jepa/l3.yaml",
+        temporal_sampling_path=(
+            root
+            / "configs/belief/action_conditioned_jepa/dense_20ms_history_100ms.yaml"
+        ),
     )
     inputs = load_verified_jepa_inputs(
         source_root=source_root,

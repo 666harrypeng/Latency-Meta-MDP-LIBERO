@@ -138,7 +138,7 @@ class ActionConditionedJepaPredictor(nn.Module):
             use_activation_checkpointing=False,
             local_window=(-1, -1, -1),
             use_rope=True,
-            action_dim=config.action_dim,
+            action_dim=config.macro_action_dim,
             proprio_dim=config.proprio_dim,
             use_proprio=True,
             act_mlp=False,
@@ -217,13 +217,21 @@ class ActionConditionedJepaPredictor(nn.Module):
             raise TypeError("predict_next inputs must be torch tensors")
         batch_size = vision_history.shape[0]
         expected = (
-            tuple(vision_history.shape) == (batch_size, 6, 2, 196, 384),
-            tuple(proprio_history.shape) == (batch_size, 6, 16),
-            tuple(executed_controls.shape) == (batch_size, 5, 7),
-            tuple(outgoing_control.shape) == (batch_size, 7),
+            tuple(vision_history.shape)
+            == (batch_size, self.config.history_ticks, 2, 196, 384),
+            tuple(proprio_history.shape) == (batch_size, self.config.history_ticks, 16),
+            tuple(executed_controls.shape)
+            == (
+                batch_size,
+                self.config.history_ticks - 1,
+                self.config.model_stride_ticks,
+                7,
+            ),
+            tuple(outgoing_control.shape)
+            == (batch_size, self.config.model_stride_ticks, 7),
         )
         if batch_size <= 0 or not all(expected):
-            raise ValueError("predict_next tensor shapes do not match K6/D20 semantics")
+            raise ValueError("predict_next tensors do not match temporal-config semantics")
         devices = {
             vision_history.device,
             proprio_history.device,
@@ -283,7 +291,7 @@ class ActionConditionedJepaPredictor(nn.Module):
             vision_history=vision_history,
             proprio_history=proprio_history,
         ).flatten(1, 2)
-        controls = torch.cat((executed_controls, outgoing_control.unsqueeze(1)), dim=1)
+        controls = torch.cat((executed_controls, outgoing_control.unsqueeze(1)), dim=1).flatten(2)
         conditioning = self.backbone.action_encoder(
             controls.to(dtype=self.backbone.action_encoder.weight.dtype)
         )
@@ -330,7 +338,7 @@ class ActionConditionedJepaPredictor(nn.Module):
         ) or tuple(controls.shape) != (
             batch_size,
             self.config.history_ticks,
-            self.config.action_dim,
+            self.config.macro_action_dim,
         ):
             raise ValueError("single-view compatibility tensors have invalid shapes")
         devices = {
@@ -423,8 +431,8 @@ class ActionConditionedJepaPredictor(nn.Module):
         context: LaunchContextBatch,
         horizon: int,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if type(horizon) is not int or not 1 <= horizon <= self.config.maximum_delay_ticks:
-            raise ValueError("rollout horizon must lie in 1..20")
+        if type(horizon) is not int or not 1 <= horizon <= self.config.native_rollout_steps:
+            raise ValueError("rollout horizon must lie on the model-native grid")
         vision = context.vision_history
         proprio = context.proprio_history
         executed = context.executed_controls
@@ -450,7 +458,7 @@ class ActionConditionedJepaPredictor(nn.Module):
         raise AssertionError("unreachable rollout horizon")
 
     @torch.no_grad()
-    def rollout_d20(self, context: LaunchContextBatch) -> FutureLatentRollout:
+    def rollout_native(self, context: LaunchContextBatch) -> FutureLatentRollout:
         if not isinstance(context, LaunchContextBatch):
             raise TypeError("context must be a LaunchContextBatch")
         vision = context.vision_history
@@ -463,7 +471,7 @@ class ActionConditionedJepaPredictor(nn.Module):
             dtype=torch.bfloat16,
             enabled=context.device.type == "cuda",
         ):
-            for step in range(self.config.maximum_delay_ticks):
+            for step in range(self.config.native_rollout_steps):
                 outgoing = context.executable_controls[:, step]
                 next_visual, next_proprio = self.predict_next(
                     vision_history=vision,
@@ -488,6 +496,11 @@ class ActionConditionedJepaPredictor(nn.Module):
             normalized_proprio * self.proprio_scale[None, None] + self.proprio_mean[None, None]
         ).to(torch.float32)
         return FutureLatentRollout(
+            native_delay_ticks=torch.tensor(
+                self.config.temporal_sampling.native_future_offsets,
+                dtype=torch.int64,
+                device=context.device,
+            ),
             future_visual_latents=visual,
             future_proprio=physical_proprio,
         )

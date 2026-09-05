@@ -9,3 +9,4 @@ robosuite==1.5.2
 tensordict==0.11.0
 timm==1.0.19
 torchvision==0.22.1
+wandb==0.29.0

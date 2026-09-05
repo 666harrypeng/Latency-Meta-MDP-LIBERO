@@ -1,0 +1,7 @@
+schema_version: 1
+protocol_id: h50_e25_d20_control_50hz
+formal_tick_us: 20000
+control_frequency_hz: 50
+prediction_horizon: 50
+latest_launch_cursor: 25
+maximum_delay_ticks: 20

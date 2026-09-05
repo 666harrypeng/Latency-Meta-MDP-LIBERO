@@ -1,0 +1,7 @@
+schema_version: 1
+config_id: stride5_100ms_history_200ms
+model_stride_ticks: 5
+history_observation_count: 3
+native_rollout_steps: 4
+training_rollout_steps: 2
+latency_quantizer: nearest_native_anchor_upper_tie
