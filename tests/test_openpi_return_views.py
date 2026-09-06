@@ -113,3 +113,71 @@ def test_exact_delay_oracle_has_an_explicit_separate_input_route():
     np.testing.assert_array_equal(out["return_belief_probabilities"], [1, 0, 0, 0, 0])
     with pytest.raises(ValueError, match="fields"):
         ReturnBeliefInputs(model_type=ModelType.PI05, state_norm_stats=_stats())(raw)
+
+
+def test_in_process_policy_bridge_packs_current16_and_uses_explicit_noise_stream():
+    from openpi.policies.policy import Policy
+
+    from latency_meta_mdp.policy_execution import InProcessOpenpiPolicy, PolicyObservation
+
+    class LocalPolicy(Policy):
+        def __init__(self):
+            self.received = None
+
+        def infer(self, obs, *, noise=None):
+            self.received = obs
+            return {"actions": noise[:, :7]}
+
+    observation = PolicyObservation(
+        formal_tick=4,
+        image=np.zeros((8, 8, 3), np.uint8),
+        wrist_image=np.zeros((8, 8, 3), np.uint8),
+        state=np.zeros(16, np.float32),
+    )
+    first = LocalPolicy()
+    second = LocalPolicy()
+    a = InProcessOpenpiPolicy(first, noise_rng=np.random.default_rng(7))
+    b = InProcessOpenpiPolicy(second, noise_rng=np.random.default_rng(7))
+    belief = {"fixture": 1}
+    np.testing.assert_array_equal(
+        a(observation, belief)["actions"], b(observation, None)["actions"]
+    )
+    assert first.received["return_belief"] is belief
+    assert "return_belief" not in second.received
+    with pytest.raises(TypeError, match="in-process"):
+        InProcessOpenpiPolicy(object(), noise_rng=np.random.default_rng(7))
+
+
+def test_return_control_configs_freeze_native_weights_and_keep_clean_assets():
+    import flax.nnx as nnx
+
+    from latency_meta_mdp.openpi_belief_data import KnownDelayOracleDataConfig
+    from latency_meta_mdp.openpi_sft import _build_config, build_return_policy_train_config
+    from latency_meta_mdp.sft_profile import load_sft_profile
+
+    clean = _build_config(
+        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+    )
+    config = build_return_policy_train_config(
+        clean_config=clean,
+        clean_checkpoint=Path("/fixture/clean/params"),
+        view_spec={"mode": "predicted_mixture"},
+        experiment_name="adapter-control",
+    )
+    assert config.model.use_return_belief and config.model.discrete_state_input
+    assert Path(config.data.assets.assets_dir) == clean.assets_dirs
+    assert config.policy_metadata["adapter_only"] is True
+    assert nnx.filterlib.to_predicate(config.trainable_filter)(
+        ("return_belief_adapter", "gate"), nnx.Param(0.0)
+    )
+    assert not nnx.filterlib.to_predicate(config.trainable_filter)(
+        ("action_out_proj", "kernel"), nnx.Param(0.0)
+    )
+    oracle = build_return_policy_train_config(
+        clean_config=clean,
+        clean_checkpoint=Path("/fixture/clean/params"),
+        view_spec={"mode": "known_delay_oracle"},
+        experiment_name="oracle-control",
+    )
+    assert isinstance(oracle.data, KnownDelayOracleDataConfig)
+    assert oracle.policy_metadata["privileged_oracle"] is True

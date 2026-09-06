@@ -94,6 +94,78 @@ def register_sft_configs(profile: SFTProfile) -> tuple[str, ...]:
     return tuple(names)
 
 
+def build_return_policy_train_config(
+    *,
+    clean_config: Any,
+    clean_checkpoint: Path,
+    view_spec: dict,
+    experiment_name: str,
+    adapter_only: bool = True,
+) -> Any:
+    """Prepare matched return-mixture controls after a clean checkpoint is available.
+
+    The default trains only the policy-owned adapter, retaining the native model
+    for the first decision-usefulness comparison. This constructs configuration;
+    it neither downloads weights nor starts SFT. clean_checkpoint names params/.
+    """
+    import flax.nnx as nnx
+    from openpi.shared.nnx_utils import PathRegex
+    from openpi.training.config import AssetsConfig
+    from openpi.training.weight_loaders import CheckpointWeightLoader
+
+    from latency_meta_mdp.openpi_belief_adapter import NativePolicyWithReturnBeliefLoader
+    from latency_meta_mdp.openpi_belief_data import (
+        KnownDelayOracleDataConfig,
+        ReturnBeliefDataConfig,
+    )
+
+    model = clean_config.model
+    if (
+        not model.pi05
+        or not model.discrete_state_input
+        or model.active_action_dim != 7
+        or model.action_horizon != 50
+        or clean_config.policy_metadata.get("state_dim") != 16
+        or not clean_config.policy_metadata.get("masked_action_tails")
+    ):
+        raise ValueError(
+            "return policy initialization requires the matched clean state-aware policy"
+        )
+    mode = view_spec.get("mode")
+    if mode not in {"predicted_mixture", "gt_mixture", "known_delay_oracle"}:
+        raise ValueError("return-policy control mode is invalid")
+    factory = KnownDelayOracleDataConfig if mode == "known_delay_oracle" else ReturnBeliefDataConfig
+    return dataclasses.replace(
+        clean_config,
+        name=f"{clean_config.name}_{mode}",
+        exp_name=experiment_name,
+        model=dataclasses.replace(model, use_return_belief=True),
+        data=factory(
+            repo_id=clean_config.data.repo_id,
+            base_config=clean_config.data.base_config,
+            assets=AssetsConfig(
+                assets_dir=str(clean_config.assets_dirs), asset_id=clean_config.data.repo_id
+            ),
+            return_policy_view=dict(view_spec),
+        ),
+        weight_loader=NativePolicyWithReturnBeliefLoader(
+            CheckpointWeightLoader(str(clean_checkpoint))
+        ),
+        freeze_filter=nnx.Not(PathRegex("return_belief_adapter/.*"))
+        if adapter_only
+        else clean_config.freeze_filter,
+        policy_metadata={
+            **clean_config.policy_metadata,
+            "return_policy_mode": mode,
+            "adapter_only": adapter_only,
+            "privileged_oracle": mode == "known_delay_oracle",
+            "initialization": "matched_clean_policy",
+        },
+        overwrite=False,
+        resume=False,
+    )
+
+
 def build_level_train_config(
     *,
     profile: SFTProfile,

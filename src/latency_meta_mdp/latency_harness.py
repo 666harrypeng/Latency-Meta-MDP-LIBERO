@@ -104,9 +104,7 @@ class Arrival(Generic[TPayload]):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer")
-        if self.arrival_formal_tick != (
-            self.launch_formal_tick + self.realized_delay_ticks
-        ):
+        if self.arrival_formal_tick != (self.launch_formal_tick + self.realized_delay_ticks):
             raise ValueError("arrival tick does not equal launch tick plus realized delay")
 
 
@@ -366,7 +364,21 @@ class LogicalLatencyHarness(Generic[TObservation, TPayload]):
             self._fail("eligibility requires an open formal boundary")
         self._validate_owned_current_arrival(arrival)
         if self._eligible_arrival is not None:
-            self._fail("eligible activation was already recorded")
+            # After an older request arrives, an immediate scheduler may launch
+            # a new zero-delay request at this same boundary. Both completed;
+            # the latter replaces the former before the one physical action.
+            new_immediate = (
+                self._activated_arrival is self._eligible_arrival
+                and self._launched_this_boundary
+                and arrival.request_id == self._next_request_id - 1
+                and arrival.request_id > self._eligible_arrival.request_id
+                and arrival.launch_formal_tick == self._current_tick
+                and arrival.realized_delay_ticks == 0
+                and not self._execute_recorded
+            )
+            if not new_immediate:
+                self._fail("eligible activation was already recorded")
+            self._activated_arrival = None
         self._eligible_arrival = arrival
         self._emit(
             HarnessEventKind.ELIGIBLE_ACTIVATION,

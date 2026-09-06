@@ -68,6 +68,78 @@ def _run_ticks(client, clock: _SimulationClock, *, through: int, inferred_chunk:
     return executed
 
 
+def test_scheduler_observes_post_arrival_buffer_and_never_pending_delay():
+    _, client, _, clock = _make_client(2)
+    states = []
+
+    def decide(state):
+        states.append(state)
+        assert not hasattr(state, "realized_delay_ticks")
+        assert not hasattr(state, "arrival_formal_tick")
+        assert not state.executable_controls.flags.writeable
+        return state.formal_tick in (0, 2)
+
+    for tick in range(5):
+        clock.time_us = tick * 20_000
+        client.run_boundary(
+            formal_tick=tick,
+            observation=f"obs-{tick}",
+            infer=lambda context: _chunk(0.2),
+            execute=lambda action: None,
+            decide_launch=decide,
+        )
+    assert [state.formal_tick for state in states] == [0, 2, 4]
+    assert states[1].active_cursor == 0 and states[1].remaining_actions == 50
+    np.testing.assert_array_equal(states[1].executable_controls[0], _chunk(0.2)[0])
+    assert states[1].unread_action_buffer.shape == (50, 7)
+    assert states[1].unread_action_mask.all()
+    np.testing.assert_array_equal(states[1].unread_action_buffer[30], _chunk(0.2)[30])
+
+
+def test_scheduler_wait_can_reach_explicit_hold_without_inventing_buffer_actions():
+    _, client, harness, clock = _make_client(2)
+    states = []
+    executed = []
+
+    def wait(state):
+        states.append(state)
+        return False
+
+    for tick in range(53):
+        clock.time_us = tick * 20_000
+        client.run_boundary(
+            formal_tick=tick,
+            observation=None,
+            infer=lambda context: _chunk(0.2),
+            execute=lambda action: executed.append(action.copy()),
+            decide_launch=wait,
+        )
+    assert states[-1].remaining_actions == 0
+    np.testing.assert_array_equal(states[-1].executable_controls[:, :6], 0)
+    np.testing.assert_array_equal(states[-1].executable_controls[:, -1], -1)
+    assert not states[-1].unread_action_mask.any()
+    assert not harness.pending
+    np.testing.assert_array_equal(executed[-1], [0, 0, 0, 0, 0, 0, -1])
+
+
+def test_immediate_scheduler_can_replace_an_arrival_with_a_new_zero_delay_return():
+    _, client, harness, clock = _make_client(2)
+    delays = iter([2, 0])
+    harness._delay_sampler = lambda: next(delays)
+    outputs = []
+    for tick in range(3):
+        clock.time_us = tick * 20_000
+        client.run_boundary(
+            formal_tick=tick,
+            observation=None,
+            infer=lambda context: _chunk(0.1 * (context.request_id + 1)),
+            execute=lambda action: outputs.append(action.copy()),
+            decide_launch=lambda state: True,
+        )
+    np.testing.assert_array_equal(outputs[2], _chunk(0.2)[0])
+    assert not harness.pending
+
+
 def test_default_chunk_client_config_locks_h50_e25_sharp_warm_start() -> None:
     module = _module()
 

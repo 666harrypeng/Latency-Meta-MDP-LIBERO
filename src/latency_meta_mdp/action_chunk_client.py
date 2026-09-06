@@ -19,6 +19,42 @@ TObservation = TypeVar("TObservation")
 
 
 @dataclass(frozen=True)
+class ChunkDecisionState:
+    """Deployment-visible state at a no-pending decision boundary."""
+
+    formal_tick: int
+    active_cursor: int
+    remaining_actions: int
+    actions_consumed: int
+    executable_controls: np.ndarray
+    latency_probabilities: np.ndarray | None = None
+    unread_action_buffer: np.ndarray | None = None
+    unread_action_mask: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        controls = np.array(self.executable_controls, copy=True)
+        controls.setflags(write=False)
+        object.__setattr__(self, "executable_controls", controls)
+        for name in ("unread_action_buffer", "unread_action_mask"):
+            value = getattr(self, name)
+            if value is not None:
+                value = np.array(value, copy=True)
+                value.setflags(write=False)
+                object.__setattr__(self, name, value)
+        if self.latency_probabilities is not None:
+            probability = np.array(self.latency_probabilities, dtype=np.float32, copy=True)
+            if (
+                probability.shape != (20,)
+                or not np.isfinite(probability).all()
+                or np.any(probability < 0)
+                or not np.isclose(probability.sum(), 1, atol=1e-6, rtol=0)
+            ):
+                raise ValueError("decision-state latency law must be a normalized D20 PMF")
+            probability.setflags(write=False)
+            object.__setattr__(self, "latency_probabilities", probability)
+
+
+@dataclass(frozen=True)
 class ActionChunkClientConfig:
     schema_version: int
     protocol_id: str
@@ -188,6 +224,7 @@ class SharpActionChunkClient(Generic[TObservation]):
         harness: LogicalLatencyHarness[TObservation, np.ndarray],
         simulation_time_reader: Callable[[], int],
         monotonic_ns: Callable[[], int],
+        on_chunk_install: Callable[[ChunkClientEvent], None] | None = None,
     ) -> None:
         if action_contract.formal_tick_us != harness.formal_tick_us:
             raise ValueError("chunk client and harness must share one formal clock")
@@ -200,6 +237,7 @@ class SharpActionChunkClient(Generic[TObservation]):
         self.harness = harness
         self._simulation_time_reader = simulation_time_reader
         self._monotonic_ns = monotonic_ns
+        self._on_chunk_install = on_chunk_install
         self._active_actions: np.ndarray | None = None
         self._active_chunk_id: int | None = None
         self._active_source_request_id: int | None = None
@@ -295,6 +333,8 @@ class SharpActionChunkClient(Generic[TObservation]):
                 installed_chunk_index=0,
             )
         )
+        if self._on_chunk_install is not None:
+            self._on_chunk_install(self._chunk_events[-1])
 
     def bootstrap(
         self,
@@ -407,6 +447,27 @@ class SharpActionChunkClient(Generic[TObservation]):
             gripper_command=self.last_gripper_command,
         )
 
+    def unread_buffer(self) -> tuple[np.ndarray, np.ndarray]:
+        """Full known buffer for Meta decisions, with explicit hold outside its valid prefix."""
+        horizon = self.config.prediction_horizon
+        remaining = (
+            np.empty((0, self.action_contract.action_dim))
+            if self._active_actions is None
+            else self._active_actions[self._active_cursor : self._active_cursor + horizon]
+        )
+        result = np.repeat(self._hold_action()[None], horizon, axis=0)
+        if len(remaining):
+            result[: len(remaining)] = remaining
+            result[len(remaining) :, -1] = remaining[-1, -1]
+        result.setflags(write=False)
+        mask = np.arange(horizon) < len(remaining)
+        mask.setflags(write=False)
+        return result, mask
+
+    def executable_prefix(self) -> np.ndarray:
+        """D20 prefix for JEPA; Meta decisions separately retain the complete known buffer."""
+        return self.unread_buffer()[0][: self.config.temporal_contract.maximum_delay_ticks]
+
     def run_boundary(
         self,
         *,
@@ -414,6 +475,7 @@ class SharpActionChunkClient(Generic[TObservation]):
         observation: TObservation,
         infer: Callable[[LaunchContext[TObservation]], np.ndarray],
         execute: Callable[[np.ndarray], None],
+        decide_launch: Callable[[ChunkDecisionState], bool] | None = None,
     ) -> np.ndarray:
         self._require_healthy()
         if not self._bootstrapped:
@@ -421,14 +483,29 @@ class SharpActionChunkClient(Generic[TObservation]):
             raise RuntimeError("warm bootstrap is required before formal execution")
         try:
             arrival = self.harness.open_boundary(formal_tick)
-            arrived_this_boundary = arrival is not None
             if arrival is not None:
                 self._activate_arrival(arrival)
-            if (
-                not arrived_this_boundary
-                and not self.harness.pending
-                and self._actions_consumed >= self.config.launch_trigger_horizon
-            ):
+            launch = False
+            if not self.harness.pending:
+                if decide_launch is None:
+                    launch = self._actions_consumed >= self.config.launch_trigger_horizon
+                else:
+                    full_buffer, buffer_mask = self.unread_buffer()
+                    state = ChunkDecisionState(
+                        formal_tick=formal_tick,
+                        active_cursor=self._active_cursor,
+                        remaining_actions=max(
+                            0, self.config.prediction_horizon - self._active_cursor
+                        ),
+                        actions_consumed=self._actions_consumed,
+                        executable_controls=self.executable_prefix(),
+                        unread_action_buffer=full_buffer,
+                        unread_action_mask=buffer_mask,
+                    )
+                    launch = decide_launch(state)
+                    if type(launch) is not bool:
+                        raise TypeError("launch decision must be boolean")
+            if launch:
                 immediate = self.harness.launch(observation=observation, infer=infer)
                 if immediate is not None:
                     self._activate_arrival(immediate)
