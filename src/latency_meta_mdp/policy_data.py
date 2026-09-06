@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,8 +15,7 @@ from latency_meta_mdp.temporal_contract import load_temporal_contract
 
 FORMAL_TICK_US = 20_000
 _TEMPORAL_CONTRACT = load_temporal_contract(
-    Path(__file__).resolve().parents[2]
-    / "configs/temporal/h50_e25_d20_k6_v1.yaml"
+    Path(__file__).resolve().parents[2] / "configs/temporal/h50_e25_d20_k6_v1.yaml"
 )
 ACTION_HORIZON = _TEMPORAL_CONTRACT.prediction_horizon
 LAUNCH_TRIGGER_HORIZON = _TEMPORAL_CONTRACT.launch_trigger_horizon
@@ -96,6 +96,114 @@ class PolicyEpisode:
     state: np.ndarray
     actions: np.ndarray
     valid_action_chunk_sources: np.ndarray
+    state_contract: str = "eef_xyz_rotvec_gripper_qpos_v1"
+    logical_master_task_index: int | None = None
+
+
+def load_structured_policy_episode(source: Any, *, episode_id: str) -> PolicyEpisode:
+    """Nominal policy view with current 16D proprio and every real action source.
+
+    H50 targets must use materialize_policy_action_target and its loss mask.
+    The source recording stays unmodified and has no training split.
+    """
+    from PIL import Image
+
+    from latency_meta_mdp.expert_realization.source_corpus.loader import VerifiedSourceCorpus
+    from latency_meta_mdp.expert_realization.source_corpus.schema import SourceFieldRole
+
+    if not isinstance(source, VerifiedSourceCorpus):
+        raise TypeError("source must be a VerifiedSourceCorpus")
+    metadata = source.episode_metadata(episode_id)
+    rows = source.read_fields(
+        episode_id,
+        fields=(
+            "formal_tick",
+            "time_us",
+            "agentview_rgb",
+            "wrist_rgb",
+            "robot_qpos",
+            "robot_qvel",
+            "gripper_qpos",
+            "gripper_qvel",
+            "expert_action",
+            "action_mask",
+        ),
+        allowed_roles=frozenset({SourceFieldRole.IDENTITY, SourceFieldRole.DEPLOYMENT_INPUT}),
+    ).to_pylist()
+    count = metadata["terminal_tick"]
+    if (
+        len(rows) != count + 1
+        or count <= 0
+        or [r["formal_tick"] for r in rows] != list(range(count + 1))
+        or [r["time_us"] for r in rows] != [t * FORMAL_TICK_US for t in range(count + 1)]
+        or rows[-1]["expert_action"] is not None
+        or rows[-1]["action_mask"] is not None
+        or any(r["expert_action"] is None or r["action_mask"] != [True] * 7 for r in rows[:-1])
+    ):
+        raise ValueError("structured policy episode has invalid clock/action alignment")
+    current = rows[:-1]
+    qpos = np.asarray([r["robot_qpos"] for r in current], dtype=np.float32)
+    qvel = np.asarray([r["robot_qvel"] for r in current], dtype=np.float32)
+    gpos = np.asarray([r["gripper_qpos"] for r in current], dtype=np.float32)
+    gvel = np.asarray([r["gripper_qvel"] for r in current], dtype=np.float32)
+    state = np.concatenate(
+        (qpos, qvel, gpos[:, :1] - gpos[:, 1:], gvel[:, :1] - gvel[:, 1:]), axis=1
+    )
+    actions = np.asarray([r["expert_action"] for r in current], dtype=np.float32)
+    if (
+        state.shape != (count, 16)
+        or actions.shape != (count, 7)
+        or not np.isfinite(state).all()
+        or not np.isfinite(actions).all()
+        or np.any(np.abs(actions) > 1)
+    ):
+        raise ValueError("structured policy state/actions violate the physical contract")
+
+    def images(name: str) -> np.ndarray:
+        frames = []
+        for row in current:
+            with Image.open(io.BytesIO(row[name]["bytes"])) as image:
+                frames.append(np.asarray(image.convert("RGB"), dtype=np.uint8))
+        return _readonly(np.stack(frames))
+
+    return PolicyEpisode(
+        episode_id=episode_id,
+        task_id="dynamic_grasp_lift",
+        instruction="Grasp the moving ball and lift it.",
+        level=metadata["level"],
+        action_horizon=ACTION_HORIZON,
+        source_formal_tick=_readonly(np.arange(count), dtype=np.int64),
+        source_time_us=_readonly(np.arange(count) * FORMAL_TICK_US, dtype=np.int64),
+        agentview_rgb=images("agentview_rgb"),
+        wrist_rgb=images("wrist_rgb"),
+        state=_readonly(state),
+        actions=_readonly(actions),
+        valid_action_chunk_sources=_readonly(np.arange(count), dtype=np.int64),
+        state_contract="joint_qpos_qvel_gripper_width_velocity",
+        logical_master_task_index=metadata["logical_master_task_index"],
+    )
+
+
+def materialize_policy_action_target(
+    episode: PolicyEpisode,
+    *,
+    target_start_tick: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return an H50 action tensor and valid-loss mask from one real trajectory.
+
+    Padding is storage only: it is never a hold target or supervised expert action.
+    """
+    if (
+        not isinstance(episode, PolicyEpisode)
+        or type(target_start_tick) is not int
+        or not 0 <= target_start_tick < len(episode.actions)
+    ):
+        raise ValueError("action target must start at a recorded action")
+    count = min(episode.action_horizon, len(episode.actions) - target_start_tick)
+    target = np.zeros((episode.action_horizon, ACTION_DIM), dtype=np.float32)
+    mask = np.arange(episode.action_horizon) < count
+    target[:count] = episode.actions[target_start_tick : target_start_tick + count]
+    return _readonly(target), _readonly(mask)
 
 
 def _load_json_object(path: Path) -> dict[str, Any]:
@@ -172,18 +280,18 @@ def load_policy_episode(
         raise ValueError("raw-v3 episode cannot provide a complete action horizon")
 
     arrays = _load_arrays(root / "arrays.npz")
-    boundary_tick = _require_shape(
-        arrays, "boundary_formal_tick", (boundary_count,)
-    ).astype(np.int64, copy=False)
-    boundary_time = _require_shape(
-        arrays, "boundary_time_us", (boundary_count,)
-    ).astype(np.int64, copy=False)
-    source_tick = _require_shape(
-        arrays, "transition_source_tick", (transition_count,)
-    ).astype(np.int64, copy=False)
-    target_tick = _require_shape(
-        arrays, "transition_target_tick", (transition_count,)
-    ).astype(np.int64, copy=False)
+    boundary_tick = _require_shape(arrays, "boundary_formal_tick", (boundary_count,)).astype(
+        np.int64, copy=False
+    )
+    boundary_time = _require_shape(arrays, "boundary_time_us", (boundary_count,)).astype(
+        np.int64, copy=False
+    )
+    source_tick = _require_shape(arrays, "transition_source_tick", (transition_count,)).astype(
+        np.int64, copy=False
+    )
+    target_tick = _require_shape(arrays, "transition_target_tick", (transition_count,)).astype(
+        np.int64, copy=False
+    )
     if not (
         np.array_equal(boundary_tick, np.arange(boundary_count, dtype=np.int64))
         and np.array_equal(boundary_time, boundary_tick * FORMAL_TICK_US)
@@ -209,12 +317,8 @@ def load_policy_episode(
     ):
         raise ValueError("policy cameras must be RGB uint8 boundary streams")
 
-    eef_position = _require_shape(
-        arrays, "eef_position_world", (boundary_count, 3)
-    )
-    eef_orientation = _require_shape(
-        arrays, "eef_orientation_matrix_world", (boundary_count, 3, 3)
-    )
+    eef_position = _require_shape(arrays, "eef_position_world", (boundary_count, 3))
+    eef_orientation = _require_shape(arrays, "eef_orientation_matrix_world", (boundary_count, 3, 3))
     gripper_qpos = _require_shape(arrays, "gripper_qpos", (boundary_count, 2))
     actions = _require_shape(arrays, "expert_action", (transition_count, ACTION_DIM))
     action_mask = _require_shape(arrays, "action_mask", (transition_count, ACTION_DIM))
@@ -224,9 +328,7 @@ def load_policy_episode(
     rotation_vectors = np.stack(
         [rotation_matrix_to_rotvec(matrix) for matrix in eef_orientation[:-1]]
     )
-    state = np.concatenate(
-        [eef_position[:-1], rotation_vectors, gripper_qpos[:-1]], axis=-1
-    )
+    state = np.concatenate([eef_position[:-1], rotation_vectors, gripper_qpos[:-1]], axis=-1)
     if state.shape != (transition_count, POLICY_STATE_DIM) or not np.all(np.isfinite(state)):
         raise ValueError("derived policy state is not a finite 8D transition stream")
     if not np.all(np.isfinite(actions)):

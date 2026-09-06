@@ -250,6 +250,10 @@ class VerifiedSourceCorpus:
             )
         )
 
+    def episode_metadata(self, episode_id: str) -> Mapping[str, Any]:
+        """Read episode identity without loading frames or privileged columns."""
+        return MappingProxyType(dict(self._episodes[episode_id]))
+
     def read_episode(self, episode_id: str) -> VerifiedSourceEpisode:
         if episode_id not in self._episodes:
             raise KeyError(f"unknown source episode: {episode_id}")
