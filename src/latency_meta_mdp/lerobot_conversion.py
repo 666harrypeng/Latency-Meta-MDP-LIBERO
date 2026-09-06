@@ -26,6 +26,7 @@ from latency_meta_mdp.policy_data import (
 FPS = 50
 OPENPI_REVISION = "15a9616a00943ada6c20a0f158e3adb39df2ccac"
 LEROBOT_REVISION = "0cf864870cf29f4738d3ade893e6fd13fbd7cdb5"
+STRUCTURED_STATE_CONTRACT = "joint_qpos_qvel_gripper_width_velocity"
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -38,7 +39,15 @@ def _write_json(path: Path, value: Any) -> None:
 
 def _validate_episode(episode: PolicyEpisode) -> tuple[int, int, int]:
     frame_count = len(episode.source_formal_tick)
-    expected_valid_count = frame_count - ACTION_HORIZON + 1
+    structured = episode.state_contract == STRUCTURED_STATE_CONTRACT
+    if not structured and episode.state_contract != "eef_xyz_rotvec_gripper_qpos_v1":
+        raise ValueError("unsupported policy state contract")
+    if structured and (
+        type(episode.logical_master_task_index) is not int or episode.logical_master_task_index < 0
+    ):
+        raise ValueError("structured policy episode requires a master task identity")
+    state_dim = 16 if structured else POLICY_STATE_DIM
+    expected_valid_count = frame_count if structured else frame_count - ACTION_HORIZON + 1
     if episode.action_horizon != ACTION_HORIZON or expected_valid_count <= 0:
         raise ValueError("policy episode cannot provide the canonical H50 target")
     if not (
@@ -46,7 +55,7 @@ def _validate_episode(episode: PolicyEpisode) -> tuple[int, int, int]:
         and episode.source_time_us.shape == (frame_count,)
         and np.array_equal(episode.source_formal_tick, np.arange(frame_count))
         and np.array_equal(episode.source_time_us, np.arange(frame_count) * FORMAL_TICK_US)
-        and episode.state.shape == (frame_count, POLICY_STATE_DIM)
+        and episode.state.shape == (frame_count, state_dim)
         and episode.actions.shape == (frame_count, ACTION_DIM)
         and episode.agentview_rgb.ndim == 4
         and episode.wrist_rgb.ndim == 4
@@ -63,7 +72,7 @@ def _validate_episode(episode: PolicyEpisode) -> tuple[int, int, int]:
             np.arange(expected_valid_count),
         )
     ):
-        raise ValueError("policy episode does not satisfy the synchronized 8D/7D contract")
+        raise ValueError("policy episode does not satisfy its synchronized state/action contract")
     return frame_count, episode.agentview_rgb.shape[1], episode.agentview_rgb.shape[2]
 
 
@@ -80,7 +89,7 @@ def _resolve_dataset_factory(dataset_factory: Callable[..., Any] | None) -> Call
     return LeRobotDataset.create
 
 
-def _features(*, height: int, width: int) -> dict[str, dict[str, Any]]:
+def _features(*, height: int, width: int, state_dim: int) -> dict[str, dict[str, Any]]:
     return {
         "image": {
             "dtype": "image",
@@ -94,7 +103,7 @@ def _features(*, height: int, width: int) -> dict[str, dict[str, Any]]:
         },
         "state": {
             "dtype": "float32",
-            "shape": (POLICY_STATE_DIM,),
+            "shape": (state_dim,),
             "names": ["state"],
         },
         "actions": {
@@ -136,6 +145,9 @@ def write_lerobot_policy_dataset(
     expected_level = episode.level
     expected_task_id = episode.task_id
     expected_instruction = episode.instruction
+    state_contract = episode.state_contract
+    structured = state_contract == STRUCTURED_STATE_CONTRACT
+    state_dim = episode.state.shape[1]
     target.parent.mkdir(parents=True, exist_ok=True)
     staging = target.parent / f".{target.name}.building-{os.getpid()}"
     if staging.exists():
@@ -148,7 +160,7 @@ def write_lerobot_policy_dataset(
             root=staging,
             robot_type="panda",
             fps=FPS,
-            features=_features(height=height, width=width),
+            features=_features(height=height, width=width, state_dim=state_dim),
             use_videos=False,
             image_writer_processes=0,
             image_writer_threads=0,
@@ -161,6 +173,7 @@ def write_lerobot_policy_dataset(
                 episode.level != expected_level
                 or episode.task_id != expected_task_id
                 or episode.instruction != expected_instruction
+                or episode.state_contract != state_contract
             ):
                 raise ValueError("one LeRobot dataset must contain exactly one task level")
             if (episode_height, episode_width) != (height, width) or episode.wrist_rgb.shape[
@@ -189,6 +202,11 @@ def write_lerobot_policy_dataset(
                     "valid_action_chunk_source_count": len(episode.valid_action_chunk_sources),
                     "first_source_time_us": int(episode.source_time_us[0]),
                     "last_source_time_us": int(episode.source_time_us[-1]),
+                    **(
+                        {"logical_master_task_index": episode.logical_master_task_index}
+                        if structured
+                        else {}
+                    ),
                 }
             )
             try:
@@ -201,7 +219,11 @@ def write_lerobot_policy_dataset(
                 "schema_version": 1,
                 "format_id": "metamdp_lerobot_v21",
                 "repo_id": repo_id.strip(),
-                "source_format_id": "synchronized_episode_npz_v3",
+                "source_format_id": (
+                    "structured_expert_source_corpus_v3"
+                    if structured
+                    else "synchronized_episode_npz_v3"
+                ),
                 "level": expected_level,
                 "task_id": expected_task_id,
                 "instruction": expected_instruction,
@@ -210,9 +232,12 @@ def write_lerobot_policy_dataset(
                 "temporal_contract_id": TEMPORAL_CONTRACT_ID,
                 "action_horizon": ACTION_HORIZON,
                 "launch_trigger_horizon": LAUNCH_TRIGGER_HORIZON,
-                "drop_n_last_frames": ACTION_HORIZON - 1,
-                "state_contract": "eef_xyz_rotvec_gripper_qpos_v1",
-                "state_dim": POLICY_STATE_DIM,
+                "drop_n_last_frames": 0 if structured else ACTION_HORIZON - 1,
+                "action_target_contract": (
+                    "masked_h50_real_actions_v1" if structured else "complete_h50_v1"
+                ),
+                "state_contract": state_contract,
+                "state_dim": state_dim,
                 "action_contract": ACTION_CONTRACT_ID,
                 "action_dim": ACTION_DIM,
                 "image_storage": "embedded_png_in_parquet",

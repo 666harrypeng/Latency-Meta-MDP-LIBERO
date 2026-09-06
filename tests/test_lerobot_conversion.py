@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -122,6 +123,47 @@ def test_writer_accepts_a_single_pass_episode_iterable(tmp_path: Path) -> None:
     assert manifest["episode_count"] == 2
     assert factory.instance is not None
     assert len(factory.instance.saved_episodes) == 2
+
+
+def test_structured_writer_keeps_short_episodes_and_master_identity(tmp_path: Path) -> None:
+    factory = _FakeDatasetFactory()
+    episode = replace(
+        _policy_episode(episode_id="structured", frame_count=3),
+        state=np.zeros((3, 16), dtype=np.float32),
+        state_contract="joint_qpos_qvel_gripper_width_velocity",
+        logical_master_task_index=42,
+        valid_action_chunk_sources=np.arange(3),
+    )
+    manifest_path = write_lerobot_policy_dataset(
+        episodes=[episode],
+        output_dir=tmp_path / "structured",
+        repo_id="local/structured",
+        dataset_factory=factory,
+    )
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["state_dim"] == 16
+    assert manifest["drop_n_last_frames"] == 0
+    assert manifest["action_target_contract"] == "masked_h50_real_actions_v1"
+    assert manifest["valid_action_chunk_source_count"] == 3
+    assert manifest["episodes"][0]["logical_master_task_index"] == 42
+    assert factory.instance.create_kwargs["features"]["state"]["shape"] == (16,)
+    assert len(factory.instance.saved_episodes[0]) == 3
+
+
+def test_structured_writer_rejects_missing_master_identity(tmp_path: Path) -> None:
+    episode = replace(
+        _policy_episode(episode_id="structured"),
+        state=np.zeros((52, 16), dtype=np.float32),
+        state_contract="joint_qpos_qvel_gripper_width_velocity",
+        valid_action_chunk_sources=np.arange(52),
+    )
+    with pytest.raises(ValueError, match="master"):
+        write_lerobot_policy_dataset(
+            episodes=[episode],
+            output_dir=tmp_path / "bad",
+            repo_id="local/bad",
+            dataset_factory=_FakeDatasetFactory(),
+        )
 
 
 def test_writer_rejects_cross_level_dataset_before_creating_output(tmp_path: Path) -> None:

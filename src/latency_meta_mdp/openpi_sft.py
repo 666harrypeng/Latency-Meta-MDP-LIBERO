@@ -25,13 +25,19 @@ def _build_config(profile: SFTProfile, level: int) -> Any:
     model = pi0_config.Pi0Config(
         pi05=True,
         action_horizon=profile.action_horizon,
-        discrete_state_input=False,
+        discrete_state_input=profile.discrete_state_input,
+        **({"active_action_dim": profile.source_action_dim} if profile.masked_action_tails else {}),
     )
+    data_factory = LeRobotLiberoDataConfig
+    if profile.masked_action_tails:
+        from latency_meta_mdp.openpi_policy_data import StructuredPolicyDataConfig
+
+        data_factory = StructuredPolicyDataConfig
     return TrainConfig(
         name=level_profile.config_name,
         project_name="latency-meta-mdp-robosuite",
         model=model,
-        data=LeRobotLiberoDataConfig(
+        data=data_factory(
             repo_id=level_profile.repo_id,
             base_config=DataConfig(
                 prompt_from_task=True,
@@ -64,6 +70,8 @@ def _build_config(profile: SFTProfile, level: int) -> Any:
             "level": level,
             "fps": profile.fps,
             "state_dim": profile.state_dim,
+            "discrete_state_input": profile.discrete_state_input,
+            "masked_action_tails": profile.masked_action_tails,
             "source_action_dim": profile.source_action_dim,
             "temporal_contract_id": profile.temporal_contract.contract_id,
             "prediction_horizon": profile.action_horizon,
@@ -177,7 +185,7 @@ def compute_openpi_norm_stats(
         loader, _ = norm_script.create_torch_dataloader(
             data_config,
             config.model.action_horizon,
-            config.batch_size,
+            min(config.batch_size, expected_source_count),
             config.model,
             0,
         )
@@ -193,7 +201,17 @@ def compute_openpi_norm_stats(
                 raise ValueError("OpenPI norm-stat batch has invalid state/action shapes")
             source_count += state.shape[0]
             stats["state"].update(state)
-            stats["actions"].update(actions)
+            if profile.masked_action_tails:
+                mask = np.asarray(batch["action_loss_mask"])
+                if mask.shape != actions.shape or not mask[:, 0].all():
+                    raise ValueError(
+                        "structured norm stats require a real first action at every source"
+                    )
+                # Every recorded frame is a source: count each real action once,
+                # independent of H50 overlap or the amount of terminal padding.
+                stats["actions"].update(actions[:, 0])
+            else:
+                stats["actions"].update(actions)
         if source_count != expected_source_count:
             raise ValueError("OpenPI norm-stat loader did not cover every certified source")
         normalize.save(

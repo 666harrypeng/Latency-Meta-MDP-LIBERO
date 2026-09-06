@@ -78,3 +78,43 @@ def test_final_action_target_uses_explicit_loss_mask(tmp_path):
     np.testing.assert_array_equal(mask, [True] + [False] * 49)
     np.testing.assert_allclose(target[0], [0.2] * 6 + [1.0])
     assert np.isfinite(target).all()
+
+
+def test_structured_export_uses_only_train_episode_ids(tmp_path, monkeypatch):
+    import json
+
+    from test_lerobot_conversion import _FakeDatasetFactory
+
+    from latency_meta_mdp import policy_dataset_run as run
+    from latency_meta_mdp.expert_realization.source_corpus import loader, split_view
+
+    source = _source(tmp_path)
+    source.manifest.schema_version = 3
+    source.manifest.corpus_id = "test-structured"
+    (tmp_path / "manifest.json").write_text("{}")
+    split_path = tmp_path / "split.json"
+    split_path.write_text("{}")
+    split = SimpleNamespace(
+        train_episode_ids=("test-L1",),
+        validation_episode_ids=("forbidden-L1",),
+        train_master_task_indices=(42,),
+        split_id="grouped",
+    )
+    monkeypatch.setattr(loader, "load_verified_source_corpus", lambda root: source)
+    monkeypatch.setattr(split_view, "load_verified_source_split", lambda path, corpus: split)
+    manifest_path = run.convert_structured_source_to_lerobot(
+        source_root=tmp_path,
+        split_manifest=split_path,
+        profile_path=Path("configs/policy/pi05_structured_state16_h50_v1.yaml"),
+        output_dir=tmp_path / "exported",
+        levels=(1,),
+        dataset_factory=_FakeDatasetFactory(),
+    )
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["split"] == "train"
+    assert manifest["episode_count"] == 1
+    assert manifest["datasets"][0]["valid_action_chunk_source_count"] == 3
+    nested = json.loads(
+        (manifest_path.parent / manifest["datasets"][0]["dataset_manifest"]).read_text()
+    )
+    assert [e["episode_id"] for e in nested["episodes"]] == ["test-L1"]

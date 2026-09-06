@@ -1,0 +1,118 @@
+diff --git a/src/openpi/models/model.py b/src/openpi/models/model.py
+--- a/src/openpi/models/model.py
++++ b/src/openpi/models/model.py
+@@ -99,6 +99,9 @@
+     # Tokenized prompt mask.
+     tokenized_prompt_mask: at.Bool[ArrayT, "*b l"] | None = None
+ 
++    # Training-only target validity. Never embedded as an actor input.
++    action_loss_mask: at.Bool[ArrayT, "*b ah ad"] | None = None
++
+     # pi0-fast model specific fields.
+ 
+     # Token auto-regressive mask (for FAST autoregressive model).
+@@ -126,6 +129,7 @@
+             tokenized_prompt_mask=data.get("tokenized_prompt_mask"),
+             token_ar_mask=data.get("token_ar_mask"),
+             token_loss_mask=data.get("token_loss_mask"),
++            action_loss_mask=data.get("action_loss_mask"),
+         )
+ 
+     def to_dict(self) -> at.PyTree[ArrayT]:
+@@ -205,6 +209,7 @@
+         tokenized_prompt_mask=observation.tokenized_prompt_mask,
+         token_ar_mask=observation.token_ar_mask,
+         token_loss_mask=observation.token_loss_mask,
++        action_loss_mask=observation.action_loss_mask,
+     )
+ 
+ 
+diff --git a/src/openpi/transforms.py b/src/openpi/transforms.py
+--- a/src/openpi/transforms.py
++++ b/src/openpi/transforms.py
+@@ -331,6 +331,8 @@
+     model_action_dim: int
+ 
+     def __call__(self, data: DataDict) -> DataDict:
++        if "action_loss_mask" in data:
++            data["action_loss_mask"] = pad_to_dim(data["action_loss_mask"], self.model_action_dim, axis=-1)
+         data["state"] = pad_to_dim(data["state"], self.model_action_dim, axis=-1)
+         if "actions" in data:
+             data["actions"] = pad_to_dim(data["actions"], self.model_action_dim, axis=-1)
+diff --git a/src/openpi/models/pi0.py b/src/openpi/models/pi0.py
+--- a/src/openpi/models/pi0.py
++++ b/src/openpi/models/pi0.py
+@@ -67,6 +67,7 @@
+     def __init__(self, config: pi0_config.Pi0Config, rngs: nnx.Rngs):
+         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
+         self.pi05 = config.pi05
++        self.active_action_dim = config.active_action_dim
+         paligemma_config = _gemma.get_config(config.paligemma_variant)
+         action_expert_config = _gemma.get_config(config.action_expert_variant)
+         # TODO: rewrite gemma in NNX. For now, use bridge.
+@@ -196,7 +197,18 @@
+         noise = jax.random.normal(noise_rng, actions.shape)
+         time = jax.random.beta(time_rng, 1.5, 1, batch_shape) * 0.999 + 0.001
+         time_expanded = time[..., None, None]
++        action_loss_mask = observation.action_loss_mask
++        if action_loss_mask is not None:
++            if action_loss_mask.shape != actions.shape:
++                raise ValueError("action_loss_mask must match actions")
++            # Missing targets have no expert value. Remove their stored values
++            # before both interpolation and residual computation (including NaNs).
++            actions = jnp.where(action_loss_mask, actions, 0.0)
+         x_t = time_expanded * noise + (1 - time_expanded) * actions
++        if action_loss_mask is not None:
++            # Keep the native H50 token topology and use pure noise for missing
++            # entries. No terminal length or validity token enters the actor.
++            x_t = jnp.where(action_loss_mask, x_t, noise)
+         u_t = noise - actions
+ 
+         # one big forward pass of prefix + suffix at once
+@@ -211,7 +223,14 @@
+         )
+         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+ 
+-        return jnp.mean(jnp.square(v_t - u_t), axis=-1)
++        if action_loss_mask is None:
++            return jnp.mean(jnp.square(v_t - u_t), axis=-1)
++        squared_error = jnp.square(jnp.where(action_loss_mask, v_t - u_t, 0.0))
++        valid_count = jnp.sum(action_loss_mask, axis=(-2, -1), keepdims=True)
++        # Trainer averages [batch, horizon]. This yields an equal-weight mean
++        # per source over real target scalars, independent of tail length.
++        # All-masked rows contribute zero; the dataset rejects such sources.
++        return jnp.sum(squared_error, axis=-1) * self.action_horizon / jnp.maximum(valid_count[..., 0], 1)
+ 
+     @override
+     def sample_actions(
+@@ -268,6 +287,9 @@
+             assert prefix_out is None
+             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+ 
++            if self.active_action_dim is not None:
++                # Match noise-only padded coordinates used by masked training.
++                v_t = v_t.at[..., self.active_action_dim :].set(0.0)
+             return x_t + dt * v_t, time + dt
+ 
+         def cond(carry):
+diff --git a/src/openpi/models/pi0_config.py b/src/openpi/models/pi0_config.py
+--- a/src/openpi/models/pi0_config.py
++++ b/src/openpi/models/pi0_config.py
+@@ -24,6 +24,8 @@
+     # Set the model specific defaults.
+     action_dim: int = 32
+     action_horizon: int = 50
++    # Physical action dimensions; remaining dimensions stay at their initial noise.
++    active_action_dim: int | None = None
+     max_token_len: int = None  # type: ignore
+     # Pi05 has two differences from Pi0:
+     # - the state input is part of the discrete language tokens rather than a continuous input that is part of the suffix
+@@ -35,6 +37,8 @@
+     pytorch_compile_mode: str | None = "max-autotune"
+ 
+     def __post_init__(self):
++        if self.active_action_dim is not None and not 0 < self.active_action_dim <= self.action_dim:
++            raise ValueError("active_action_dim must lie within action_dim")
+         if self.max_token_len is None:
+             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)
+         if self.discrete_state_input is None:

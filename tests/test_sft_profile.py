@@ -9,6 +9,23 @@ from latency_meta_mdp.artifacts import sha256_file
 from latency_meta_mdp.sft_profile import SFTProfile, load_sft_profile
 
 
+def test_structured_profile_requires_state_tokens_and_masked_tails() -> None:
+    profile = load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml"))
+    assert profile.state_dim == 16
+    assert profile.discrete_state_input is True
+    assert profile.masked_action_tails is True
+    assert profile.drop_n_last_frames == 0
+    assert "structured" in profile.levels[3].repo_id
+    for change in (
+        {"discrete_state_input": False},
+        {"masked_action_tails": False},
+        {"drop_n_last_frames": 49},
+        {"state_dim": 8},
+    ):
+        with pytest.raises(ValueError, match="structured"):
+            replace(profile, **change)
+
+
 def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() -> None:
     profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
 

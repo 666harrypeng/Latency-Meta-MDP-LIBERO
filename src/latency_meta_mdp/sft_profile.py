@@ -57,11 +57,17 @@ class SFTProfile:
     fsdp_devices: int
     ema_decay: float
     levels: Mapping[int, SFTLevelProfile]
+    discrete_state_input: bool = False
+    masked_action_tails: bool = False
 
     def __post_init__(self) -> None:
         levels = dict(self.levels)
         object.__setattr__(self, "levels", MappingProxyType(levels))
-        if self.schema_version != 2 or self.profile_id != "pi05_panda_ball_full_sft_h50_v2":
+        structured = self.profile_id == "pi05_structured_state16_h50_v1"
+        if self.schema_version != 2 or self.profile_id not in {
+            "pi05_panda_ball_full_sft_h50_v2",
+            "pi05_structured_state16_h50_v1",
+        }:
             raise ValueError("unsupported SFT profile schema or identifier")
         if not self.full_parameter:
             raise ValueError("the canonical Panda-ball profile requires full-parameter SFT")
@@ -73,9 +79,20 @@ class SFTProfile:
             raise ValueError("base_checkpoint must be non-empty")
         if not isinstance(self.temporal_contract, TemporalContract):
             raise TypeError("temporal_contract must be a TemporalContract")
-        if self.drop_n_last_frames != self.action_horizon - 1:
+        if structured and (
+            self.state_dim != 16
+            or self.drop_n_last_frames != 0
+            or self.discrete_state_input is not True
+            or self.masked_action_tails is not True
+        ):
+            raise ValueError(
+                "structured policy requires current16 state tokens and masked H50 tails"
+            )
+        if not structured and (self.discrete_state_input or self.masked_action_tails):
+            raise ValueError("historical profile must preserve its unmasked image/prompt contract")
+        if not structured and self.drop_n_last_frames != self.action_horizon - 1:
             raise ValueError("drop_n_last_frames must equal action_horizon - 1")
-        if (self.fps, self.state_dim, self.source_action_dim) != (50, 8, 7):
+        if (self.fps, self.state_dim, self.source_action_dim) != (50, 16 if structured else 8, 7):
             raise ValueError("SFT data must satisfy the 50 Hz 8D/7D policy contract")
         if self.extra_delta_transform:
             raise ValueError("native OSC delta actions must not receive another delta transform")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -303,3 +304,118 @@ def convert_formal_corpus_to_lerobot(
         output_format_id="metamdp_lerobot_formal_corpus_v1",
         dataset_factory=dataset_factory,
     )
+
+
+def convert_structured_source_to_lerobot(
+    *,
+    source_root: Path,
+    split_manifest: Path,
+    output_dir: Path,
+    profile_path: Path,
+    levels: tuple[int, ...] = (3, 1, 2),
+    dataset_factory: Callable[..., Any] | None = None,
+) -> Path:
+    """Export every real train-pool source, preserving the external grouped split."""
+    from latency_meta_mdp.expert_realization.source_corpus.loader import load_verified_source_corpus
+    from latency_meta_mdp.expert_realization.source_corpus.split_view import (
+        load_verified_source_split,
+    )
+    from latency_meta_mdp.policy_data import load_structured_policy_episode
+
+    target = output_dir.resolve()
+    if target.exists():
+        raise FileExistsError(f"derived policy output already exists: {target}")
+    if (
+        not levels
+        or len(set(levels)) != len(levels)
+        or any(level not in (1, 2, 3) for level in levels)
+    ):
+        raise ValueError("levels must be a non-empty unique subset of L1/L2/L3")
+    profile = load_sft_profile(profile_path)
+    if not profile.masked_action_tails:
+        raise ValueError("structured export requires the masked state-aware profile")
+    project_root = Path(__file__).resolve().parents[2]
+    implementation_revision = subprocess.run(
+        ("git", "rev-parse", "HEAD"), cwd=project_root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    implementation_files = {
+        f"src/latency_meta_mdp/{name}.py": sha256_file(
+            project_root / f"src/latency_meta_mdp/{name}.py"
+        )
+        for name in ("policy_data", "lerobot_conversion", "policy_dataset_run")
+    }
+    source = load_verified_source_corpus(source_root)
+    if source.manifest.schema_version != 3:
+        raise ValueError("structured export requires the admitted v3 source corpus")
+    split = load_verified_source_split(split_manifest, source)
+    grouped = {
+        level: tuple(
+            e for e in split.train_episode_ids if source.episode_metadata(e)["level"] == level
+        )
+        for level in levels
+    }
+    if any(not ids for ids in grouped.values()):
+        raise ValueError("each requested level needs train episodes")
+
+    def stream(level: int) -> Iterable[PolicyEpisode]:
+        for index, episode_id in enumerate(grouped[level], 1):
+            episode = load_structured_policy_episode(source, episode_id=episode_id)
+            if episode.logical_master_task_index not in split.train_master_task_indices:
+                raise ValueError("policy source escaped the grouped train split")
+            yield episode
+            if index % 10 == 0 or index == len(grouped[level]):
+                print(
+                    f"[structured-policy][L{level}] episodes={index}/{len(grouped[level])}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.parent / f".{target.name}.building-{os.getpid()}"
+    staging.mkdir()
+    rows = []
+    try:
+        for level in levels:
+            repo_id = profile.levels[level].repo_id
+            path = write_lerobot_policy_dataset(
+                episodes=stream(level),
+                output_dir=staging / repo_id,
+                repo_id=repo_id,
+                dataset_factory=dataset_factory,
+            )
+            dataset = _load_json(path)
+            rows.append(
+                {
+                    "level": level,
+                    "repo_id": repo_id,
+                    "episode_count": dataset["episode_count"],
+                    "frame_count": dataset["frame_count"],
+                    "valid_action_chunk_source_count": dataset["valid_action_chunk_source_count"],
+                    "dataset_manifest": path.relative_to(staging).as_posix(),
+                    "dataset_manifest_sha256": sha256_file(path),
+                }
+            )
+        _write_json(
+            staging / "manifest.json",
+            {
+                "schema_version": 1,
+                "format_id": "metamdp_lerobot_structured_train_v1",
+                "implementation_revision": implementation_revision,
+                "implementation_files": implementation_files,
+                "source_corpus_id": source.manifest.corpus_id,
+                "source_manifest_sha256": sha256_file(source.root / "manifest.json"),
+                "split": "train",
+                "split_id": split.split_id,
+                "split_manifest_sha256": sha256_file(split_manifest),
+                "train_master_task_indices": list(split.train_master_task_indices),
+                "sft_profile_id": profile.profile_id,
+                "sft_profile_sha256": sha256_file(profile_path),
+                "episode_count": sum(row["episode_count"] for row in rows),
+                "datasets": rows,
+            },
+        )
+        staging.rename(target)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return target / "manifest.json"

@@ -3,14 +3,49 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
 from latency_meta_mdp.openpi_patch import apply_openpi_patch
+
+
+@contextlib.contextmanager
+def temporary_patched_openpi_copy(
+    *,
+    openpi_root: Path,
+    patch_paths: tuple[Path, ...],
+    expected_revision: str,
+) -> Iterator[Path]:
+    """Patch a temporary archive of the pinned source, without creating a worktree."""
+    root = openpi_root.resolve()
+    if _git(root, "rev-parse", "HEAD").stdout.strip() != expected_revision:
+        raise ValueError("OpenPI revision mismatch")
+    if _git(root, "status", "--porcelain").stdout.strip():
+        raise ValueError("canonical OpenPI checkout must be clean")
+    archive = subprocess.run(
+        ("git", "archive", expected_revision),
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout
+    modules_before = set(sys.modules)
+    with tempfile.TemporaryDirectory(prefix="metamdp-openpi-copy-") as directory:
+        copied = Path(directory)
+        try:
+            with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+                source.extractall(copied, filter="data")
+            for patch in patch_paths:
+                _git(copied, "apply", "--check", str(patch.resolve()))
+                _git(copied, "apply", str(patch.resolve()))
+            yield copied
+        finally:
+            _purge_worktree_modules(copied, modules_before)
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
