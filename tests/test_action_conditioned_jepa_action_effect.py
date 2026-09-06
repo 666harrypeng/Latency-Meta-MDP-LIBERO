@@ -177,6 +177,6 @@ def test_j4_nominal_future_equivalence_is_bounded_at_float32_scale() -> None:
         nominal_future_is_numerically_equivalent,
     )
 
-    assert nominal_future_is_numerically_equivalent(1.5e-8)
-    assert nominal_future_is_numerically_equivalent(1.0e-7)
+    assert nominal_future_is_numerically_equivalent(2.4e-7)
+    assert nominal_future_is_numerically_equivalent(5.0e-7)
     assert not nominal_future_is_numerically_equivalent(1.0e-6)

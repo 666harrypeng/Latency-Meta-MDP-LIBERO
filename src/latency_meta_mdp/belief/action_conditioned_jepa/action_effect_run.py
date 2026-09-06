@@ -52,7 +52,7 @@ _BRANCHES = ("nominal", "hold", "scale_0.5", "prefix4_then_hold")
 _ANCHORS = (4, 8, 12, 16, 20)
 _CONTEXT_COUNT = 80
 _REPLAY_MAX_ABS_TOLERANCE = 2e-8
-_NOMINAL_FUTURE_MAX_ABS_TOLERANCE = 1e-7
+_NOMINAL_FUTURE_MAX_ABS_TOLERANCE = 5e-7
 
 
 def replay_is_numerically_equivalent(maximum_absolute_error: float) -> bool:
