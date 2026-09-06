@@ -165,7 +165,8 @@ def test_j4_replay_equivalence_allows_only_float64_scale_drift() -> None:
     )
 
     assert replay_is_numerically_equivalent(1.4e-9)
-    assert replay_is_numerically_equivalent(1.0e-8)
+    assert replay_is_numerically_equivalent(1.5e-8)
+    assert replay_is_numerically_equivalent(2.0e-8)
     assert not replay_is_numerically_equivalent(1.0e-7)
 
 

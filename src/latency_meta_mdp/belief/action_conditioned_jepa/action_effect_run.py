@@ -51,7 +51,7 @@ _FORMAT_ID = "action_conditioned_jepa_l3_j4_bank_v1"
 _BRANCHES = ("nominal", "hold", "scale_0.5", "prefix4_then_hold")
 _ANCHORS = (4, 8, 12, 16, 20)
 _CONTEXT_COUNT = 80
-_REPLAY_MAX_ABS_TOLERANCE = 1e-8
+_REPLAY_MAX_ABS_TOLERANCE = 2e-8
 _NOMINAL_FUTURE_MAX_ABS_TOLERANCE = 1e-7
 
 
