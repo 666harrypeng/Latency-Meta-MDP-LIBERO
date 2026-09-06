@@ -6,6 +6,10 @@ import numpy as np
 import torch
 from test_action_conditioned_jepa_data import _record
 
+from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+    SharedJepaSampleIndex,
+)
+
 
 def _matching_signal_episode(record):
     from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
@@ -82,3 +86,73 @@ def test_object_state_dataset_reads_each_gt_frame_once_and_normalizes_targets(
     torch.testing.assert_close(normalization.denormalize(target), torch.tensor(
         [4.0, 5.0, 6.0, 7.0, 8.0, 9.0], dtype=torch.float32
     ))
+
+
+class _LatentEncodedStateReadout(torch.nn.Module):
+    def forward(self, latents: torch.Tensor) -> torch.Tensor:
+        return latents[:, :, 0, 0, :6].float()
+
+
+def test_object_state_evaluation_uses_one_frozen_readout_for_gt_and_predicted_latents() -> None:
+    """Catches mixing the GT-latent probe ceiling with predicted-latent error."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
+        ObjectStateNormalization,
+        evaluate_object_state_latents,
+    )
+
+    normalization = ObjectStateNormalization(
+        mean=np.zeros(6, dtype=np.float32),
+        scale=np.ones(6, dtype=np.float32),
+    )
+    target = torch.zeros(1, 2, 6, dtype=torch.float32)
+    gt_latents = torch.zeros(1, 2, 2, 196, 384, dtype=torch.float16)
+    predicted_latents = gt_latents.clone()
+    predicted_latents[:, :, 0, 0, :3] = 0.002
+    predicted_latents[:, :, 0, 0, 3:6] = 0.04
+
+    ceiling = evaluate_object_state_latents(
+        readout=_LatentEncodedStateReadout(),
+        normalization=normalization,
+        visual_latents=gt_latents,
+        target_object_state=target,
+        absorbing=torch.zeros(1, 2, dtype=torch.bool),
+    )
+    predicted = evaluate_object_state_latents(
+        readout=_LatentEncodedStateReadout(),
+        normalization=normalization,
+        visual_latents=predicted_latents,
+        target_object_state=target,
+        absorbing=torch.zeros(1, 2, dtype=torch.bool),
+    )
+
+    np.testing.assert_allclose(ceiling.position_rmse_m, 0.0, atol=0.0)
+    np.testing.assert_allclose(ceiling.velocity_rmse_m_s, 0.0, atol=0.0)
+    np.testing.assert_allclose(predicted.position_rmse_m, 0.002, atol=2e-6)
+    np.testing.assert_allclose(predicted.velocity_rmse_m_s, 0.04, atol=2e-5)
+
+
+def test_object_state_targets_follow_stride4_ticks_and_terminal_absorption(tmp_path: Path) -> None:
+    """Catches reading object targets from the source tick or beyond the terminal boundary."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
+        gather_object_state_targets,
+    )
+
+    record = _record(tmp_path, terminal_tick=10)
+    episode = _matching_signal_episode(record)
+    index = SharedJepaSampleIndex(
+        level=3,
+        split="train",
+        episode_id=record.episode_id,
+        source_tick=5,
+        boundary_disposition="certified_absorbing_extension",
+    )
+    targets = gather_object_state_targets(
+        indices=(index,),
+        native_delay_ticks=(4, 8, 12, 16, 20),
+        episodes={record.episode_id: episode},
+    )
+
+    torch.testing.assert_close(targets[0, :, 0], torch.tensor([9.0, 10.0, 10.0, 10.0, 10.0]))
+    torch.testing.assert_close(targets[0, :, 3], torch.tensor([12.0, 0.0, 0.0, 0.0, 0.0]))

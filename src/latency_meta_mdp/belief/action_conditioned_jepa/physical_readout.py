@@ -14,6 +14,9 @@ from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import JepaEpi
 from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
     TemporalSignalEpisode,
 )
+from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+    SharedJepaSampleIndex,
+)
 from latency_meta_mdp.belief.action_conditioned_jepa.upstream_adapter import (
     load_upstream_reference,
     verify_upstream_checkout,
@@ -131,6 +134,89 @@ class ObjectStateReadoutDataset(torch.utils.data.Dataset):
             ).astype(np.float32)
         )
         return latent, self.normalization.normalize(state)
+
+
+def gather_object_state_targets(
+    *,
+    indices: tuple[SharedJepaSampleIndex, ...],
+    native_delay_ticks: tuple[int, ...],
+    episodes: Mapping[str, TemporalSignalEpisode],
+) -> torch.Tensor:
+    if (
+        type(indices) is not tuple
+        or not indices
+        or any(not isinstance(value, SharedJepaSampleIndex) for value in indices)
+        or native_delay_ticks != (4, 8, 12, 16, 20)
+        or not isinstance(episodes, Mapping)
+        or set(value.episode_id for value in indices) - set(episodes)
+    ):
+        raise ValueError("object targets require covered stride-4 sample identities")
+    targets = []
+    for index in indices:
+        episode = episodes[index.episode_id]
+        target_ticks = np.asarray(
+            [index.source_tick + delay for delay in native_delay_ticks],
+            dtype=np.int64,
+        )
+        target_rows = np.minimum(target_ticks, episode.record.terminal_tick)
+        state = np.concatenate(
+            (
+                episode.object_position[target_rows],
+                episode.object_linear_velocity[target_rows],
+            ),
+            axis=1,
+        ).astype(np.float32)
+        state[target_ticks > episode.record.terminal_tick, 3:] = 0.0
+        targets.append(state)
+    return torch.from_numpy(np.stack(targets))
+
+
+@dataclass(frozen=True)
+class ObjectStateBatchMetrics:
+    position_rmse_m: np.ndarray
+    velocity_rmse_m_s: np.ndarray
+    dynamic_mask: np.ndarray
+    absorbing_mask: np.ndarray
+
+
+@torch.no_grad()
+def evaluate_object_state_latents(
+    *,
+    readout: torch.nn.Module,
+    normalization: ObjectStateNormalization,
+    visual_latents: torch.Tensor,
+    target_object_state: torch.Tensor,
+    absorbing: torch.Tensor,
+) -> ObjectStateBatchMetrics:
+    if not isinstance(readout, torch.nn.Module):
+        raise TypeError("readout must be a torch module")
+    if not isinstance(normalization, ObjectStateNormalization):
+        raise TypeError("normalization must be ObjectStateNormalization")
+    if (
+        not isinstance(visual_latents, torch.Tensor)
+        or visual_latents.ndim != 5
+        or tuple(visual_latents.shape[2:]) != (2, 196, 384)
+        or not isinstance(target_object_state, torch.Tensor)
+        or target_object_state.shape != (*visual_latents.shape[:2], 6)
+        or not isinstance(absorbing, torch.Tensor)
+        or absorbing.dtype != torch.bool
+        or absorbing.shape != visual_latents.shape[:2]
+    ):
+        raise ValueError("object-state evaluation tensors are incompatible")
+    predicted = normalization.denormalize(readout(visual_latents).float())
+    target = target_object_state.to(device=predicted.device, dtype=torch.float32)
+    error = predicted - target
+    position = torch.sqrt(error[:, :, :3].square().mean(dim=2))
+    velocity = torch.sqrt(error[:, :, 3:].square().mean(dim=2))
+    if not bool(torch.isfinite(position).all()) or not bool(torch.isfinite(velocity).all()):
+        raise FloatingPointError("object-state evaluation produced nonfinite values")
+    absorbing_cpu = absorbing.detach().to(torch.bool).cpu().numpy()
+    return ObjectStateBatchMetrics(
+        position_rmse_m=position.detach().to(torch.float64).cpu().numpy(),
+        velocity_rmse_m_s=velocity.detach().to(torch.float64).cpu().numpy(),
+        dynamic_mask=~absorbing_cpu,
+        absorbing_mask=absorbing_cpu,
+    )
 
 
 class DualViewObjectStateReadout(torch.nn.Module):
