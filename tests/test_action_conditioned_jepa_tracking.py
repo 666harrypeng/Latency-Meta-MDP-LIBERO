@@ -50,3 +50,39 @@ def test_wandb_config_and_run_identity_are_deterministic_and_secret_free(monkeyp
     }
     assert status == {"HF_TOKEN": "SET", "WANDB_API_KEY": "SET"}
     assert "secret-value" not in repr(status)
+
+
+def test_l3_admission_wandb_identity_has_no_fold_and_cannot_collide_with_selection() -> None:
+    """Catches final seeds resuming or overwriting a cross-validation W&B run."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.tracking import (
+        build_l3_admission_wandb_run_spec,
+        load_jepa_wandb_config,
+    )
+
+    config = load_jepa_wandb_config(
+        Path("configs/training/action_conditioned_jepa/wandb.yaml")
+    )
+    first = build_l3_admission_wandb_run_spec(
+        config=config,
+        stage_id="l3-stride4-final-admission-v1",
+        temporal_config_id="stride4_80ms_history_160ms",
+        model_seed=17,
+    )
+    repeated = build_l3_admission_wandb_run_spec(
+        config=config,
+        stage_id="l3-stride4-final-admission-v1",
+        temporal_config_id="stride4_80ms_history_160ms",
+        model_seed=17,
+    )
+
+    assert first == repeated
+    assert first.group == "l3-final-admission"
+    assert first.name == "jepa-l3-stride4_80ms_history_160ms-admission-seed17"
+    assert first.logged_config == {
+        "level": 3,
+        "model_seed": 17,
+        "stage_id": "l3-stride4-final-admission-v1",
+        "temporal_config_id": "stride4_80ms_history_160ms",
+    }
+    assert len(first.run_id) == 16

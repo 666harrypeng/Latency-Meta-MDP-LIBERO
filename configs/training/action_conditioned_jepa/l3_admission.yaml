@@ -1,0 +1,20 @@
+schema_version: 1
+config_id: l3_stride4_admission_jepa_wm_recipe
+max_epochs: 75
+logical_global_batch_size: 256
+learning_rate_start: 0.0005
+learning_rate_reference: 0.0005
+learning_rate_final: 0.0005
+weight_decay_start: 0.0000001
+weight_decay_final: 0.000001
+schedule_scale: 1.0
+warmup_epochs: 0
+adamw_betas: [0.9, 0.999]
+adamw_epsilon: 0.00000001
+gradient_clip_norm: 1.0
+model_seeds: [7, 17, 27]
+monitor_period_epochs: 5
+monitor_contexts_per_episode: 4
+checkpoint_period_epochs: 1
+milestone_epochs: [25, 50, 75]
+console_progress_period_optimizer_steps: 5

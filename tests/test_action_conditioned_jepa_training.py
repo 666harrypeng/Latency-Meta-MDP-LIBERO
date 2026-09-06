@@ -403,6 +403,50 @@ def test_one_epoch_accumulates_to_logical_global_batch_independent_of_microbatch
     assert logged[0]["examples_seen"] == 256
 
 
+def test_admission_epoch_updates_stage_progress_without_fabricating_a_fold() -> None:
+    """Catches representing the all-80-master final refit as a nonexistent fifth fold."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+        load_l3_admission_training_config,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+        L3AdmissionProgress,
+        run_temporal_jepa_epoch,
+    )
+
+    config = load_l3_admission_training_config(
+        Path("configs/training/action_conditioned_jepa/l3_admission.yaml")
+    )
+    model = _TinyPredictor()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate_reference)
+    batch = _batch()
+    result = run_temporal_jepa_epoch(
+        model=model,
+        optimizer=optimizer,
+        microbatches=(batch for _ in range(128)),
+        training_config=config,
+        progress=L3AdmissionProgress(
+            completed_epochs=0,
+            optimizer_steps=0,
+            examples_seen=0,
+            model_seed=17,
+            temporal_config_id=batch.temporal_config_id,
+            stage_id="l3-stride4-final-admission-v1",
+            level=3,
+        ),
+        optimizer_steps_this_epoch=1,
+        total_optimizer_steps=13_200,
+    )
+
+    assert isinstance(result.progress, L3AdmissionProgress)
+    assert result.progress.completed_epochs == 1
+    assert result.progress.optimizer_steps == 1
+    assert result.progress.examples_seen == 256
+    assert result.progress.stage_id == "l3-stride4-final-admission-v1"
+    assert result.progress.level == 3
+    assert not hasattr(result.progress, "fold_index")
+
+
 def test_rolling_checkpoint_keeps_only_latest_and_20_40_50_milestones(tmp_path: Path) -> None:
     """Catches retaining every epoch or deleting a declared permanent milestone."""
 

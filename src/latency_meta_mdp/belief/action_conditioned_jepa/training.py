@@ -10,7 +10,7 @@ import re
 import shutil
 import uuid
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +128,78 @@ class TemporalJepaTrainingConfig:
 
 
 @dataclass(frozen=True)
+class L3AdmissionTrainingConfig:
+    schema_version: int
+    config_id: str
+    max_epochs: int
+    logical_global_batch_size: int
+    learning_rate_start: float
+    learning_rate_reference: float
+    learning_rate_final: float
+    weight_decay_start: float
+    weight_decay_final: float
+    schedule_scale: float
+    warmup_epochs: int
+    adamw_betas: tuple[float, float]
+    adamw_epsilon: float
+    gradient_clip_norm: float
+    model_seeds: tuple[int, int, int]
+    monitor_period_epochs: int
+    monitor_contexts_per_episode: int
+    checkpoint_period_epochs: int
+    milestone_epochs: tuple[int, int, int]
+    console_progress_period_optimizer_steps: int
+
+    def __post_init__(self) -> None:
+        observed = (
+            self.schema_version,
+            self.config_id,
+            self.max_epochs,
+            self.logical_global_batch_size,
+            self.learning_rate_start,
+            self.learning_rate_reference,
+            self.learning_rate_final,
+            self.weight_decay_start,
+            self.weight_decay_final,
+            self.schedule_scale,
+            self.warmup_epochs,
+            self.adamw_betas,
+            self.adamw_epsilon,
+            self.gradient_clip_norm,
+            self.model_seeds,
+            self.monitor_period_epochs,
+            self.monitor_contexts_per_episode,
+            self.checkpoint_period_epochs,
+            self.milestone_epochs,
+            self.console_progress_period_optimizer_steps,
+        )
+        expected = (
+            1,
+            "l3_stride4_admission_jepa_wm_recipe",
+            75,
+            256,
+            5e-4,
+            5e-4,
+            5e-4,
+            1e-7,
+            1e-6,
+            1.0,
+            0,
+            (0.9, 0.999),
+            1e-8,
+            1.0,
+            (7, 17, 27),
+            5,
+            4,
+            1,
+            (25, 50, 75),
+            5,
+        )
+        if observed != expected:
+            raise ValueError("unsupported L3 JEPA admission training config")
+
+
+@dataclass(frozen=True)
 class JepaTrainingProgress:
     completed_epochs: int
     optimizer_steps: int
@@ -152,8 +224,31 @@ class JepaTrainingProgress:
 
 
 @dataclass(frozen=True)
+class L3AdmissionProgress:
+    completed_epochs: int
+    optimizer_steps: int
+    examples_seen: int
+    model_seed: int
+    temporal_config_id: str
+    stage_id: str
+    level: int
+
+    def __post_init__(self) -> None:
+        for name in ("completed_epochs", "optimizer_steps", "examples_seen", "model_seed"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a nonnegative integer")
+        if self.temporal_config_id != "stride4_80ms_history_160ms":
+            raise ValueError("L3 admission progress must use stride-4")
+        if self.stage_id != "l3-stride4-final-admission-v1" or self.level != 3:
+            raise ValueError("L3 admission progress identity is invalid")
+        if self.model_seed not in (7, 17, 27):
+            raise ValueError("L3 admission progress seed is invalid")
+
+
+@dataclass(frozen=True)
 class TemporalJepaEpochResult:
-    progress: JepaTrainingProgress
+    progress: JepaTrainingProgress | L3AdmissionProgress
     microbatch_count: int
     optimizer_step_count: int
     mean_total_loss: float
@@ -177,12 +272,12 @@ def load_temporal_jepa_training_config(path: Path) -> TemporalJepaTrainingConfig
 def build_upstream_aligned_optimizer(
     *,
     model: torch.nn.Module,
-    config: TemporalJepaTrainingConfig,
+    config: TemporalJepaTrainingConfig | L3AdmissionTrainingConfig,
 ) -> torch.optim.AdamW:
     if not isinstance(model, torch.nn.Module):
         raise TypeError("model must be a torch module")
-    if not isinstance(config, TemporalJepaTrainingConfig):
-        raise TypeError("config must be TemporalJepaTrainingConfig")
+    if not isinstance(config, (TemporalJepaTrainingConfig, L3AdmissionTrainingConfig)):
+        raise TypeError("config must be a supported JEPA training config")
     decayed = []
     excluded = []
     for name, parameter in model.named_parameters():
@@ -212,14 +307,14 @@ def build_upstream_aligned_optimizer(
 def apply_upstream_optimizer_schedule(
     *,
     optimizer: torch.optim.Optimizer,
-    config: TemporalJepaTrainingConfig,
+    config: TemporalJepaTrainingConfig | L3AdmissionTrainingConfig,
     optimizer_step: int,
     total_optimizer_steps: int,
 ) -> tuple[float, float]:
     if not isinstance(optimizer, torch.optim.Optimizer):
         raise TypeError("optimizer must be a torch optimizer")
-    if not isinstance(config, TemporalJepaTrainingConfig):
-        raise TypeError("config must be TemporalJepaTrainingConfig")
+    if not isinstance(config, (TemporalJepaTrainingConfig, L3AdmissionTrainingConfig)):
+        raise TypeError("config must be a supported JEPA training config")
     if (
         type(optimizer_step) is not int
         or type(total_optimizer_steps) is not int
@@ -520,8 +615,8 @@ def run_temporal_jepa_epoch(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     microbatches: Iterable[TemporalJepaBatch],
-    training_config: TemporalJepaTrainingConfig,
-    progress: JepaTrainingProgress,
+    training_config: TemporalJepaTrainingConfig | L3AdmissionTrainingConfig,
+    progress: JepaTrainingProgress | L3AdmissionProgress,
     optimizer_steps_this_epoch: int,
     total_optimizer_steps: int,
     optimizer_step_callback: Callable[[dict[str, float | int]], None] | None = None,
@@ -530,9 +625,10 @@ def run_temporal_jepa_epoch(
         optimizer, torch.optim.Optimizer
     ):
         raise TypeError("model and optimizer have invalid types")
-    if not isinstance(training_config, TemporalJepaTrainingConfig) or not isinstance(
-        progress, JepaTrainingProgress
-    ):
+    if not isinstance(
+        training_config,
+        (TemporalJepaTrainingConfig, L3AdmissionTrainingConfig),
+    ) or not isinstance(progress, (JepaTrainingProgress, L3AdmissionProgress)):
         raise TypeError("training config or progress has an invalid type")
     if (
         type(optimizer_steps_this_epoch) is not int
@@ -619,13 +715,11 @@ def run_temporal_jepa_epoch(
         pass
     else:
         raise ValueError("epoch yielded more microbatches than declared")
-    completed = JepaTrainingProgress(
+    completed = replace(
+        progress,
         completed_epochs=progress.completed_epochs + 1,
         optimizer_steps=progress.optimizer_steps + optimizer_steps_this_epoch,
         examples_seen=examples_seen,
-        model_seed=progress.model_seed,
-        fold_index=progress.fold_index,
-        temporal_config_id=progress.temporal_config_id,
     )
     return TemporalJepaEpochResult(
         progress=completed,
