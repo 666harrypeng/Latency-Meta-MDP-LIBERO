@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentRollout
 from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
     SharedJepaSampleIndex,
     TemporalJepaEvaluationBatch,
@@ -58,9 +59,24 @@ def evaluate_future_proprio_batch(
         raise TypeError("model must be a torch module")
     if not isinstance(batch, TemporalJepaEvaluationBatch):
         raise TypeError("batch must be TemporalJepaEvaluationBatch")
+    return evaluate_future_proprio_rollout(
+        rollout=model.rollout_native(batch.context),
+        batch=batch,
+    )
+
+
+@torch.no_grad()
+def evaluate_future_proprio_rollout(
+    *,
+    rollout: FutureLatentRollout,
+    batch: TemporalJepaEvaluationBatch,
+) -> FutureProprioBatchMetrics:
+    if not isinstance(rollout, FutureLatentRollout):
+        raise TypeError("rollout must be FutureLatentRollout")
+    if not isinstance(batch, TemporalJepaEvaluationBatch):
+        raise TypeError("batch must be TemporalJepaEvaluationBatch")
     if batch.temporal_config_id != "stride4_80ms_history_160ms":
         raise ValueError("L3 admission proprio evaluation requires stride-4")
-    rollout = model.rollout_native(batch.context)
     if (
         tuple(rollout.native_delay_ticks.tolist()) != (4, 8, 12, 16, 20)
         or rollout.future_proprio.shape != batch.target_proprio_physical.shape
@@ -69,17 +85,18 @@ def evaluate_future_proprio_batch(
     predicted = rollout.future_proprio.float()
     target = batch.target_proprio_physical.float()
     current = batch.current_proprio_physical.float().unsqueeze(1).expand_as(target)
-    delays_seconds = rollout.native_delay_ticks.to(
-        device=target.device,
-        dtype=torch.float32,
-    ) * _FORMAL_TICK_SECONDS
+    delays_seconds = (
+        rollout.native_delay_ticks.to(
+            device=target.device,
+            dtype=torch.float32,
+        )
+        * _FORMAL_TICK_SECONDS
+    )
     constant_velocity = current.clone()
     constant_velocity[:, :, :7] = (
         current[:, :, :7] + delays_seconds[None, :, None] * current[:, :, 7:14]
     )
-    constant_velocity[:, :, 14] = (
-        current[:, :, 14] + delays_seconds[None, :] * current[:, :, 15]
-    )
+    constant_velocity[:, :, 14] = current[:, :, 14] + delays_seconds[None, :] * current[:, :, 15]
 
     def rmse(left: torch.Tensor, right: torch.Tensor, start: int, stop: int) -> torch.Tensor:
         return torch.sqrt((left[:, :, start:stop] - right[:, :, start:stop]).square().mean(2))
@@ -93,10 +110,9 @@ def evaluate_future_proprio_batch(
     target_norm = torch.linalg.vector_norm(target_delta, dim=2)
     qpos_direction_valid = target_norm > 1e-8
     direction = torch.zeros_like(predicted_norm)
-    direction[qpos_direction_valid] = (
-        (predicted_delta * target_delta).sum(2)[qpos_direction_valid]
-        / (predicted_norm * target_norm).clamp_min(1e-8)[qpos_direction_valid]
-    )
+    direction[qpos_direction_valid] = (predicted_delta * target_delta).sum(2)[
+        qpos_direction_valid
+    ] / (predicted_norm * target_norm).clamp_min(1e-8)[qpos_direction_valid]
     predicted_gripper_delta = predicted[:, :, 14] - current[:, :, 14]
     target_gripper_delta = target[:, :, 14] - current[:, :, 14]
     gripper_direction_valid = torch.abs(target_gripper_delta) > 1e-8
@@ -174,14 +190,10 @@ def summarize_future_proprio(
         "persistence_qpos_rmse_rad": concatenate("persistence_qpos_rmse"),
         "persistence_qvel_rmse_rad_s": concatenate("persistence_qvel_rmse"),
         "persistence_gripper_width_mae_m": concatenate("persistence_gripper_width_mae"),
-        "persistence_gripper_velocity_mae_m_s": concatenate(
-            "persistence_gripper_velocity_mae"
-        ),
+        "persistence_gripper_velocity_mae_m_s": concatenate("persistence_gripper_velocity_mae"),
         "constant_velocity_qpos_rmse_rad": concatenate("constant_velocity_qpos_rmse"),
         "constant_velocity_qvel_rmse_rad_s": concatenate("constant_velocity_qvel_rmse"),
-        "constant_velocity_gripper_width_mae_m": concatenate(
-            "constant_velocity_gripper_width_mae"
-        ),
+        "constant_velocity_gripper_width_mae_m": concatenate("constant_velocity_gripper_width_mae"),
         "constant_velocity_gripper_velocity_mae_m_s": concatenate(
             "constant_velocity_gripper_velocity_mae"
         ),

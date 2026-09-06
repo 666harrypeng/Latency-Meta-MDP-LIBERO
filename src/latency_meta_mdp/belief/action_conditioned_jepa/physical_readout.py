@@ -179,6 +179,49 @@ class ObjectStateBatchMetrics:
     absorbing_mask: np.ndarray
 
 
+def summarize_object_state_metrics(
+    batches: tuple[ObjectStateBatchMetrics, ...],
+) -> dict[str, object]:
+    if (
+        type(batches) is not tuple
+        or not batches
+        or any(not isinstance(value, ObjectStateBatchMetrics) for value in batches)
+    ):
+        raise ValueError("batches must contain ObjectStateBatchMetrics")
+    position = np.concatenate(tuple(value.position_rmse_m for value in batches), axis=0)
+    velocity = np.concatenate(tuple(value.velocity_rmse_m_s for value in batches), axis=0)
+    dynamic = np.concatenate(tuple(value.dynamic_mask for value in batches), axis=0)
+    absorbing = np.concatenate(tuple(value.absorbing_mask for value in batches), axis=0)
+    if position.shape != velocity.shape or position.shape != dynamic.shape:
+        raise ValueError("object-state metric batch shapes are inconsistent")
+
+    def source_mean(values: np.ndarray, mask: np.ndarray) -> float | None:
+        selected = [
+            float(row[row_mask].mean())
+            for row, row_mask in zip(values, mask, strict=True)
+            if np.any(row_mask)
+        ]
+        return None if not selected else float(np.mean(selected))
+
+    def per_anchor(values: np.ndarray) -> list[float | None]:
+        return [
+            None
+            if not np.any(dynamic[:, index])
+            else float(values[:, index][dynamic[:, index]].mean())
+            for index in range(values.shape[1])
+        ]
+
+    return {
+        "source_count": int(position.shape[0]),
+        "dynamic_position_rmse_m": source_mean(position, dynamic),
+        "dynamic_velocity_rmse_m_s": source_mean(velocity, dynamic),
+        "absorbing_position_rmse_m": source_mean(position, absorbing),
+        "absorbing_velocity_rmse_m_s": source_mean(velocity, absorbing),
+        "per_anchor_dynamic_position_rmse_m": per_anchor(position),
+        "per_anchor_dynamic_velocity_rmse_m_s": per_anchor(velocity),
+    }
+
+
 @torch.no_grad()
 def evaluate_object_state_latents(
     *,

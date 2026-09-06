@@ -146,10 +146,12 @@ def test_j2_primary_summary_excludes_absorbing_targets() -> None:
     predicted[:, -1, :7] += 100.0
     absorbing = torch.tensor([[False, False, False, False, True]])
     summary = summarize_future_proprio(
-        (evaluate_future_proprio_batch(
-            model=_FixedProprioRollout(predicted),
-            batch=_batch(target=target, absorbing=absorbing),
-        ),)
+        (
+            evaluate_future_proprio_batch(
+                model=_FixedProprioRollout(predicted),
+                batch=_batch(target=target, absorbing=absorbing),
+            ),
+        )
     )
 
     assert summary["dynamic_value_count"] == 4
@@ -181,3 +183,19 @@ def test_j2_counts_collapsed_qpos_prediction_as_zero_direction_skill() -> None:
 
     np.testing.assert_array_equal(metrics.qpos_direction_valid, True)
     np.testing.assert_allclose(metrics.qpos_displacement_cosine, 0.0, atol=0.0)
+
+
+def test_j2_can_score_one_precomputed_rollout_without_calling_model_again() -> None:
+    """Catches forcing J2 and J3 to execute separate AR5 predictor rollouts."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.admission_evaluation import (
+        evaluate_future_proprio_rollout,
+    )
+
+    target = _constant_velocity_target()
+    batch = _batch(target=target)
+    rollout = _FixedProprioRollout(target).rollout_native(batch.context)
+    metrics = evaluate_future_proprio_rollout(rollout=rollout, batch=batch)
+
+    np.testing.assert_allclose(metrics.qpos_rmse, 0.0, atol=0.0)
+    assert metrics.native_delay_ticks == (4, 8, 12, 16, 20)

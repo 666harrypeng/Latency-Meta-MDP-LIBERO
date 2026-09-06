@@ -85,6 +85,24 @@ def test_free_rollout_metrics_separate_model_error_from_persistence() -> None:
     assert metrics.source_count == 1
 
 
+def test_intrinsic_metrics_can_score_one_precomputed_rollout() -> None:
+    """Catches requiring a second AR5 call when final qualification also computes J2/J3."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.evaluation import (
+        evaluate_temporal_rollout,
+    )
+
+    batch = _evaluation_batch()
+    rollout = _FixedRolloutModel(
+        visual=batch.target_visual_latents,
+        proprio=batch.target_proprio_physical,
+    ).rollout_native(batch.context)
+    metrics = evaluate_temporal_rollout(rollout=rollout, batch=batch)
+
+    np.testing.assert_allclose(metrics.latent_rmse, 0.0, atol=0.0)
+    np.testing.assert_allclose(metrics.proprio_rmse, 0.0, atol=0.0)
+
+
 def test_temporal_evaluation_summary_aggregates_sources_before_anchors() -> None:
     """Catches giving a denser temporal grid more aggregate statistical weight."""
 

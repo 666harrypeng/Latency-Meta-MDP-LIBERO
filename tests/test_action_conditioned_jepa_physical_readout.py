@@ -79,13 +79,12 @@ def test_object_state_dataset_reads_each_gt_frame_once_and_normalizes_targets(
     assert latent.dtype == torch.float16
     torch.testing.assert_close(
         target,
-        normalization.normalize(
-            torch.tensor([4.0, 5.0, 6.0, 7.0, 8.0, 9.0], dtype=torch.float32)
-        ),
+        normalization.normalize(torch.tensor([4.0, 5.0, 6.0, 7.0, 8.0, 9.0], dtype=torch.float32)),
     )
-    torch.testing.assert_close(normalization.denormalize(target), torch.tensor(
-        [4.0, 5.0, 6.0, 7.0, 8.0, 9.0], dtype=torch.float32
-    ))
+    torch.testing.assert_close(
+        normalization.denormalize(target),
+        torch.tensor([4.0, 5.0, 6.0, 7.0, 8.0, 9.0], dtype=torch.float32),
+    )
 
 
 class _LatentEncodedStateReadout(torch.nn.Module):
@@ -156,3 +155,26 @@ def test_object_state_targets_follow_stride4_ticks_and_terminal_absorption(tmp_p
 
     torch.testing.assert_close(targets[0, :, 0], torch.tensor([9.0, 10.0, 10.0, 10.0, 10.0]))
     torch.testing.assert_close(targets[0, :, 3], torch.tensor([12.0, 0.0, 0.0, 0.0, 0.0]))
+
+
+def test_object_state_summary_keeps_dynamic_and_absorbing_errors_separate() -> None:
+    """Catches repeated terminal targets making grounded rollout quality look better."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
+        ObjectStateBatchMetrics,
+        summarize_object_state_metrics,
+    )
+
+    metrics = ObjectStateBatchMetrics(
+        position_rmse_m=np.asarray([[0.001, 0.002, 1.0]], dtype=np.float64),
+        velocity_rmse_m_s=np.asarray([[0.01, 0.02, 2.0]], dtype=np.float64),
+        dynamic_mask=np.asarray([[True, True, False]], dtype=np.bool_),
+        absorbing_mask=np.asarray([[False, False, True]], dtype=np.bool_),
+    )
+    summary = summarize_object_state_metrics((metrics,))
+
+    assert summary["dynamic_position_rmse_m"] == 0.0015
+    assert summary["dynamic_velocity_rmse_m_s"] == 0.015
+    assert summary["absorbing_position_rmse_m"] == 1.0
+    assert summary["absorbing_velocity_rmse_m_s"] == 2.0
+    assert summary["per_anchor_dynamic_position_rmse_m"] == [0.001, 0.002, None]

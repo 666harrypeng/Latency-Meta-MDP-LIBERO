@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentRollout
 from latency_meta_mdp.belief.action_conditioned_jepa.latent_return import (
     upper_tie_nearest_anchor_indices,
 )
@@ -95,7 +96,22 @@ def evaluate_temporal_batch(
         raise TypeError("model must be a torch module")
     if not isinstance(batch, TemporalJepaEvaluationBatch):
         raise TypeError("batch must be TemporalJepaEvaluationBatch")
-    rollout = model.rollout_native(batch.context)
+    return evaluate_temporal_rollout(
+        rollout=model.rollout_native(batch.context),
+        batch=batch,
+    )
+
+
+@torch.no_grad()
+def evaluate_temporal_rollout(
+    *,
+    rollout: FutureLatentRollout,
+    batch: TemporalJepaEvaluationBatch,
+) -> TemporalBatchMetrics:
+    if not isinstance(rollout, FutureLatentRollout):
+        raise TypeError("rollout must be FutureLatentRollout")
+    if not isinstance(batch, TemporalJepaEvaluationBatch):
+        raise TypeError("batch must be TemporalJepaEvaluationBatch")
     if (
         rollout.future_visual_latents.shape != batch.target_visual_latents.shape
         or rollout.future_proprio.shape != batch.target_proprio_physical.shape
