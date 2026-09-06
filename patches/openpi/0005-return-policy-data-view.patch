@@ -1,0 +1,84 @@
+diff --git a/src/openpi/models/model.py b/src/openpi/models/model.py
+--- a/src/openpi/models/model.py
++++ b/src/openpi/models/model.py
+@@ -102,6 +102,9 @@
+     # Training-only target validity. Never embedded as an actor input.
+     action_loss_mask: at.Bool[ArrayT, "*b ah ad"] | None = None
+ 
++    # Training-only importance weight; never embedded or read by sampling.
++    action_loss_weight: at.Float[ArrayT, "*b"] | None = None
++
+     # Optional policy-owned return mixture; no realized-delay field.
+     return_belief_visual: at.Float[ArrayT, "*b k v p f"] | None = None
+     return_belief_proprio: at.Float[ArrayT, "*b k r"] | None = None
+@@ -136,6 +139,7 @@
+             token_ar_mask=data.get("token_ar_mask"),
+             token_loss_mask=data.get("token_loss_mask"),
+             action_loss_mask=data.get("action_loss_mask"),
++            action_loss_weight=data.get("action_loss_weight"),
+             return_belief_visual=data.get("return_belief_visual"),
+             return_belief_proprio=data.get("return_belief_proprio"),
+             return_belief_delay_ticks=data.get("return_belief_delay_ticks"),
+@@ -220,6 +224,7 @@
+         token_ar_mask=observation.token_ar_mask,
+         token_loss_mask=observation.token_loss_mask,
+         action_loss_mask=observation.action_loss_mask,
++        action_loss_weight=observation.action_loss_weight,
+         return_belief_visual=observation.return_belief_visual,
+         return_belief_proprio=observation.return_belief_proprio,
+         return_belief_delay_ticks=observation.return_belief_delay_ticks,
+diff --git a/src/openpi/models/pi0.py b/src/openpi/models/pi0.py
+--- a/src/openpi/models/pi0.py
++++ b/src/openpi/models/pi0.py
+@@ -245,13 +245,17 @@
+         v_t = self.action_out_proj(action_hidden)
+ 
+         if action_loss_mask is None:
+-            return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+-        squared_error = jnp.square(jnp.where(action_loss_mask, v_t - u_t, 0.0))
+-        valid_count = jnp.sum(action_loss_mask, axis=(-2, -1), keepdims=True)
+-        # Trainer averages [batch, horizon]. This yields an equal-weight mean
+-        # per source over real target scalars, independent of tail length.
+-        # All-masked rows contribute zero; the dataset rejects such sources.
+-        return jnp.sum(squared_error, axis=-1) * self.action_horizon / jnp.maximum(valid_count[..., 0], 1)
++            loss = jnp.mean(jnp.square(v_t - u_t), axis=-1)
++        else:
++            squared_error = jnp.square(jnp.where(action_loss_mask, v_t - u_t, 0.0))
++            valid_count = jnp.sum(action_loss_mask, axis=(-2, -1), keepdims=True)
++            # Equal source weight over real target scalars; all-masked rows give zero.
++            loss = jnp.sum(squared_error, axis=-1) * self.action_horizon / jnp.maximum(valid_count[..., 0], 1)
++        if observation.action_loss_weight is not None:
++            if observation.action_loss_weight.shape != loss.shape[:-1]:
++                raise ValueError("action_loss_weight must match the source batch shape")
++            loss = loss * observation.action_loss_weight[..., None]
++        return loss
+ 
+     @override
+     def sample_actions(
+diff --git a/src/openpi/training/config.py b/src/openpi/training/config.py
+--- a/src/openpi/training/config.py
++++ b/src/openpi/training/config.py
+@@ -93,6 +93,9 @@
+     # Number of source frames to exclude from the end of every LeRobot episode. This is useful
+     # when fixed-horizon action targets must not cross an episode boundary.
+     drop_n_last_frames: int = 0
++
++    # Optional project-owned nominal return-policy index view over this dataset.
++    return_policy_view: dict | None = None
+ 
+     # Only used for RLDS data loader (ie currently only used for DROID).
+     rlds_data_dir: str | None = None
+diff --git a/src/openpi/training/data_loader.py b/src/openpi/training/data_loader.py
+--- a/src/openpi/training/data_loader.py
++++ b/src/openpi/training/data_loader.py
+@@ -184,6 +184,10 @@
+     if data_config.prompt_from_task:
+         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
+ 
++    if data_config.return_policy_view is not None:
++        from latency_meta_mdp.policy_return_data import load_matched_return_policy_dataset
++
++        dataset = load_matched_return_policy_dataset(dataset, data_config.return_policy_view)
+     return dataset
+ 
+ 

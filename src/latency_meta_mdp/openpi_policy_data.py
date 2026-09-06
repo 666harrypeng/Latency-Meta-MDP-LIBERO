@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import ClassVar
 
 import numpy as np
 from openpi import transforms
@@ -13,6 +14,8 @@ from openpi.training.config import LeRobotLiberoDataConfig
 
 @dataclasses.dataclass(frozen=True)
 class StructuredPolicyInputs(LiberoInputs):
+    allow_empty_action_targets: ClassVar[bool] = False
+
     def __call__(self, data: dict) -> dict:
         state = np.asarray(data["observation/state"])
         if state.shape != (16,) or not np.isfinite(state).all():
@@ -25,7 +28,8 @@ class StructuredPolicyInputs(LiberoInputs):
                 raise ValueError(
                     "structured policy requires H50/7D actions and boolean episode mask"
                 )
-            if is_pad[0] or np.any(np.diff(is_pad.astype(np.int8)) < 0):
+            empty_allowed = self.allow_empty_action_targets and is_pad.all()
+            if (is_pad[0] and not empty_allowed) or np.any(np.diff(is_pad.astype(np.int8)) < 0):
                 raise ValueError(
                     "each source must start at a real action with a contiguous valid prefix"
                 )

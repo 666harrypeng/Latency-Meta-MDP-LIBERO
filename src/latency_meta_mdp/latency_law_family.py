@@ -222,7 +222,13 @@ class EpisodeLatencyLawFamily:
             or episode_id != f"l{level}-seed-{scene_seed:06d}-attempt-000"
         ):
             raise ValueError("episode latency-law identity is invalid")
-        generation_seed = self._seed_for_scene(scene_seed)
+        return self.sample_for_key(assignment_key=scene_seed)
+
+    def sample_for_key(self, *, assignment_key: int) -> EpisodeLatencyLaw:
+        """Assign the same law to a stable source key without inventing an episode ID."""
+        if type(assignment_key) is not int or assignment_key < 0:
+            raise ValueError("latency-law assignment key must be a non-negative integer")
+        generation_seed = self._seed_for_scene(assignment_key)
         rng = np.random.default_rng(generation_seed)
         base_mean = self.base_alpha / (self.base_alpha + self.base_beta)
         base_logit = math.log(base_mean / (1.0 - base_mean))
