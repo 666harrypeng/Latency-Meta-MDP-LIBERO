@@ -35,6 +35,7 @@ _SIGNAL_FIELDS = (
     "formal_tick",
     "eef_position_world",
     "object_pose",
+    "object_velocity",
     "commanded_motion_segment_index",
     "left_pad_contact",
     "right_pad_contact",
@@ -61,6 +62,7 @@ def _readonly(value: np.ndarray, *, dtype: np.dtype[Any]) -> np.ndarray:
 class TemporalSignalEpisode:
     record: JepaEpisodeRecord
     object_position: np.ndarray
+    object_linear_velocity: np.ndarray
     eef_position: np.ndarray
     left_pad_contact: np.ndarray
     right_pad_contact: np.ndarray
@@ -72,17 +74,23 @@ class TemporalSignalEpisode:
             raise TypeError("record must be a JepaEpisodeRecord")
         count = self.record.terminal_tick + 1
         object_position = _readonly(self.object_position, dtype=np.dtype(np.float32))
+        object_velocity = _readonly(
+            self.object_linear_velocity,
+            dtype=np.dtype(np.float32),
+        )
         eef_position = _readonly(self.eef_position, dtype=np.dtype(np.float32))
         left = _readonly(self.left_pad_contact, dtype=np.dtype(np.bool_))
         right = _readonly(self.right_pad_contact, dtype=np.dtype(np.bool_))
         segments = _readonly(self.motion_segment_index, dtype=np.dtype(np.int64))
         if (
             object_position.shape != (count, 3)
+            or object_velocity.shape != (count, 3)
             or eef_position.shape != (count, 3)
             or left.shape != (count,)
             or right.shape != (count,)
             or segments.shape != (count,)
             or not np.all(np.isfinite(object_position))
+            or not np.all(np.isfinite(object_velocity))
             or not np.all(np.isfinite(eef_position))
         ):
             raise ValueError("temporal signal arrays disagree with the episode timeline")
@@ -93,6 +101,7 @@ class TemporalSignalEpisode:
         ):
             raise ValueError("handoff_state must contain one string per boundary")
         object.__setattr__(self, "object_position", object_position)
+        object.__setattr__(self, "object_linear_velocity", object_velocity)
         object.__setattr__(self, "eef_position", eef_position)
         object.__setattr__(self, "left_pad_contact", left)
         object.__setattr__(self, "right_pad_contact", right)
@@ -140,6 +149,10 @@ def load_temporal_signal_episodes(
                 record=record,
                 object_position=np.asarray(
                     [row["object_pose"][:3] for row in rows],
+                    dtype=np.float32,
+                ),
+                object_linear_velocity=np.asarray(
+                    [row["object_velocity"][:3] for row in rows],
                     dtype=np.float32,
                 ),
                 eef_position=np.asarray(

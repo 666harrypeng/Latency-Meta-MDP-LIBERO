@@ -9,6 +9,9 @@ from typing import Any
 import numpy as np
 import torch
 
+from latency_meta_mdp.belief.action_conditioned_jepa.latent_return import (
+    upper_tie_nearest_anchor_indices,
+)
 from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
     SharedJepaSampleIndex,
     TemporalJepaDeployedEvaluationBatch,
@@ -174,27 +177,6 @@ def summarize_temporal_evaluation(
     }
 
 
-def _upper_tie_nearest_anchor_indices(
-    *,
-    dense_delay_ticks: torch.Tensor,
-    native_delay_ticks: torch.Tensor,
-) -> torch.Tensor:
-    if (
-        dense_delay_ticks.ndim != 1
-        or native_delay_ticks.ndim != 1
-        or dense_delay_ticks.dtype != torch.int64
-        or native_delay_ticks.dtype != torch.int64
-        or dense_delay_ticks.numel() == 0
-        or native_delay_ticks.numel() == 0
-        or not bool(torch.all(dense_delay_ticks[1:] > dense_delay_ticks[:-1]))
-        or not bool(torch.all(native_delay_ticks[1:] > native_delay_ticks[:-1]))
-    ):
-        raise ValueError("delay grids must be non-empty increasing int64 tensors")
-    distances = torch.abs(dense_delay_ticks[:, None] - native_delay_ticks[None, :])
-    reverse = torch.argmin(torch.flip(distances, dims=(1,)), dim=1)
-    return native_delay_ticks.numel() - 1 - reverse
-
-
 @torch.no_grad()
 def evaluate_deployed_temporal_batch(
     *,
@@ -217,7 +199,7 @@ def evaluate_deployed_temporal_batch(
         != (batch.batch_size, batch.dense_delay_ticks.numel())
     ):
         raise ValueError("dense D20 target shapes are incompatible")
-    assignment = _upper_tie_nearest_anchor_indices(
+    assignment = upper_tie_nearest_anchor_indices(
         dense_delay_ticks=batch.dense_delay_ticks,
         native_delay_ticks=batch.native_delay_ticks,
     )

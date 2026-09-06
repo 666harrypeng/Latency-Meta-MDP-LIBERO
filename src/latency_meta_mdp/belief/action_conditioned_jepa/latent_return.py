@@ -41,6 +41,32 @@ _MANIFEST_FIELDS = {
 }
 
 
+def upper_tie_nearest_anchor_indices(
+    *,
+    dense_delay_ticks: torch.Tensor,
+    native_delay_ticks: torch.Tensor,
+) -> torch.Tensor:
+    """Map each dense delay to its nearest native anchor, choosing the upper tie."""
+
+    if (
+        not isinstance(dense_delay_ticks, torch.Tensor)
+        or not isinstance(native_delay_ticks, torch.Tensor)
+        or dense_delay_ticks.ndim != 1
+        or native_delay_ticks.ndim != 1
+        or dense_delay_ticks.dtype != torch.int64
+        or native_delay_ticks.dtype != torch.int64
+        or dense_delay_ticks.numel() == 0
+        or native_delay_ticks.numel() == 0
+        or dense_delay_ticks.device != native_delay_ticks.device
+        or not bool(torch.all(dense_delay_ticks[1:] > dense_delay_ticks[:-1]))
+        or not bool(torch.all(native_delay_ticks[1:] > native_delay_ticks[:-1]))
+    ):
+        raise ValueError("delay grids must be non-empty increasing int64 tensors on one device")
+    distances = torch.abs(dense_delay_ticks[:, None] - native_delay_ticks[None, :])
+    reverse_assignment = torch.argmin(torch.flip(distances, dims=(1,)), dim=1)
+    return native_delay_ticks.numel() - 1 - reverse_assignment
+
+
 def quantize_d20_probabilities(
     *,
     probabilities: torch.Tensor,
@@ -89,9 +115,10 @@ def quantize_d20_probabilities(
         dtype=torch.int64,
         device=probabilities.device,
     )
-    distances = torch.abs(delays[:, None] - anchors[None, :])
-    reverse_assignment = torch.argmin(torch.flip(distances, dims=(1,)), dim=1)
-    assignment = anchors.numel() - 1 - reverse_assignment
+    assignment = upper_tie_nearest_anchor_indices(
+        dense_delay_ticks=delays,
+        native_delay_ticks=anchors,
+    )
     macro = torch.zeros(
         probabilities.shape[0],
         anchors.numel(),

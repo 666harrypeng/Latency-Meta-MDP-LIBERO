@@ -17,6 +17,8 @@ def _signal_episode(tmp_path: Path):
     ticks = np.arange(31, dtype=np.float32)
     object_position = np.zeros((31, 3), dtype=np.float32)
     object_position[:, 0] = ticks * 0.001
+    object_velocity = np.zeros((31, 3), dtype=np.float32)
+    object_velocity[:, 0] = 0.05
     eef_position = np.zeros((31, 3), dtype=np.float32)
     eef_position[:, 1] = ticks * 0.002
     left = ticks >= 25
@@ -26,6 +28,7 @@ def _signal_episode(tmp_path: Path):
     return TemporalSignalEpisode(
         record=record,
         object_position=object_position,
+        object_linear_velocity=object_velocity,
         eef_position=eef_position,
         left_pad_contact=left,
         right_pad_contact=right,
@@ -207,6 +210,7 @@ def test_formal_temporal_signal_episode_loads_from_verified_source_and_cache() -
     assert len(episodes) == 1
     assert episodes[0].record.episode_id == episode_id
     assert episodes[0].object_position.shape[1] == 3
+    assert episodes[0].object_linear_velocity.shape[1] == 3
     assert episodes[0].eef_position.shape[1] == 3
     assert report["episode_count"] == 1
     assert report["shared_context_count"] == episodes[0].record.terminal_tick - 10

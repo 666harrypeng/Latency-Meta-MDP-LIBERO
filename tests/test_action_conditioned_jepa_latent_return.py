@@ -36,6 +36,42 @@ def _probabilities(*, batch_size: int = 2) -> torch.Tensor:
     return weights.unsqueeze(0).repeat(batch_size, 1)
 
 
+def test_upper_tie_assignment_has_one_public_authoritative_mapping() -> None:
+    """Catches inconsistent nearest-anchor ties between PMF assembly and evaluation."""
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.latent_return import (
+        upper_tie_nearest_anchor_indices,
+    )
+
+    assignment = upper_tie_nearest_anchor_indices(
+        dense_delay_ticks=torch.arange(1, 21, dtype=torch.int64),
+        native_delay_ticks=torch.tensor([4, 8, 12, 16, 20], dtype=torch.int64),
+    )
+
+    assert assignment.tolist() == [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+        2,
+        3,
+        3,
+        3,
+        3,
+        4,
+        4,
+        4,
+    ]
+
+
 def test_changing_only_pmf_never_changes_fixed_delay_futures() -> None:
     from latency_meta_mdp.belief.action_conditioned_jepa.latent_return import (
         assemble_return_latent_belief,
