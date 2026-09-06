@@ -1,0 +1,157 @@
+diff --git a/src/openpi/models/model.py b/src/openpi/models/model.py
+--- a/src/openpi/models/model.py
++++ b/src/openpi/models/model.py
+@@ -102,6 +102,12 @@
+     # Training-only target validity. Never embedded as an actor input.
+     action_loss_mask: at.Bool[ArrayT, "*b ah ad"] | None = None
+ 
++    # Optional policy-owned return mixture; no realized-delay field.
++    return_belief_visual: at.Float[ArrayT, "*b k v p f"] | None = None
++    return_belief_proprio: at.Float[ArrayT, "*b k r"] | None = None
++    return_belief_delay_ticks: at.Float[ArrayT, "*b k"] | None = None
++    return_belief_probabilities: at.Float[ArrayT, "*b k"] | None = None
++
+     # pi0-fast model specific fields.
+ 
+     # Token auto-regressive mask (for FAST autoregressive model).
+@@ -130,6 +136,10 @@
+             token_ar_mask=data.get("token_ar_mask"),
+             token_loss_mask=data.get("token_loss_mask"),
+             action_loss_mask=data.get("action_loss_mask"),
++            return_belief_visual=data.get("return_belief_visual"),
++            return_belief_proprio=data.get("return_belief_proprio"),
++            return_belief_delay_ticks=data.get("return_belief_delay_ticks"),
++            return_belief_probabilities=data.get("return_belief_probabilities"),
+         )
+ 
+     def to_dict(self) -> at.PyTree[ArrayT]:
+@@ -210,6 +220,10 @@
+         token_ar_mask=observation.token_ar_mask,
+         token_loss_mask=observation.token_loss_mask,
+         action_loss_mask=observation.action_loss_mask,
++        return_belief_visual=observation.return_belief_visual,
++        return_belief_proprio=observation.return_belief_proprio,
++        return_belief_delay_ticks=observation.return_belief_delay_ticks,
++        return_belief_probabilities=observation.return_belief_probabilities,
+     )
+ 
+ 
+diff --git a/src/openpi/models/pi0_config.py b/src/openpi/models/pi0_config.py
+--- a/src/openpi/models/pi0_config.py
++++ b/src/openpi/models/pi0_config.py
+@@ -26,6 +26,7 @@
+     action_horizon: int = 50
+     # Physical action dimensions; remaining dimensions stay at their initial noise.
+     active_action_dim: int | None = None
++    use_return_belief: bool = False
+     max_token_len: int = None  # type: ignore
+     # Pi05 has two differences from Pi0:
+     # - the state input is part of the discrete language tokens rather than a continuous input that is part of the suffix
+@@ -37,12 +38,16 @@
+     pytorch_compile_mode: str | None = "max-autotune"
+ 
+     def __post_init__(self):
++        if self.use_return_belief and not self.pi05:
++            raise ValueError("return Belief integration requires pi0.5")
+         if self.active_action_dim is not None and not 0 < self.active_action_dim <= self.action_dim:
+             raise ValueError("active_action_dim must lie within action_dim")
+         if self.max_token_len is None:
+             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)
+         if self.discrete_state_input is None:
+             object.__setattr__(self, "discrete_state_input", self.pi05)
++        if self.use_return_belief and (not self.discrete_state_input or self.active_action_dim != 7 or self.action_horizon != 50 or self.action_dim != 32):
++            raise ValueError("return Belief requires the matched state-aware H50/7D pi0.5 contract")
+         if self.pytorch_compile_mode is not None:
+             assert self.pytorch_compile_mode in [
+                 "default",
+@@ -85,6 +90,15 @@
+                 tokenized_prompt=jax.ShapeDtypeStruct([batch_size, self.max_token_len], jnp.int32),
+                 tokenized_prompt_mask=jax.ShapeDtypeStruct([batch_size, self.max_token_len], bool),
+             )
++        if self.use_return_belief:
++            with at.disable_typechecking():
++                observation_spec = dataclasses.replace(
++                    observation_spec,
++                    return_belief_visual=jax.ShapeDtypeStruct([batch_size, 5, 2, 196, 384], jnp.float16),
++                    return_belief_proprio=jax.ShapeDtypeStruct([batch_size, 5, 16], jnp.float32),
++                    return_belief_delay_ticks=jax.ShapeDtypeStruct([batch_size, 5], jnp.float32),
++                    return_belief_probabilities=jax.ShapeDtypeStruct([batch_size, 5], jnp.float32),
++                )
+         action_spec = jax.ShapeDtypeStruct([batch_size, self.action_horizon, self.action_dim], jnp.float32)
+ 
+         return observation_spec, action_spec
+diff --git a/src/openpi/models/pi0.py b/src/openpi/models/pi0.py
+--- a/src/openpi/models/pi0.py
++++ b/src/openpi/models/pi0.py
+@@ -61,6 +61,17 @@
+         precision=jax.lax.Precision.HIGHEST,
+     )
+     return jnp.concatenate([jnp.sin(sinusoid_input), jnp.cos(sinusoid_input)], axis=-1)
++
++
++def _encode_return_belief(model, observation):
++    adapter = getattr(model, "return_belief_adapter", None)
++    if adapter is None:
++        return None
++    fields = (observation.return_belief_visual, observation.return_belief_proprio,
++              observation.return_belief_delay_ticks, observation.return_belief_probabilities)
++    if any(value is None for value in fields):
++        raise ValueError("conditioned policy requires a complete return Belief")
++    return adapter.encode(*fields)
+ 
+ 
+ class Pi0(_model.BaseModel):
+@@ -102,6 +113,12 @@
+ 
+         # This attribute gets automatically set by model.train() and model.eval().
+         self.deterministic = True
++        # Initialize after all native weights, preserving their RNG order.
++        self.return_belief_adapter = None
++        if config.use_return_belief:
++            from latency_meta_mdp.openpi_belief_adapter import ReturnBeliefAdapter
++
++            self.return_belief_adapter = ReturnBeliefAdapter(action_width=action_expert_config.width, rngs=rngs)
+ 
+     @at.typecheck
+     def embed_prefix(
+@@ -193,6 +210,7 @@
+         preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
+         observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
+ 
++        return_memory = _encode_return_belief(self, observation)
+         batch_shape = actions.shape[:-2]
+         noise = jax.random.normal(noise_rng, actions.shape)
+         time = jax.random.beta(time_rng, 1.5, 1, batch_shape) * 0.999 + 0.001
+@@ -221,7 +239,10 @@
+         (prefix_out, suffix_out), _ = self.PaliGemma.llm(
+             [prefix_tokens, suffix_tokens], mask=attn_mask, positions=positions, adarms_cond=[None, adarms_cond]
+         )
+-        v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
++        action_hidden = suffix_out[:, -self.action_horizon :]
++        if return_memory is not None:
++            action_hidden = self.return_belief_adapter(action_hidden, return_memory)
++        v_t = self.action_out_proj(action_hidden)
+ 
+         if action_loss_mask is None:
+             return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+@@ -249,6 +270,8 @@
+         if noise is None:
+             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+ 
++        return_memory = _encode_return_belief(self, observation)
++
+         # first fill KV cache with a forward pass of the prefix
+         prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+         prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
+@@ -285,7 +308,10 @@
+                 adarms_cond=[None, adarms_cond],
+             )
+             assert prefix_out is None
+-            v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
++            action_hidden = suffix_out[:, -self.action_horizon :]
++            if return_memory is not None:
++                action_hidden = self.return_belief_adapter(action_hidden, return_memory)
++            v_t = self.action_out_proj(action_hidden)
+ 
+             if self.active_action_dim is not None:
+                 # Match noise-only padded coordinates used by masked training.

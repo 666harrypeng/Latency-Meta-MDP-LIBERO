@@ -69,8 +69,14 @@ def _purge_worktree_modules(worktree: Path, modules_before: set[str]) -> None:
             belongs_to_worktree = Path(module_file).resolve().is_relative_to(worktree)
         except (OSError, RuntimeError):
             belongs_to_worktree = False
-        if belongs_to_worktree:
+        # Project transforms cache upstream classes/enums too. Keeping them
+        # across source contexts mixes incompatible ModelType identities.
+        if belongs_to_worktree or name.startswith("latency_meta_mdp.openpi_"):
             sys.modules.pop(name, None)
+            parent_name, _, child_name = name.rpartition(".")
+            parent = sys.modules.get(parent_name)
+            if parent is not None and getattr(parent, child_name, None) is module:
+                delattr(parent, child_name)
 
 
 @contextlib.contextmanager
