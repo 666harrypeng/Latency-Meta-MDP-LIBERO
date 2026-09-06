@@ -12,9 +12,7 @@ def test_wandb_config_and_run_identity_are_deterministic_and_secret_free(monkeyp
         load_jepa_wandb_config,
     )
 
-    config = load_jepa_wandb_config(
-        Path("configs/training/action_conditioned_jepa/wandb.yaml")
-    )
+    config = load_jepa_wandb_config(Path("configs/training/action_conditioned_jepa/wandb.yaml"))
     first = build_wandb_run_spec(
         config=config,
         selection_id="l3-trainpool-four-configs-v1",
@@ -56,20 +54,18 @@ def test_l3_admission_wandb_identity_has_no_fold_and_cannot_collide_with_selecti
     """Catches final seeds resuming or overwriting a cross-validation W&B run."""
 
     from latency_meta_mdp.belief.action_conditioned_jepa.tracking import (
-        build_l3_admission_wandb_run_spec,
+        build_jepa_admission_wandb_run_spec,
         load_jepa_wandb_config,
     )
 
-    config = load_jepa_wandb_config(
-        Path("configs/training/action_conditioned_jepa/wandb.yaml")
-    )
-    first = build_l3_admission_wandb_run_spec(
+    config = load_jepa_wandb_config(Path("configs/training/action_conditioned_jepa/wandb.yaml"))
+    first = build_jepa_admission_wandb_run_spec(
         config=config,
         stage_id="l3-stride4-final-admission-v1",
         temporal_config_id="stride4_80ms_history_160ms",
         model_seed=17,
     )
-    repeated = build_l3_admission_wandb_run_spec(
+    repeated = build_jepa_admission_wandb_run_spec(
         config=config,
         stage_id="l3-stride4-final-admission-v1",
         temporal_config_id="stride4_80ms_history_160ms",
@@ -86,3 +82,24 @@ def test_l3_admission_wandb_identity_has_no_fold_and_cannot_collide_with_selecti
         "temporal_config_id": "stride4_80ms_history_160ms",
     }
     assert len(first.run_id) == 16
+
+
+def test_final_runs_with_same_seed_on_different_levels_have_distinct_wandb_ids():
+    from latency_meta_mdp.belief.action_conditioned_jepa.tracking import (
+        build_jepa_admission_wandb_run_spec,
+        load_jepa_wandb_config,
+    )
+
+    config = load_jepa_wandb_config(Path("configs/training/action_conditioned_jepa/wandb.yaml"))
+    runs = [
+        build_jepa_admission_wandb_run_spec(
+            config=config,
+            level=level,
+            stage_id=f"l{level}-stride4-final-admission-v1",
+            temporal_config_id="stride4_80ms_history_160ms",
+            model_seed=27,
+        )
+        for level in (1, 2, 3)
+    ]
+    assert len({run.run_id for run in runs}) == 3
+    assert [run.logged_config["level"] for run in runs] == [1, 2, 3]

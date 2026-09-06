@@ -1,4 +1,4 @@
-"""Preflight boundary for the selected L3 Action-Conditioned JEPA admission run."""
+"""Shared final training lifecycle for level-specific Action-Conditioned JEPA models."""
 
 from __future__ import annotations
 
@@ -46,9 +46,6 @@ from latency_meta_mdp.belief.action_conditioned_jepa.fold_runner import (
 from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
     ActionConditionedJepaPredictor,
 )
-from latency_meta_mdp.belief.action_conditioned_jepa.temporal_selection import (
-    load_temporal_selection_artifact,
-)
 from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
     TemporalJepaCorpus,
     TemporalJepaDeployedEvaluationCorpus,
@@ -58,14 +55,14 @@ from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
     collate_temporal_jepa_samples,
 )
 from latency_meta_mdp.belief.action_conditioned_jepa.tracking import (
-    build_l3_admission_wandb_run_spec,
+    build_jepa_admission_wandb_run_spec,
     credential_environment_status,
     initialize_wandb_run,
     load_jepa_wandb_config,
 )
 from latency_meta_mdp.belief.action_conditioned_jepa.training import (
-    L3AdmissionProgress,
-    L3AdmissionTrainingConfig,
+    JepaAdmissionProgress,
+    JepaAdmissionTrainingConfig,
     build_epoch_microbatch_indices,
     build_upstream_aligned_optimizer,
     load_completed_temporal_jepa_history,
@@ -78,9 +75,7 @@ from latency_meta_mdp.expert_realization.artifacts import (
     _write_file_fsynced,
 )
 
-_STAGE_ID = "l3-stride4-final-admission-v1"
 _TEMPORAL_CONFIG_ID = "stride4_80ms_history_160ms"
-_CHECKPOINT_FORMAT = "action_conditioned_jepa_l3_admission_checkpoint_v1"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _CHECKPOINT_INPUTS = frozenset(
     {
@@ -95,23 +90,23 @@ _CHECKPOINT_INPUTS = frozenset(
 )
 
 
-def load_l3_admission_training_config(path: Path) -> L3AdmissionTrainingConfig:
+def load_jepa_admission_training_config(path: Path) -> JepaAdmissionTrainingConfig:
     raw: Any = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    expected = {field.name for field in fields(L3AdmissionTrainingConfig)}
+    expected = {field.name for field in fields(JepaAdmissionTrainingConfig)}
     if type(raw) is not dict or set(raw) != expected:
-        raise ValueError("L3 admission training config fields are invalid")
+        raise ValueError("JEPA admission training config fields are invalid")
     raw = dict(raw)
     raw["adamw_betas"] = tuple(raw["adamw_betas"])
     raw["model_seeds"] = tuple(raw["model_seeds"])
     raw["milestone_epochs"] = tuple(raw["milestone_epochs"])
-    return L3AdmissionTrainingConfig(**raw)
+    return JepaAdmissionTrainingConfig(**raw)
 
 
 def _validated_checkpoint_inputs(value: dict[str, str]) -> dict[str, str]:
     if type(value) is not dict or set(value) != _CHECKPOINT_INPUTS:
-        raise ValueError("L3 admission checkpoint input inventory is invalid")
+        raise ValueError("JEPA admission checkpoint input inventory is invalid")
     if any(type(item) is not str or _SHA256.fullmatch(item) is None for item in value.values()):
-        raise ValueError("L3 admission checkpoint inputs must be SHA-256 digests")
+        raise ValueError("JEPA admission checkpoint inputs must be SHA-256 digests")
     return dict(value)
 
 
@@ -119,29 +114,29 @@ def _json_mapping(value: Any) -> Any:
     return json.loads(json.dumps(value, allow_nan=False))
 
 
-def write_l3_admission_training_checkpoint(
+def write_jepa_admission_training_checkpoint(
     *,
     output_dir: Path,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    progress: L3AdmissionProgress,
-    training_config: L3AdmissionTrainingConfig,
+    progress: JepaAdmissionProgress,
+    training_config: JepaAdmissionTrainingConfig,
     input_sha256: dict[str, str],
 ) -> Path:
     if not isinstance(model, torch.nn.Module):
         raise TypeError("model must be a torch module")
     if not isinstance(optimizer, torch.optim.Optimizer):
         raise TypeError("optimizer must be a torch optimizer")
-    if not isinstance(progress, L3AdmissionProgress):
-        raise TypeError("progress must be L3AdmissionProgress")
-    if not isinstance(training_config, L3AdmissionTrainingConfig):
-        raise TypeError("training_config must be L3AdmissionTrainingConfig")
+    if not isinstance(progress, JepaAdmissionProgress):
+        raise TypeError("progress must be JepaAdmissionProgress")
+    if not isinstance(training_config, JepaAdmissionTrainingConfig):
+        raise TypeError("training_config must be JepaAdmissionTrainingConfig")
     if (
         progress.completed_epochs > training_config.max_epochs
         or progress.examples_seen
         != progress.optimizer_steps * training_config.logical_global_batch_size
     ):
-        raise ValueError("L3 admission checkpoint progress is inconsistent")
+        raise ValueError("JEPA admission checkpoint progress is inconsistent")
     inputs = _validated_checkpoint_inputs(input_sha256)
     target = Path(output_dir).absolute()
     if target.exists():
@@ -170,7 +165,7 @@ def write_l3_admission_training_checkpoint(
         }
         manifest = {
             "schema_version": 1,
-            "format_id": _CHECKPOINT_FORMAT,
+            "format_id": f"action_conditioned_jepa_l{progress.level}_admission_checkpoint_v1",
             "progress": asdict(progress),
             "training_config": _json_mapping(asdict(training_config)),
             "parameter_count": sum(value.numel() for value in model.parameters()),
@@ -190,20 +185,21 @@ def write_l3_admission_training_checkpoint(
     return target / "manifest.json"
 
 
-def load_l3_admission_training_checkpoint(
+def load_jepa_admission_training_checkpoint(
     *,
     output_dir: Path,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    expected_training_config: L3AdmissionTrainingConfig,
+    expected_training_config: JepaAdmissionTrainingConfig,
     expected_input_sha256: dict[str, str],
     expected_model_seed: int,
-) -> L3AdmissionProgress:
+    expected_level: int = 3,
+) -> JepaAdmissionProgress:
     root = Path(output_dir).resolve()
     try:
         manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("L3 admission checkpoint manifest is invalid") from error
+        raise ValueError("JEPA admission checkpoint manifest is invalid") from error
     expected_fields = {
         "schema_version",
         "format_id",
@@ -217,16 +213,17 @@ def load_l3_admission_training_checkpoint(
         type(manifest) is not dict
         or set(manifest) != expected_fields
         or manifest["schema_version"] != 1
-        or manifest["format_id"] != _CHECKPOINT_FORMAT
+        or manifest["format_id"]
+        != f"action_conditioned_jepa_l{expected_level}_admission_checkpoint_v1"
         or manifest["training_config"] != _json_mapping(asdict(expected_training_config))
         or manifest["parameter_count"] != sum(value.numel() for value in model.parameters())
         or _validated_checkpoint_inputs(manifest["input_sha256"])
         != _validated_checkpoint_inputs(expected_input_sha256)
     ):
-        raise ValueError("L3 admission checkpoint semantics are incompatible")
+        raise ValueError("JEPA admission checkpoint semantics are incompatible")
     artifacts = manifest["artifacts"]
     if type(artifacts) is not dict or set(artifacts) != {"model.safetensors", "optimizer.pt"}:
-        raise ValueError("L3 admission checkpoint artifact inventory is invalid")
+        raise ValueError("JEPA admission checkpoint artifact inventory is invalid")
     for name, metadata in artifacts.items():
         path = root / name
         if (
@@ -236,10 +233,10 @@ def load_l3_admission_training_checkpoint(
             or path.stat().st_size != metadata["bytes"]
             or _hash_file(path) != metadata["sha256"]
         ):
-            raise ValueError("L3 admission checkpoint artifact verification failed")
-    progress = L3AdmissionProgress(**manifest["progress"])
-    if progress.model_seed != expected_model_seed:
-        raise ValueError("L3 admission checkpoint seed is incompatible")
+            raise ValueError("JEPA admission checkpoint artifact verification failed")
+    progress = JepaAdmissionProgress(**manifest["progress"])
+    if progress.model_seed != expected_model_seed or progress.level != expected_level:
+        raise ValueError("JEPA admission checkpoint seed is incompatible")
     model.load_state_dict(load_safetensors((root / "model.safetensors").read_bytes()), strict=True)
     optimizer.load_state_dict(
         torch.load(
@@ -251,13 +248,13 @@ def load_l3_admission_training_checkpoint(
     return progress
 
 
-def publish_rolling_l3_admission_checkpoint(
+def publish_rolling_jepa_admission_checkpoint(
     *,
     run_root: Path,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    progress: L3AdmissionProgress,
-    training_config: L3AdmissionTrainingConfig,
+    progress: JepaAdmissionProgress,
+    training_config: JepaAdmissionTrainingConfig,
     input_sha256: dict[str, str],
 ) -> Path:
     if progress.completed_epochs <= 0:
@@ -276,7 +273,7 @@ def publish_rolling_l3_admission_checkpoint(
             raise ValueError("rolling admission pointer fields are invalid")
         previous_checkpoint = previous["checkpoint"]
     relative = f"checkpoints/epoch-{progress.completed_epochs:03d}"
-    manifest = write_l3_admission_training_checkpoint(
+    manifest = write_jepa_admission_training_checkpoint(
         output_dir=root / relative,
         model=model,
         optimizer=optimizer,
@@ -318,29 +315,31 @@ def publish_rolling_l3_admission_checkpoint(
     return manifest
 
 
-def require_l3_formal_validation_gate(
-    progress: L3AdmissionProgress,
+def require_jepa_formal_validation_gate(
+    progress: JepaAdmissionProgress,
     *,
-    config: L3AdmissionTrainingConfig,
+    config: JepaAdmissionTrainingConfig,
+    expected_optimizer_steps: int = 13_200,
 ) -> None:
-    if not isinstance(progress, L3AdmissionProgress) or not isinstance(
-        config, L3AdmissionTrainingConfig
+    if not isinstance(progress, JepaAdmissionProgress) or not isinstance(
+        config, JepaAdmissionTrainingConfig
     ):
         raise TypeError("formal validation gate received incompatible contracts")
     if (
         progress.completed_epochs != config.max_epochs
-        or progress.optimizer_steps != 13_200
-        or progress.examples_seen != 3_379_200
+        or progress.optimizer_steps != expected_optimizer_steps
+        or progress.examples_seen != expected_optimizer_steps * config.logical_global_batch_size
     ):
         raise RuntimeError("formal validation remains closed before the fixed epoch-75 checkpoint")
 
 
-def load_l3_formal_validation_records(
+def load_jepa_formal_validation_records(
     *,
     inputs: Any,
     episode_ids: tuple[str, ...],
-    progress: L3AdmissionProgress,
-    config: L3AdmissionTrainingConfig,
+    progress: JepaAdmissionProgress,
+    config: JepaAdmissionTrainingConfig,
+    expected_optimizer_steps: int = 13_200,
 ) -> tuple[Any, ...]:
     if (
         type(episode_ids) is not tuple
@@ -348,12 +347,14 @@ def load_l3_formal_validation_records(
         or episode_ids != tuple(sorted(set(episode_ids)))
     ):
         raise ValueError("formal validation episode IDs must be sorted and unique")
-    require_l3_formal_validation_gate(progress, config=config)
+    require_jepa_formal_validation_gate(
+        progress, config=config, expected_optimizer_steps=expected_optimizer_steps
+    )
     return tuple(
         load_verified_jepa_record(
             inputs,
             episode_id=episode_id,
-            level=3,
+            level=progress.level,
             split="validation",
         )
         for episode_id in episode_ids
@@ -361,7 +362,8 @@ def load_l3_formal_validation_records(
 
 
 @dataclass(frozen=True)
-class L3AdmissionPreflight:
+class JepaAdmissionPreflight:
+    level: int
     stage_id: str
     temporal_config_id: str
     model_seed: int
@@ -387,15 +389,17 @@ class L3AdmissionPreflight:
         return asdict(self)
 
 
-def _canonical_paths(root: Path) -> dict[str, Path]:
+def _canonical_paths(root: Path, *, level: int = 3) -> dict[str, Path]:
     return {
         "model_config": root / "configs/belief/action_conditioned_jepa/model.yaml",
-        "level_config": root / "configs/belief/action_conditioned_jepa/l3.yaml",
+        "level_config": root / f"configs/belief/action_conditioned_jepa/l{level}.yaml",
         "temporal_config": (
             root / "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml"
         ),
         "training_config": (
-            root / "configs/training/action_conditioned_jepa/l3_admission.yaml"
+            root
+            / "configs/training/action_conditioned_jepa"
+            / ("l3_admission.yaml" if level == 3 else "final_admission.yaml")
         ),
         "wandb_config": root / "configs/training/action_conditioned_jepa/wandb.yaml",
         "source_manifest": (
@@ -435,7 +439,7 @@ def _candidate_temporal_config_paths(root: Path) -> tuple[Path, ...]:
     )
 
 
-def build_l3_admission_preflight(
+def build_jepa_admission_preflight(
     *,
     project_root: Path,
     model_seed: int,
@@ -444,19 +448,22 @@ def build_l3_admission_preflight(
     device: str,
     output_dir: Path,
     resume: bool = False,
-) -> L3AdmissionPreflight:
+    level: int = 3,
+) -> JepaAdmissionPreflight:
+    if type(level) is not int or level not in (1, 2, 3):
+        raise ValueError("level must be 1, 2, or 3")
     root = Path(project_root).resolve()
-    paths = _canonical_paths(root)
+    paths = _canonical_paths(root, level=level)
     config = load_action_conditioned_jepa_config(
         model_path=paths["model_config"],
         level_path=paths["level_config"],
         temporal_sampling_path=paths["temporal_config"],
     )
-    training = load_l3_admission_training_config(paths["training_config"])
+    training = load_jepa_admission_training_config(paths["training_config"])
     if config.temporal_sampling.config_id != _TEMPORAL_CONFIG_ID:
-        raise ValueError("L3 admission must use the selected stride-4 temporal config")
+        raise ValueError("JEPA admission must use the selected stride-4 temporal config")
     if model_seed not in training.model_seeds:
-        raise ValueError("model seed is outside the approved L3 admission protocol")
+        raise ValueError("model seed is outside the approved JEPA admission protocol")
     if (
         type(microbatch_size) is not int
         or microbatch_size <= 0
@@ -473,60 +480,59 @@ def build_l3_admission_preflight(
     if not target.exists() and resume:
         raise FileNotFoundError(target)
 
-    selection = load_temporal_selection_artifact(paths["selection_manifest"].parent)
-    try:
-        source = json.loads(paths["source_manifest"].read_text(encoding="utf-8"))
-        split = json.loads(paths["split_manifest"].read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError("L3 admission source or split manifest is invalid") from error
-    if not isinstance(source, dict) or not isinstance(split, dict):
-        raise ValueError("L3 admission source or split manifest is invalid")
-    selected_ids = tuple(
-        sorted(
-            {
-                episode_id
-                for fold in selection.folds
-                for episode_id in fold.development_episode_ids
-            }
-        )
-    )
-    train_master_indices = split.get("train_master_task_indices")
-    validation_master_indices = split.get("validation_master_task_indices")
-    train_episode_ids = split.get("train_episode_ids")
-    validation_episode_ids = split.get("validation_episode_ids")
-    train_master_count = len(selection.manifest["train_pool_master_indices"])
-    validation_master_count = source.get("master_task_count", 0) - train_master_count
-    validation_episode_count = source.get("episodes_by_level", {}).get("3", 0) - len(
-        selected_ids
-    )
+    # Preflight reads small metadata only; it never loads RGB or DINO payloads.
+    import pyarrow.parquet as pq
+
+    source = json.loads(paths["source_manifest"].read_text(encoding="utf-8"))
+    split = json.loads(paths["split_manifest"].read_text(encoding="utf-8"))
     if (
-        selection.manifest["level"] != 3
-        or source.get("format_id") != "structured_expert_source_corpus_v3"
+        source.get("format_id") != "structured_expert_source_corpus_v3"
         or source.get("complete") is not True
-        or source.get("episodes_by_level") != {"1": 400, "2": 400, "3": 400}
-        or split.get("format_id") != "structured_expert_source_split_v1"
         or split.get("source_manifest_sha256") != sha256_file(paths["source_manifest"])
-        or selection.manifest["source_manifest_sha256"]
-        != sha256_file(paths["source_manifest"])
-        or selection.manifest["cache_manifest_sha256"] != sha256_file(paths["cache_manifest"])
-        or selection.manifest["split_manifest_sha256"] != sha256_file(paths["split_manifest"])
-        or train_master_indices != selection.manifest["train_pool_master_indices"]
-        or not isinstance(validation_master_indices, list)
-        or not isinstance(train_episode_ids, list)
-        or not isinstance(validation_episode_ids, list)
-        or not set(selected_ids).issubset(train_episode_ids)
-        or len(train_episode_ids) != train_master_count * 4 * 3
-        or len(validation_episode_ids) != validation_master_count * 4 * 3
-        or len(selected_ids) != train_master_count * 4
-        or validation_episode_count != validation_master_count * 4
-        or (train_master_count, validation_master_count) != (80, 20)
     ):
-        raise ValueError("L3 admission train/formal-validation inventory is invalid")
-    train_context_count = len(selection.indices)
+        raise ValueError("admission source/split identity is invalid")
+    train_ids = set(split["train_episode_ids"])
+    validation_ids = set(split["validation_episode_ids"])
+    if train_ids & validation_ids:
+        raise ValueError("admission train/validation episodes overlap")
+    metadata = pq.read_table(
+        paths["source_manifest"].parent / "meta/episodes.parquet",
+        columns=["episode_id", "level", "logical_master_task_index", "terminal_tick"],
+    ).to_pylist()
+    train_rows = [
+        row for row in metadata if row["level"] == level and row["episode_id"] in train_ids
+    ]
+    validation_rows = [
+        row for row in metadata if row["level"] == level and row["episode_id"] in validation_ids
+    ]
+    train_masters = {row["logical_master_task_index"] for row in train_rows}
+    validation_masters = {row["logical_master_task_index"] for row in validation_rows}
+    train_master_count, validation_master_count = len(train_masters), len(validation_masters)
+    selected_ids = tuple(sorted(row["episode_id"] for row in train_rows))
+    validation_episode_count = len(validation_rows)
+    if (
+        (train_master_count, validation_master_count) != (80, 20)
+        or train_masters & validation_masters
+        or train_masters != set(split["train_master_task_indices"])
+        or validation_masters != set(split["validation_master_task_indices"])
+        or len(selected_ids) != 320
+        or len(set(selected_ids)) != 320
+        or validation_episode_count != 80
+    ):
+        raise ValueError("admission train/formal-validation inventory is invalid")
+    # Preserve the common source start used for the admitted L3 recipe (tick 10).
+    minimum_source_tick = max(
+        load_jepa_temporal_sampling(path).history_span_ticks
+        for path in _candidate_temporal_config_paths(root)
+    )
+    train_context_count = sum(
+        max(0, row["terminal_tick"] - minimum_source_tick) for row in train_rows
+    )
     steps_per_epoch = train_context_count // training.logical_global_batch_size
     total_steps = steps_per_epoch * training.max_epochs
-    return L3AdmissionPreflight(
-        stage_id=_STAGE_ID,
+    return JepaAdmissionPreflight(
+        level=level,
+        stage_id=f"l{level}-stride4-final-admission-v1",
         temporal_config_id=config.temporal_sampling.config_id,
         model_seed=model_seed,
         train_master_count=train_master_count,
@@ -617,7 +623,7 @@ def _format_progress(
     )
 
 
-def execute_l3_admission_job(
+def execute_jepa_admission_job(
     *,
     project_root: Path,
     model_seed: int,
@@ -628,9 +634,10 @@ def execute_l3_admission_job(
     resume: bool = False,
     qualification_max_epochs: int | None = None,
     enable_wandb: bool = True,
+    level: int = 3,
 ) -> Path:
     started = time.perf_counter()
-    preflight = build_l3_admission_preflight(
+    preflight = build_jepa_admission_preflight(
         project_root=project_root,
         model_seed=model_seed,
         microbatch_size=microbatch_size,
@@ -638,9 +645,10 @@ def execute_l3_admission_job(
         device=device,
         output_dir=output_dir,
         resume=resume,
+        level=level,
     )
-    training = load_l3_admission_training_config(
-        _canonical_paths(Path(project_root).resolve())["training_config"]
+    training = load_jepa_admission_training_config(
+        _canonical_paths(Path(project_root).resolve(), level=level)["training_config"]
     )
     if qualification_max_epochs is not None and (
         type(qualification_max_epochs) is not int
@@ -648,17 +656,15 @@ def execute_l3_admission_job(
     ):
         raise ValueError("qualification_max_epochs must lie inside the formal epoch budget")
     if qualification_max_epochs is None and not enable_wandb:
-        raise ValueError("formal L3 admission training requires W&B")
+        raise ValueError("formal JEPA admission training requires W&B")
     if enable_wandb and preflight.wandb_api_key != "SET":
         raise RuntimeError("WANDB_API_KEY is UNSET")
     target_epochs = (
-        training.max_epochs
-        if qualification_max_epochs is None
-        else qualification_max_epochs
+        training.max_epochs if qualification_max_epochs is None else qualification_max_epochs
     )
     print(
         "[action-conditioned-jepa-admission] stage=preflight status=complete "
-        f"seed={model_seed} device={device} train_masters=80 train_episodes=320 "
+        f"level={level} seed={model_seed} device={device} train_masters=80 train_episodes=320 "
         f"contexts={preflight.train_context_count} microbatch={microbatch_size} "
         f"accumulation={preflight.gradient_accumulation_steps} "
         f"epochs={target_epochs} steps_per_epoch={preflight.optimizer_steps_per_epoch}",
@@ -671,38 +677,28 @@ def execute_l3_admission_job(
 
     root = Path(project_root).resolve()
     target = Path(output_dir).absolute()
-    paths = _canonical_paths(root)
+    paths = _canonical_paths(root, level=level)
     config = load_action_conditioned_jepa_config(
         model_path=paths["model_config"],
         level_path=paths["level_config"],
         temporal_sampling_path=paths["temporal_config"],
     )
-    selection = load_temporal_selection_artifact(paths["selection_manifest"].parent)
     inputs = load_verified_jepa_inputs(
         source_root=paths["source_manifest"].parent,
         cache_run_manifest=paths["cache_manifest"],
         split_manifest_path=paths["split_manifest"],
         config=config,
     )
-    level_ids = set(inputs.source.episode_ids(level=3))
+    level_ids = set(inputs.source.episode_ids(level=level))
     train_ids = tuple(sorted(level_ids.intersection(inputs.split.train_episode_ids)))
     validation_ids = tuple(sorted(level_ids.intersection(inputs.split.validation_episode_ids)))
-    selected_ids = tuple(
-        sorted(
-            {
-                episode_id
-                for fold in selection.folds
-                for episode_id in fold.development_episode_ids
-            }
-        )
-    )
-    if train_ids != selected_ids or len(validation_ids) != 80:
+    if len(train_ids) != preflight.train_episode_count or len(validation_ids) != 80:
         raise ValueError("verified execution inputs disagree with the admission preflight")
     train_records = tuple(
         load_verified_jepa_record(
             inputs,
             episode_id=episode_id,
-            level=3,
+            level=level,
             split="train",
         )
         for episode_id in train_ids
@@ -719,7 +715,7 @@ def execute_l3_admission_job(
     normalization_path = target / "proprio_normalization.json"
     if resume:
         if (target / "manifest.json").exists():
-            raise FileExistsError("completed L3 admission run cannot be resumed")
+            raise FileExistsError("completed JEPA admission run cannot be resumed")
         normalization = load_jepa_proprio_normalization(normalization_path)
         if normalization.episode_ids != train_ids:
             raise ValueError("resume normalization does not match all train-pool episodes")
@@ -733,7 +729,12 @@ def execute_l3_admission_job(
         write_jepa_proprio_normalization(normalization_path, normalization)
     train_corpus = TemporalJepaCorpus(
         records=train_records,
-        indices=selection.indices,
+        indices=build_shared_temporal_indices(
+            records=train_records,
+            samplings=tuple(
+                load_jepa_temporal_sampling(path) for path in _candidate_temporal_config_paths(root)
+            ),
+        ),
         episode_ids=train_ids,
         partition="fit",
         sampling=config.temporal_sampling,
@@ -763,25 +764,26 @@ def execute_l3_admission_job(
         project_root=root,
     ).to(target_device)
     optimizer = build_upstream_aligned_optimizer(model=model, config=training)
-    progress = L3AdmissionProgress(
+    progress = JepaAdmissionProgress(
         completed_epochs=0,
         optimizer_steps=0,
         examples_seen=0,
         model_seed=model_seed,
         temporal_config_id=_TEMPORAL_CONFIG_ID,
-        stage_id=_STAGE_ID,
-        level=3,
+        stage_id=preflight.stage_id,
+        level=level,
     )
     history: list[dict[str, object]] = []
     if resume:
         latest = json.loads((target / "latest.json").read_text(encoding="utf-8"))
-        progress = load_l3_admission_training_checkpoint(
+        progress = load_jepa_admission_training_checkpoint(
             output_dir=target / latest["checkpoint"],
             model=model,
             optimizer=optimizer,
             expected_training_config=training,
             expected_input_sha256=input_hashes,
             expected_model_seed=model_seed,
+            expected_level=level,
         )
         history = load_completed_temporal_jepa_history(
             run_root=target,
@@ -791,11 +793,12 @@ def execute_l3_admission_job(
     wandb_config = load_jepa_wandb_config(paths["wandb_config"])
     wandb_run = None
     if enable_wandb:
-        wandb_spec = build_l3_admission_wandb_run_spec(
+        wandb_spec = build_jepa_admission_wandb_run_spec(
             config=wandb_config,
-            stage_id=_STAGE_ID,
+            stage_id=preflight.stage_id,
             temporal_config_id=_TEMPORAL_CONFIG_ID,
             model_seed=model_seed,
+            level=level,
         )
         wandb_run = initialize_wandb_run(spec=wandb_spec)
         wandb_run.config.update(
@@ -867,7 +870,7 @@ def execute_l3_admission_job(
             optimizer_step_callback=log_step,
         )
         del loader
-        if not isinstance(result.progress, L3AdmissionProgress):
+        if not isinstance(result.progress, JepaAdmissionProgress):
             raise TypeError("admission epoch returned cross-validation progress")
         progress = result.progress
         epoch_payload: dict[str, object] = {
@@ -895,7 +898,7 @@ def execute_l3_admission_job(
             target / "metrics" / f"epoch-{progress.completed_epochs:03d}.json",
             epoch_payload,
         )
-        publish_rolling_l3_admission_checkpoint(
+        publish_rolling_jepa_admission_checkpoint(
             run_root=target,
             model=model,
             optimizer=optimizer,
@@ -932,11 +935,12 @@ def execute_l3_admission_job(
         final_checkpoint = target / "checkpoints/epoch-075/manifest.json"
         if not final_checkpoint.is_file():
             raise RuntimeError("formal validation requires the published epoch-75 checkpoint")
-        validation_records = load_l3_formal_validation_records(
+        validation_records = load_jepa_formal_validation_records(
             inputs=inputs,
             episode_ids=validation_ids,
             progress=progress,
             config=training,
+            expected_optimizer_steps=preflight.total_optimizer_steps,
         )
         samplings = tuple(
             load_jepa_temporal_sampling(path) for path in _candidate_temporal_config_paths(root)
@@ -988,7 +992,7 @@ def execute_l3_admission_job(
             json.dumps(
                 {
                     "schema_version": 1,
-                    "format_id": "action_conditioned_jepa_l3_admission_run_v1",
+                    "format_id": f"action_conditioned_jepa_l{level}_admission_run_v1",
                     "qualification_only": qualification_max_epochs is not None,
                     "preflight": preflight.to_mapping(),
                     "progress": asdict(progress),

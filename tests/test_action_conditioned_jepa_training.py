@@ -407,14 +407,14 @@ def test_admission_epoch_updates_stage_progress_without_fabricating_a_fold() -> 
     """Catches representing the all-80-master final refit as a nonexistent fifth fold."""
 
     from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
-        load_l3_admission_training_config,
+        load_jepa_admission_training_config,
     )
     from latency_meta_mdp.belief.action_conditioned_jepa.training import (
-        L3AdmissionProgress,
+        JepaAdmissionProgress,
         run_temporal_jepa_epoch,
     )
 
-    config = load_l3_admission_training_config(
+    config = load_jepa_admission_training_config(
         Path("configs/training/action_conditioned_jepa/l3_admission.yaml")
     )
     model = _TinyPredictor()
@@ -425,7 +425,7 @@ def test_admission_epoch_updates_stage_progress_without_fabricating_a_fold() -> 
         optimizer=optimizer,
         microbatches=(batch for _ in range(128)),
         training_config=config,
-        progress=L3AdmissionProgress(
+        progress=JepaAdmissionProgress(
             completed_epochs=0,
             optimizer_steps=0,
             examples_seen=0,
@@ -438,7 +438,7 @@ def test_admission_epoch_updates_stage_progress_without_fabricating_a_fold() -> 
         total_optimizer_steps=13_200,
     )
 
-    assert isinstance(result.progress, L3AdmissionProgress)
+    assert isinstance(result.progress, JepaAdmissionProgress)
     assert result.progress.completed_epochs == 1
     assert result.progress.optimizer_steps == 1
     assert result.progress.examples_seen == 256

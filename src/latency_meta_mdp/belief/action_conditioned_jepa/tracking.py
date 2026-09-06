@@ -99,23 +99,26 @@ def build_wandb_run_spec(
     )
 
 
-def build_l3_admission_wandb_run_spec(
+def build_jepa_admission_wandb_run_spec(
     *,
     config: JepaWandbConfig,
     stage_id: str,
     temporal_config_id: str,
     model_seed: int,
+    level: int = 3,
 ) -> WandbRunSpec:
     if not isinstance(config, JepaWandbConfig):
         raise TypeError("config must be JepaWandbConfig")
-    if stage_id != "l3-stride4-final-admission-v1":
-        raise ValueError("unsupported L3 admission stage")
+    if type(level) is not int or level not in (1, 2, 3):
+        raise ValueError("admission level must be 1, 2, or 3")
+    if stage_id != f"l{level}-stride4-final-admission-v1":
+        raise ValueError("unsupported JEPA admission stage")
     if temporal_config_id != "stride4_80ms_history_160ms":
-        raise ValueError("L3 admission W&B run must use stride-4")
+        raise ValueError("JEPA admission W&B run must use stride-4")
     if model_seed not in (7, 17, 27):
-        raise ValueError("L3 admission W&B seed is invalid")
+        raise ValueError("JEPA admission W&B seed is invalid")
     logged = {
-        "level": 3,
+        "level": level,
         "model_seed": model_seed,
         "stage_id": stage_id,
         "temporal_config_id": temporal_config_id,
@@ -123,8 +126,8 @@ def build_l3_admission_wandb_run_spec(
     identity = ":".join(str(logged[name]) for name in sorted(logged))
     return WandbRunSpec(
         project=config.project,
-        group="l3-final-admission",
-        name=f"jepa-l3-{temporal_config_id}-admission-seed{model_seed}",
+        group=f"l{level}-final-admission",
+        name=f"jepa-l{level}-{temporal_config_id}-admission-seed{model_seed}",
         run_id=hashlib.sha256(identity.encode()).hexdigest()[:16],
         resume=config.resume,
         logged_config=logged,

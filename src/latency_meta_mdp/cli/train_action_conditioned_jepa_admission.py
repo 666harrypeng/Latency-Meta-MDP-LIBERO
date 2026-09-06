@@ -1,4 +1,4 @@
-"""Preflight the selected L3 Action-Conditioned JEPA admission run."""
+"""Train the selected Action-Conditioned JEPA configuration on one task level."""
 
 from __future__ import annotations
 
@@ -8,14 +8,15 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
-    build_l3_admission_preflight,
-    execute_l3_admission_job,
+    build_jepa_admission_preflight,
+    execute_jepa_admission_job,
 )
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
+    parser.add_argument("--level", type=int, choices=(1, 2, 3), default=3)
     parser.add_argument("--model-seed", type=int, required=True)
     parser.add_argument("--microbatch-size", type=int, required=True)
     parser.add_argument("--num-workers", type=int, required=True)
@@ -31,7 +32,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.preflight_only:
-        preflight = build_l3_admission_preflight(
+        preflight = build_jepa_admission_preflight(
+            level=args.level,
             project_root=args.project_root,
             model_seed=args.model_seed,
             microbatch_size=args.microbatch_size,
@@ -42,7 +44,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(preflight.to_mapping(), indent=2, sort_keys=True))
         return 0
-    manifest = execute_l3_admission_job(
+    manifest = execute_jepa_admission_job(
+        level=args.level,
         project_root=args.project_root,
         model_seed=args.model_seed,
         microbatch_size=args.microbatch_size,

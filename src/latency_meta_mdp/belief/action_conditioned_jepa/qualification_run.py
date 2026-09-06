@@ -15,9 +15,9 @@ from torch.utils.data import DataLoader
 
 from latency_meta_mdp.artifacts import sha256_file
 from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
-    load_l3_admission_training_checkpoint,
-    load_l3_admission_training_config,
-    load_l3_formal_validation_records,
+    load_jepa_admission_training_checkpoint,
+    load_jepa_admission_training_config,
+    load_jepa_formal_validation_records,
 )
 from latency_meta_mdp.belief.action_conditioned_jepa.config import (
     load_action_conditioned_jepa_config,
@@ -62,7 +62,7 @@ _TEMPORAL_CONFIG_ID = "stride4_80ms_history_160ms"
 
 
 @dataclass(frozen=True)
-class CompletedL3AdmissionRun:
+class CompletedJepaAdmissionRun:
     run_root: Path
     checkpoint_dir: Path
     model_seed: int
@@ -74,7 +74,7 @@ def load_completed_l3_admission_run(
     run_root: Path,
     *,
     expected_model_seed: int,
-) -> CompletedL3AdmissionRun:
+) -> CompletedJepaAdmissionRun:
     root = Path(run_root).resolve()
     try:
         manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
@@ -102,7 +102,7 @@ def load_completed_l3_admission_run(
         or not (checkpoint / "manifest.json").is_file()
     ):
         raise ValueError("final qualification requires a completed epoch-75 admission run")
-    return CompletedL3AdmissionRun(
+    return CompletedJepaAdmissionRun(
         run_root=root,
         checkpoint_dir=checkpoint,
         model_seed=expected_model_seed,
@@ -285,7 +285,7 @@ def execute_l3_final_qualification(
         level_path=paths["level_config"],
         temporal_sampling_path=paths["temporal_config"],
     )
-    training = load_l3_admission_training_config(paths["training_config"])
+    training = load_jepa_admission_training_config(paths["training_config"])
     inputs = load_verified_jepa_inputs(
         source_root=paths["source_manifest"].parent,
         cache_run_manifest=paths["cache_manifest"],
@@ -315,7 +315,7 @@ def execute_l3_final_qualification(
             "training_config",
         )
     }
-    progress = load_l3_admission_training_checkpoint(
+    progress = load_jepa_admission_training_checkpoint(
         output_dir=completed.checkpoint_dir,
         model=model,
         optimizer=optimizer,
@@ -324,7 +324,7 @@ def execute_l3_final_qualification(
         expected_model_seed=model_seed,
     )
     del optimizer
-    records = load_l3_formal_validation_records(
+    records = load_jepa_formal_validation_records(
         inputs=inputs,
         episode_ids=validation_ids,
         progress=progress,
