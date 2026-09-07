@@ -240,8 +240,17 @@ def test_lerobot_roundtrip_mask_matches_source_and_norm_stats_count_real_frames(
     )
     assert stats["state"].mean.shape == (16,)
     # The actual batch interface consumed by OpenPI training retains the mask.
+    import jax
+
     loader = data_loader.create_torch_data_loader(
-        data, config.model, 50, 2, skip_norm_stats=True, num_batches=1, num_workers=0
+        data,
+        config.model,
+        50,
+        2,
+        skip_norm_stats=True,
+        num_batches=1,
+        num_workers=0,
+        sharding=jax.sharding.SingleDeviceSharding(jax.devices()[0]),
     )
     observation, actions = next(iter(loader))
     assert observation.action_loss_mask.shape == actions.shape == (2, 50, 32)

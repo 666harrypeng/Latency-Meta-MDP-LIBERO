@@ -56,7 +56,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--experiment-name", required=True)
     parser.add_argument("--mode", choices=("smoke", "formal"), required=True)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--batch-size", type=int)
+    parser.add_argument(
+        "--batch-size", type=int, help="Global batch; formal sample budget is preserved"
+    )
     parser.add_argument("--assets-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--checkpoint-root", type=Path, required=True)
@@ -138,6 +140,8 @@ def _publish_run_manifest(
             "asset_revision": asset_revision,
             "num_train_steps": config.num_train_steps,
             "batch_size": config.batch_size,
+            "per_device_batch_size": config.batch_size // request.device_count,
+            "training_parallelism": "replicated_data_parallel",
             "fsdp_devices": config.fsdp_devices,
             "checkpoint_steps": list(checkpoint_steps),
             "checkpoint_dir": str(Path(config.checkpoint_dir)),

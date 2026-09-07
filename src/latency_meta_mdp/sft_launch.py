@@ -33,13 +33,11 @@ class SFTLaunchRequest:
             raise ValueError("SFT experiment name is invalid")
         if self.mode not in {"smoke", "formal"}:
             raise ValueError("SFT launch mode must be smoke or formal")
-        if self.device_count != 1:
-            raise ValueError("the current SFT launch contract requires one H200")
+        if type(self.device_count) is not int or self.device_count <= 0:
+            raise ValueError("SFT device count must be a positive integer")
         if self.batch_size_override is not None:
-            if self.mode != "smoke":
-                raise ValueError("batch-size override is only valid for a smoke run")
-            if self.batch_size_override <= 0:
-                raise ValueError("batch-size override must be positive")
+            if type(self.batch_size_override) is not int or self.batch_size_override <= 0:
+                raise ValueError("global batch-size override must be a positive integer")
 
 
 @dataclass(frozen=True)
@@ -48,21 +46,46 @@ class SFTSchedule:
     rolling_save_interval: int
     milestone_interval: int
     expected_checkpoint_steps: tuple[int, ...]
+    batch_size: int
+    warmup_steps: int
+    decay_steps: int
 
 
 def resolve_sft_schedule(*, profile: SFTProfile, request: SFTLaunchRequest) -> SFTSchedule:
-    """Resolve smoke or formal steps without duplicating the canonical profile."""
+    """Keep sample exposure when a replicated-data-parallel run changes its batch.
+
+    Each formal milestone rounds up to a whole global batch. The full run can
+    therefore exceed the profile budget by fewer than three global batches.
+    Equal sample exposure does not imply identical optimizer trajectories.
+    """
+
+    if profile.fsdp_devices != 1:
+        raise ValueError("SFT currently requires replicated data parallelism (fsdp_devices=1)")
+    batch = request.batch_size_override or profile.batch_size
+    if batch % request.device_count:
+        raise ValueError("global batch size must be divisible by the SFT device count")
+
+    def scaled(steps: int) -> int:
+        return (steps * profile.batch_size + batch - 1) // batch
+
+    milestone = scaled(profile.keep_period)
+    decay = 3 * milestone
+    warmup = scaled(profile.warmup_steps)
 
     if request.mode == "smoke":
         if request.resume:
-            return SFTSchedule(120, 20, 20, (100, 120))
-        return SFTSchedule(100, 100, 100, (100,))
-    milestones = tuple(range(profile.keep_period, profile.num_train_steps + 1, profile.keep_period))
+            return SFTSchedule(120, 20, 20, (100, 120), batch, warmup, decay)
+        return SFTSchedule(100, 100, 100, (100,), batch, warmup, decay)
+    if scaled(profile.save_interval) >= milestone:
+        raise ValueError("global batch is too large to preserve distinct checkpoint intervals")
     return SFTSchedule(
-        num_train_steps=profile.num_train_steps,
-        rolling_save_interval=profile.save_interval,
-        milestone_interval=profile.keep_period,
-        expected_checkpoint_steps=milestones,
+        num_train_steps=decay,
+        rolling_save_interval=scaled(profile.save_interval),
+        milestone_interval=milestone,
+        expected_checkpoint_steps=tuple(milestone * i for i in (1, 2, 3)),
+        batch_size=batch,
+        warmup_steps=warmup,
+        decay_steps=decay,
     )
 
 

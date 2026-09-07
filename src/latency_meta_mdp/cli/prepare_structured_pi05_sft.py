@@ -82,6 +82,7 @@ def prepare(
         ) as copied:
             sys.path.insert(0, str(copied / "src"))
             try:
+                import jax
                 from openpi.shared import normalize
                 from openpi.training.data_loader import (
                     create_torch_data_loader,
@@ -121,7 +122,14 @@ def prepare(
                             raise ValueError("OpenPI episode boundary mask mismatch")
                     cursor += length
                 loader = create_torch_data_loader(
-                    data, config.model, 50, min(2, len(raw)), num_batches=1, num_workers=0
+                    data,
+                    config.model,
+                    50,
+                    min(2, len(raw)),
+                    num_batches=1,
+                    num_workers=0,
+                    # This two-sample interface check is independent of training topology.
+                    sharding=jax.sharding.SingleDeviceSharding(jax.devices()[0]),
                 )
                 observation, actions = next(iter(loader))
                 mask = np.asarray(observation.action_loss_mask)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 from pathlib import Path
 
@@ -122,7 +123,7 @@ def test_stage_level_dataset_pins_the_full_asset_revision(tmp_path: Path) -> Non
     assert calls[0][2].name.startswith(f".{staged.name}.building-")
 
 
-def test_launch_request_locks_single_h200_modes_and_experiment_identity() -> None:
+def test_launch_request_preserves_existing_modes_and_experiment_identity() -> None:
     smoke = SFTLaunchRequest(
         level=1,
         experiment_name="l1-clean-h50-smoke-v1",
@@ -163,14 +164,33 @@ def test_launch_request_locks_single_h200_modes_and_experiment_identity() -> Non
 
     with pytest.raises(ValueError, match="experiment"):
         SFTLaunchRequest(1, "../bad", "smoke", False, 1)
-    with pytest.raises(ValueError, match="one H200"):
-        SFTLaunchRequest(1, "valid", "formal", False, 2)
-    with pytest.raises(ValueError, match="smoke"):
-        SFTLaunchRequest(
-            1,
-            "valid",
-            "formal",
-            False,
-            1,
-            batch_size_override=256,
+    with pytest.raises(ValueError, match="device count"):
+        SFTLaunchRequest(1, "valid", "formal", False, 0)
+
+
+@pytest.mark.parametrize("devices,batch,steps", [(2, 64, 11997), (4, 128, 6000), (4, 192, 3999)])
+def test_data_parallel_schedule_preserves_sample_budget(devices, batch, steps):
+    profile = load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml"))
+    request = SFTLaunchRequest(3, "l3-ddp", "formal", False, devices, batch)
+    schedule = resolve_sft_schedule(profile=profile, request=request)
+    assert schedule.batch_size == batch
+    assert schedule.num_train_steps == schedule.decay_steps == steps
+    assert schedule.warmup_steps * batch == profile.warmup_steps * profile.batch_size
+    assert 0 <= steps * batch - profile.num_train_steps * profile.batch_size < 3 * batch
+    assert schedule.expected_checkpoint_steps == tuple(
+        schedule.milestone_interval * i for i in (1, 2, 3)
+    )
+    assert schedule.rolling_save_interval * batch >= profile.save_interval * profile.batch_size
+
+
+def test_data_parallel_schedule_rejects_sharding_and_uneven_batches():
+    profile = load_sft_profile(_PROFILE_PATH)
+    with pytest.raises(ValueError, match="divisible"):
+        resolve_sft_schedule(
+            profile=profile, request=SFTLaunchRequest(3, "uneven", "smoke", False, 4, 127)
+        )
+    with pytest.raises(ValueError, match="replicated"):
+        resolve_sft_schedule(
+            profile=dataclasses.replace(profile, fsdp_devices=2),
+            request=SFTLaunchRequest(3, "sharded", "formal", False, 4),
         )
