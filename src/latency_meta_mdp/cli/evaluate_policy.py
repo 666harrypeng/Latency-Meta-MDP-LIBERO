@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -37,6 +38,7 @@ def main(argv=None):
     parser.add_argument("--max-cases", type=int)
     parser.add_argument("--maximum-steps", type=int, default=1000)
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--record-video", action="store_true")
     parser.add_argument(
         "--regime",
         choices=(
@@ -140,6 +142,8 @@ def main(argv=None):
                 previous = json.loads(target.read_text())
                 if previous["identity"] != identity or previous["case"] != case:
                     raise ValueError("existing episode result has a different identity")
+                if args.record_video and not previous.get("video"):
+                    raise ValueError("existing result lacks video; use a new recording output root")
                 continue
             task_id = TaskInstanceId.from_mapping(case["task_instance_id"])
             if task_id.level != level:
@@ -183,13 +187,30 @@ def main(argv=None):
                 f"regime={args.regime}",
                 flush=True,
             )
-            result = run_native_policy_episode(
-                runtime=_build_task_instance_runtime(task),
-                policy=actor,
-                client_config=client_config,
-                delay_sampler=sampler,
-                maximum_steps=args.maximum_steps,
+            from latency_meta_mdp.policy_video import DualCameraVideoWriter
+
+            video = target.parent / "videos" / target.with_suffix(".mp4").name
+            recorder = (
+                DualCameraVideoWriter(video) if args.record_video else contextlib.nullcontext()
             )
+            with recorder as recording:
+                result = run_native_policy_episode(
+                    runtime=_build_task_instance_runtime(task),
+                    policy=actor,
+                    client_config=client_config,
+                    delay_sampler=sampler,
+                    maximum_steps=args.maximum_steps,
+                    record_observation=recording.write if recording is not None else None,
+                )
+            if args.record_video:
+                result["video"] = {
+                    "path": str(video.relative_to(args.output_root)),
+                    "fps": 50,
+                    "frames": result["recorded_frames"],
+                    "layout": "main_left_wrist_right",
+                    "sha256": sha256_file(video),
+                    "recording_time_excluded_from_actor_stage_timings": True,
+                }
             result.update(
                 identity=identity,
                 case=case,

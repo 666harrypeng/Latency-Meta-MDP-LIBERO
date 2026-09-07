@@ -15,7 +15,13 @@ from latency_meta_mdp.policy_execution import (
 
 
 def run_native_policy_episode(
-    *, runtime, policy, client_config, delay_sampler, maximum_steps: int = 1000
+    *,
+    runtime,
+    policy,
+    client_config,
+    delay_sampler,
+    maximum_steps: int = 1000,
+    record_observation=None,
 ) -> dict:
     """Execute an owned simulator to its task terminal condition or an explicit time limit.
 
@@ -41,6 +47,17 @@ def run_native_policy_episode(
         def observe():
             return policy_observation_from_snapshot(latest)
 
+        recording_seconds = 0.0
+        recorded_frames = 0
+
+        def record():
+            nonlocal recording_seconds, recorded_frames
+            if record_observation is not None:
+                began = time.perf_counter()
+                record_observation(observe())
+                recording_seconds += time.perf_counter() - began
+                recorded_frames += 1
+
         def execute(action):
             nonlocal latest
             latest = runtime.executor.step_formal(action)
@@ -49,6 +66,7 @@ def run_native_policy_episode(
                 reward=float(status == "success"), terminated=status != "running"
             )
 
+        record()
         engine.bootstrap(observe)
         actions = []
         while not engine.terminated and len(actions) < maximum_steps:
@@ -56,8 +74,10 @@ def run_native_policy_episode(
                 formal_tick=latest.formal_tick_index, observe=observe, execute=execute
             )
             actions.append(np.asarray(action).tolist())
+            record()
         status = runtime.tracker.status.value
         success = status == "success"
+        reason = getattr(runtime.tracker, "terminal_reason", None)
         truncated = not engine.terminated
         elapsed = len(actions) * 0.02
         differences = np.diff(np.asarray(actions), axis=0)
@@ -66,10 +86,13 @@ def run_native_policy_episode(
             "success": success,
             "truncated": truncated,
             "task_status": "time_limit" if truncated else status,
+            "terminal_reason": getattr(reason, "value", reason),
             "executed_steps": len(actions),
             "elapsed_simulation_seconds": elapsed,
             "completion_time_seconds": elapsed if success else None,
             "wall_seconds": time.perf_counter() - started,
+            "recording_wall_seconds": recording_seconds,
+            "recorded_frames": recorded_frames,
             "mean_action_step_l2": float(np.linalg.norm(differences, axis=1).mean())
             if len(differences)
             else 0.0,

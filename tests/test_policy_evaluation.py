@@ -115,3 +115,22 @@ def test_evaluation_closes_simulator_on_invalid_policy_output(monkeypatch):
             maximum_steps=5,
         )
     assert runtime.closed
+
+
+def test_recording_has_both_initial_and_terminal_formal_boundaries(monkeypatch):
+    from latency_meta_mdp import policy_evaluation as evaluation
+
+    monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
+    recorded = []
+    report = evaluation.run_native_policy_episode(
+        runtime=Runtime(succeed_at=3),
+        policy=lambda observation, belief: np.zeros((50, 7)),
+        client_config=load_action_chunk_client_config(
+            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+        ),
+        delay_sampler=lambda: 0,
+        record_observation=lambda observation: recorded.append(observation.formal_tick),
+    )
+    assert recorded == [0, 1, 2, 3]
+    assert report["recorded_frames"] == 4
+    assert report["success"]
