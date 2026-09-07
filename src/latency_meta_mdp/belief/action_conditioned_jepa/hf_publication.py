@@ -70,7 +70,7 @@ class HfPublicationConfig:
             self.schema_version != 1
             or self.config_id != "action_conditioned_jepa_hf_inference"
             or self.namespace != "yypeng666"
-            or self.repo_name_template != "metamdp-jepa-return-l{level}-v1"
+            or self.repo_name_template != "metamdp-jepa-return-l{level}-s4-h160ms-t400ms-final-v1"
             or self.repo_type != "model"
             or self.visibility != "public"
             or self.gating != "manual"

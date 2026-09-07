@@ -1,7 +1,7 @@
 schema_version: 1
 config_id: action_conditioned_jepa_hf_inference
 namespace: yypeng666
-repo_name_template: metamdp-jepa-return-l{level}-v1
+repo_name_template: metamdp-jepa-return-l{level}-s4-h160ms-t400ms-final-v1
 repo_type: model
 visibility: public
 gating: manual

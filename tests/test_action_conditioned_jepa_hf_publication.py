@@ -49,10 +49,10 @@ def test_hf_bundle_is_inference_only_with_empty_readme(tmp_path: Path) -> None:
             "schema_version": 1,
             "format_id": "action_conditioned_jepa_inference_config",
             "level": 3,
-            "temporal_config_id": "stride5_100ms_history_200ms",
-            "model_stride_ticks": 5,
+            "temporal_config_id": "stride4_80ms_history_160ms",
+            "model_stride_ticks": 4,
             "history_observation_count": 3,
-            "native_rollout_steps": 4,
+            "native_rollout_steps": 5,
             "vision_encoder_id": "dinov3_vits16_lvd1689m_224_v1",
             "camera_order": ["agentview", "wrist"],
             "proprio_dim": 16,
@@ -60,7 +60,7 @@ def test_hf_bundle_is_inference_only_with_empty_readme(tmp_path: Path) -> None:
         },
     )
 
-    assert bundle.repo_id == "yypeng666/metamdp-jepa-return-l3-v1"
+    assert bundle.repo_id == "yypeng666/metamdp-jepa-return-l3-s4-h160ms-t400ms-final-v1"
     assert {path.name for path in output.iterdir()} == {
         "README.md",
         "checksums.json",
@@ -125,13 +125,16 @@ def test_hf_commands_are_public_manual_gated_and_never_embed_token() -> None:
         "hf",
         "repos",
         "create",
-        "yypeng666/metamdp-jepa-return-l2-v1",
+        "yypeng666/metamdp-jepa-return-l2-s4-h160ms-t400ms-final-v1",
         "--type",
         "model",
         "--public",
         "--exist-ok",
     )
     assert "--gated manual" in rendered
-    assert "hf upload yypeng666/metamdp-jepa-return-l2-v1 /tmp/inference-bundle" in rendered
+    assert (
+        "hf upload yypeng666/metamdp-jepa-return-l2-s4-h160ms-t400ms-final-v1 "
+        "/tmp/inference-bundle"
+    ) in rendered
     assert "--private" not in rendered
     assert "token" not in rendered.lower()
