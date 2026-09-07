@@ -36,6 +36,7 @@ def main(argv=None):
     parser.add_argument("--worker-count", type=int, default=1)
     parser.add_argument("--max-cases", type=int)
     parser.add_argument("--maximum-steps", type=int, default=1000)
+    parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument(
         "--regime",
         choices=(
@@ -103,12 +104,29 @@ def main(argv=None):
         config = build_level_train_config(
             profile=profile,
             request=SFTLaunchRequest(
-                level=level, experiment_name="evaluation", mode="formal", resume=False
+                level=level,
+                experiment_name="evaluation",
+                mode="formal",
+                resume=False,
+                device_count=1,
+                batch_size_override=128,
             ),
             assets_root=args.preparation_root / "assets",
             checkpoint_root=args.checkpoint.parent,
             wandb_enabled=False,
         )
+        if args.preflight_only:
+            print(
+                json.dumps(
+                    {
+                        "identity": identity,
+                        "case_count": len(cases),
+                        "state_tokens": config.model.discrete_state_input,
+                        "action_horizon": config.model.action_horizon,
+                    }
+                )
+            )
+            return
         policy = create_trained_policy(config, args.checkpoint)
         client_config = load_action_chunk_client_config(
             root / "configs/client/sharp_return_time_h50_e25_v1.yaml"
