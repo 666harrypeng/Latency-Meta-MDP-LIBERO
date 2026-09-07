@@ -151,7 +151,10 @@ def test_in_process_policy_bridge_packs_current16_and_uses_explicit_noise_stream
 def test_return_control_configs_freeze_native_weights_and_keep_clean_assets():
     import flax.nnx as nnx
 
-    from latency_meta_mdp.openpi_belief_data import KnownDelayOracleDataConfig
+    from latency_meta_mdp.openpi_belief_data import (
+        KnownDelayOracleDataConfig,
+        NoFutureControlDataConfig,
+    )
     from latency_meta_mdp.openpi_sft import _build_config, build_return_policy_train_config
     from latency_meta_mdp.sft_profile import load_sft_profile
 
@@ -181,3 +184,38 @@ def test_return_control_configs_freeze_native_weights_and_keep_clean_assets():
     )
     assert isinstance(oracle.data, KnownDelayOracleDataConfig)
     assert oracle.policy_metadata["privileged_oracle"] is True
+    control = build_return_policy_train_config(
+        clean_config=clean,
+        clean_checkpoint=Path("/fixture/clean/params"),
+        view_spec={"mode": "no_future_control"},
+        experiment_name="no-future-control",
+    )
+    assert isinstance(control.data, NoFutureControlDataConfig)
+    assert control.policy_metadata["privileged_oracle"] is False
+    assert control.trainable_filter == config.trainable_filter
+
+
+def test_no_future_control_erases_future_content_but_keeps_time_and_mass():
+    from openpi.models.model import ModelType
+
+    from latency_meta_mdp.openpi_belief_data import NoFutureControlInputs
+
+    raw = {
+        **_raw(),
+        "return_belief": {
+            "visual": np.ones((5, 2, 196, 384), np.float16),
+            "proprio": np.ones((5, 16), np.float32),
+            "delay_ticks": np.array([4, 8, 12, 16, 20]),
+            "probabilities": np.array([0.5, 0.2, 0.1, 0.1, 0.1], np.float32),
+        },
+    }
+    out = NoFutureControlInputs(model_type=ModelType.PI05, state_norm_stats=_stats())(raw)
+    np.testing.assert_array_equal(out["return_belief_visual"], 0)
+    np.testing.assert_array_equal(out["return_belief_proprio"], 0)
+    np.testing.assert_array_equal(
+        out["return_belief_delay_ticks"], raw["return_belief"]["delay_ticks"]
+    )
+    np.testing.assert_array_equal(
+        out["return_belief_probabilities"], raw["return_belief"]["probabilities"]
+    )
+    assert out["action_loss_weight"] == 1.5

@@ -57,7 +57,7 @@ def _dataset(tmp_path, mode, *, split="train"):
     return dataset, record, pmf
 
 
-@pytest.mark.parametrize("mode", ["predicted_mixture", "gt_mixture"])
+@pytest.mark.parametrize("mode", ["predicted_mixture", "gt_mixture", "no_future_control"])
 def test_main_inputs_do_not_reveal_the_supervision_delay(tmp_path, mode):
     dataset, record, _ = _dataset(tmp_path, mode)
     first, second = dataset[0], dataset[1]
@@ -86,6 +86,23 @@ def test_oracle_uses_exact_dense_delay_and_preserves_pairing(tmp_path):
     assert sample["known_delay_oracle"]["known_delay_ticks"] == 1
     np.testing.assert_array_equal(sample["known_delay_oracle"]["visual"], 11)
     np.testing.assert_array_equal(sample["actions"][0], record.controls[11])
+
+
+def test_no_future_control_preserves_labels_weights_and_known_latency_law(tmp_path):
+    dataset, record, pmf = _dataset(tmp_path, "no_future_control")
+    sample = dataset[0]
+    np.testing.assert_array_equal(sample["return_belief"]["visual"], 0)
+    np.testing.assert_array_equal(sample["return_belief"]["proprio"], 0)
+    np.testing.assert_array_equal(sample["return_belief"]["delay_ticks"], [4, 8, 12, 16, 20])
+    assert sample["action_loss_weight"] == pytest.approx(20 * pmf[0])
+    np.testing.assert_array_equal(sample["actions"][0], record.controls[11])
+    dataset.mode = "gt_mixture"
+    gt = dataset[0]
+    for name in ("actions", "actions_is_pad", "state", "action_loss_weight"):
+        np.testing.assert_array_equal(sample[name], gt[name])
+    np.testing.assert_array_equal(
+        sample["return_belief"]["probabilities"], gt["return_belief"]["probabilities"]
+    )
 
 
 def test_uniform_delay_enumeration_recovers_episode_pmf_objective(tmp_path):

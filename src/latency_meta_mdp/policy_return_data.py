@@ -55,7 +55,12 @@ class MatchedReturnPolicyDataset:
             quantize_d20_probabilities,
         )
 
-        if mode not in {"predicted_mixture", "gt_mixture", "known_delay_oracle"}:
+        if mode not in {
+            "predicted_mixture",
+            "gt_mixture",
+            "known_delay_oracle",
+            "no_future_control",
+        }:
             raise ValueError("unsupported return-policy view mode")
         if not records or any(
             not isinstance(r, JepaEpisodeRecord) or r.split != "train" for r in records
@@ -207,7 +212,10 @@ class MatchedReturnPolicyDataset:
                 "known_delay_ticks": delay,
             }
         else:
-            if self.mode == "gt_mixture":
+            if self.mode == "no_future_control":
+                visual = np.zeros((5, 2, 196, 384), np.float16)
+                proprio = np.zeros((5, 16), np.float32)
+            elif self.mode == "gt_mixture":
                 visual, proprio = self._ground_truth(episode_index, source_tick + _ANCHORS)
             else:
                 predicted = self.predictions.read(episode.episode_id, source_tick)

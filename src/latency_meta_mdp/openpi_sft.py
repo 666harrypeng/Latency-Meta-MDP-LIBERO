@@ -118,6 +118,7 @@ def build_return_policy_train_config(
     from latency_meta_mdp.openpi_belief_adapter import NativePolicyWithReturnBeliefLoader
     from latency_meta_mdp.openpi_belief_data import (
         KnownDelayOracleDataConfig,
+        NoFutureControlDataConfig,
         ReturnBeliefDataConfig,
     )
 
@@ -136,9 +137,12 @@ def build_return_policy_train_config(
             "return policy initialization requires the matched clean state-aware policy"
         )
     mode = view_spec.get("mode")
-    if mode not in {"predicted_mixture", "gt_mixture", "known_delay_oracle"}:
+    if mode not in {"predicted_mixture", "gt_mixture", "known_delay_oracle", "no_future_control"}:
         raise ValueError("return-policy control mode is invalid")
-    factory = KnownDelayOracleDataConfig if mode == "known_delay_oracle" else ReturnBeliefDataConfig
+    factory = {
+        "known_delay_oracle": KnownDelayOracleDataConfig,
+        "no_future_control": NoFutureControlDataConfig,
+    }.get(mode, ReturnBeliefDataConfig)
     return dataclasses.replace(
         clean_config,
         name=f"{clean_config.name}_{mode}",

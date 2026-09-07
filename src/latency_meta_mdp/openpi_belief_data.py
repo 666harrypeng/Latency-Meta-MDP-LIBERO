@@ -86,6 +86,18 @@ class ReturnBeliefInputs(StructuredPolicyInputs):
 
 
 @dataclasses.dataclass(frozen=True)
+class NoFutureControlInputs(ReturnBeliefInputs):
+    """Same policy capacity and known latency law, without future physical information."""
+
+    def __call__(self, data: dict) -> dict:
+        inputs = super().__call__(data)
+        # Erase after normalization so the constant cannot depend on source values.
+        inputs["return_belief_visual"] = np.zeros_like(inputs["return_belief_visual"])
+        inputs["return_belief_proprio"] = np.zeros_like(inputs["return_belief_proprio"])
+        return inputs
+
+
+@dataclasses.dataclass(frozen=True)
 class KnownDelayOracleInputs(ReturnBeliefInputs):
     """Privileged lane: exact known D20 delay, never the main actor input schema.
 
@@ -167,6 +179,19 @@ class ReturnBeliefDataConfig(StructuredPolicyDataConfig):
             ),
             **view_kwargs,
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class NoFutureControlDataConfig(ReturnBeliefDataConfig):
+    input_type: ClassVar[type] = NoFutureControlInputs
+
+    def create(self, assets_dirs, model_config):
+        if (
+            self.return_policy_view is None
+            or self.return_policy_view.get("mode") != "no_future_control"
+        ):
+            raise ValueError("no-future input route requires its matching training view")
+        return super().create(assets_dirs, model_config)
 
 
 @dataclasses.dataclass(frozen=True)
