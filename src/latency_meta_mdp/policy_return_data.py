@@ -9,6 +9,7 @@ valid under the recorded nominal executable controls, not arbitrary policy buffe
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import gcd
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,49 @@ import numpy as np
 
 _ANCHORS = np.array([4, 8, 12, 16, 20], dtype=np.int64)
 _START_TICK = 10
+
+
+class UniformDelaySampler:
+    """Balance valid D20 labels in shuffled blocks, covering each delay's index pool.
+
+    Each epoch visits every valid pair at least once. Shorter delay pools are
+    repeated only as needed to equalize counts. No episode-PMF weighting is used.
+    """
+
+    def __init__(self, indices_by_delay, *, seed: int, batch_size: int = 20, start_batch: int = 0):
+        if type(seed) is not int or seed < 0:
+            raise ValueError("sampler seed must be a nonnegative integer")
+        if type(batch_size) is not int or batch_size <= 0:
+            raise ValueError("sampler batch_size must be a positive integer")
+        if type(start_batch) is not int or start_batch < 0:
+            raise ValueError("sampler start_batch must be a nonnegative integer")
+        self.indices = tuple(np.asarray(x, dtype=np.int64) for x in indices_by_delay)
+        if len(self.indices) != 20 or any(x.ndim != 1 or not len(x) for x in self.indices):
+            raise ValueError("balanced sampling requires real action labels at every D20 delay")
+        multiple = batch_size // gcd(batch_size, 20)
+        self.per_delay_count = ((max(map(len, self.indices)) + multiple - 1) // multiple) * multiple
+        self.seed = seed
+        self.epoch, self.offset = divmod(start_batch * batch_size, 20 * self.per_delay_count)
+
+    def __len__(self):
+        return 20 * self.per_delay_count - self.offset
+
+    def __iter__(self):
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch]))
+        self.epoch += 1
+        offset, self.offset = self.offset, 0
+        columns = []
+        for indices in self.indices:
+            parts = []
+            remaining = self.per_delay_count
+            while remaining:
+                part = rng.permutation(indices)[:remaining]
+                parts.append(part)
+                remaining -= len(part)
+            columns.append(np.concatenate(parts))
+        # Every consecutive block has one sample of each delay, in random order.
+        ordered = rng.permuted(np.column_stack(columns), axis=1)
+        yield from map(int, ordered.ravel()[offset:])
 
 
 @dataclass(frozen=True)
@@ -33,7 +77,7 @@ class _Episode:
 
 
 class MatchedReturnPolicyDataset:
-    """Virtual (real context, D20 label) pairs with 20*p(delay) loss weights."""
+    """Virtual return labels: legacy PMF-weighted or balanced prefix post-training."""
 
     def __init__(
         self,
@@ -44,6 +88,7 @@ class MatchedReturnPolicyDataset:
         episode_probabilities,
         mode: str,
         predictions=None,
+        conditioning: str = "late",
     ):
         import torch
 
@@ -55,6 +100,8 @@ class MatchedReturnPolicyDataset:
             quantize_d20_probabilities,
         )
 
+        if conditioning not in {"late", "prefix"}:
+            raise ValueError("return-policy conditioning must be late or prefix")
         if mode not in {
             "predicted_mixture",
             "gt_mixture",
@@ -83,6 +130,7 @@ class MatchedReturnPolicyDataset:
             raise ValueError("native dataset length differs from episode inventory")
         self.native_dataset = native_dataset
         self.mode = mode
+        self.conditioning = conditioning
         self.predictions = predictions
         self.episodes = []
         self.probabilities = []
@@ -143,6 +191,29 @@ class MatchedReturnPolicyDataset:
     def __len__(self):
         return len(self.contexts) * 20
 
+    def training_sampler(self, *, seed: int = 0, batch_size: int = 20, start_batch: int = 0):
+        if self.conditioning != "prefix":
+            return None
+        indices = [
+            np.array(
+                [
+                    i * 20 + delay - 1
+                    for i, (episode, tick) in enumerate(self.contexts)
+                    if tick + delay < self.episodes[episode].terminal_tick
+                ],
+                dtype=np.int64,
+            )
+            for delay in range(1, 21)
+        ]
+        return UniformDelaySampler(
+            indices, seed=seed, batch_size=batch_size, start_batch=start_batch
+        )
+
+    def _loss_weight(self, episode_index, delay):
+        if self.conditioning == "prefix":
+            return 1.0
+        return float(20 * self.probabilities[episode_index][delay - 1])
+
     def _coordinates(self, index):
         if (
             not isinstance(index, (int, np.integer))
@@ -163,7 +234,7 @@ class MatchedReturnPolicyDataset:
             "source_tick": source_tick,
             "source_phase": episode.phases[source_tick],
             "supervision_delay_ticks": delay,
-            "loss_weight": float(20 * self.probabilities[episode_index][delay - 1]),
+            "loss_weight": self._loss_weight(episode_index, delay),
             "nominal_recorded_controls_only": True,
             "privileged_oracle": self.mode == "known_delay_oracle",
         }
@@ -202,9 +273,9 @@ class MatchedReturnPolicyDataset:
         result.update(
             actions=target,
             actions_is_pad=np.arange(50) >= count,
-            action_loss_weight=np.float32(20 * self.probabilities[episode_index][delay - 1]),
+            action_loss_weight=np.float32(self._loss_weight(episode_index, delay)),
         )
-        if self.mode == "known_delay_oracle":
+        if self.mode == "known_delay_oracle" and self.conditioning == "late":
             visual, proprio = self._ground_truth(episode_index, np.array([target_start]))
             result["known_delay_oracle"] = {
                 "visual": visual[0],
@@ -215,7 +286,7 @@ class MatchedReturnPolicyDataset:
             if self.mode == "no_future_control":
                 visual = np.zeros((5, 2, 196, 384), np.float16)
                 proprio = np.zeros((5, 16), np.float32)
-            elif self.mode == "gt_mixture":
+            elif self.mode in {"gt_mixture", "known_delay_oracle"}:
                 visual, proprio = self._ground_truth(episode_index, source_tick + _ANCHORS)
             else:
                 predicted = self.predictions.read(episode.episode_id, source_tick)
@@ -228,6 +299,12 @@ class MatchedReturnPolicyDataset:
                 "delay_ticks": _ANCHORS.copy(),
                 "probabilities": self.macro_probabilities[episode_index].copy(),
             }
+            if self.conditioning == "prefix":
+                result["return_belief"]["latency_probabilities"] = self.probabilities[
+                    episode_index
+                ].astype(np.float32)
+                if self.mode == "known_delay_oracle":
+                    result["known_delay_oracle"] = {"known_delay_ticks": delay}
         return result
 
 
@@ -257,11 +334,14 @@ def load_matched_return_policy_dataset(native_dataset, spec: dict) -> MatchedRet
         "belief_decision",
         "prediction_cache_root",
     }
+    if isinstance(spec, dict) and "conditioning" in spec:
+        required.add("conditioning")
     if (
         not isinstance(spec, dict)
         or set(spec) != required
         or type(spec["level"]) is not int
         or spec["level"] not in (1, 2, 3)
+        or spec.get("conditioning", "late") not in {"late", "prefix"}
     ):
         raise ValueError("return-policy view specification is invalid")
     root = Path(__file__).resolve().parents[2]
@@ -342,6 +422,7 @@ def load_matched_return_policy_dataset(native_dataset, spec: dict) -> MatchedRet
         episode_probabilities=probabilities,
         mode=spec["mode"],
         predictions=predictions,
+        conditioning=spec.get("conditioning", "late"),
     )
     result.provenance = {
         "source_manifest_sha256": inputs.source_manifest_sha256,
@@ -350,4 +431,16 @@ def load_matched_return_policy_dataset(native_dataset, spec: dict) -> MatchedRet
         "latency_family_sha256": _hash_file(Path(spec["latency_family"])),
         "control_source": "recorded_nominal_only",
     }
+    if result.conditioning == "prefix":
+        valid_counts = [
+            sum(max(episode.terminal_tick - _START_TICK - delay, 0) for episode in result.episodes)
+            for delay in range(1, 21)
+        ]
+        result.provenance.update(
+            conditioning="prefix",
+            training_delay_objective="uniform_d20_nonempty_pairs",
+            action_loss_weight=1.0,
+            valid_pairs_per_delay=valid_counts,
+            balanced_sampler_minimum_epoch_examples=20 * max(valid_counts),
+        )
     return result

@@ -100,13 +100,16 @@ class NativePolicyWithReturnBeliefLoader:
     """Keep adapter initialization while requiring the complete native parameter tree."""
 
     native_loader: Any
+    parameter_key: str = "return_belief_adapter"
 
     def load(self, params):
         from openpi.shared import array_typing
 
-        if "return_belief_adapter" not in params:
+        if self.parameter_key not in {"return_belief_adapter", "return_belief_prefix"}:
+            raise ValueError("unknown policy-owned Belief parameter tree")
+        if self.parameter_key not in params:
             raise ValueError("conditioned weight loading requires an adapter parameter tree")
-        native = {key: value for key, value in params.items() if key != "return_belief_adapter"}
+        native = {key: value for key, value in params.items() if key != self.parameter_key}
         loaded = self.native_loader.load(native)
         array_typing.check_pytree_equality(
             expected=native,
@@ -114,4 +117,4 @@ class NativePolicyWithReturnBeliefLoader:
             check_shapes=True,
             check_dtypes=True,
         )
-        return {**loaded, "return_belief_adapter": params["return_belief_adapter"]}
+        return {**loaded, self.parameter_key: params[self.parameter_key]}

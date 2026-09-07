@@ -1,0 +1,185 @@
+diff --git a/src/openpi/models/model.py b/src/openpi/models/model.py
+--- a/src/openpi/models/model.py
++++ b/src/openpi/models/model.py
+@@ -110,6 +110,9 @@
+     return_belief_proprio: at.Float[ArrayT, "*b k r"] | None = None
+     return_belief_delay_ticks: at.Float[ArrayT, "*b k"] | None = None
+     return_belief_probabilities: at.Float[ArrayT, "*b k"] | None = None
++    # Prefix-mode metadata. Known-delay coordinates are zero in the public actor path.
++    return_belief_latency_probabilities: at.Float[ArrayT, "*b d20"] | None = None
++    return_belief_known_delay: at.Float[ArrayT, "*b kd"] | None = None
+ 
+     # pi0-fast model specific fields.
+ 
+@@ -144,6 +147,8 @@
+             return_belief_proprio=data.get("return_belief_proprio"),
+             return_belief_delay_ticks=data.get("return_belief_delay_ticks"),
+             return_belief_probabilities=data.get("return_belief_probabilities"),
++            return_belief_latency_probabilities=data.get("return_belief_latency_probabilities"),
++            return_belief_known_delay=data.get("return_belief_known_delay"),
+         )
+ 
+     def to_dict(self) -> at.PyTree[ArrayT]:
+@@ -229,6 +234,8 @@
+         return_belief_proprio=observation.return_belief_proprio,
+         return_belief_delay_ticks=observation.return_belief_delay_ticks,
+         return_belief_probabilities=observation.return_belief_probabilities,
++        return_belief_latency_probabilities=observation.return_belief_latency_probabilities,
++        return_belief_known_delay=observation.return_belief_known_delay,
+     )
+ 
+ 
+diff --git a/src/openpi/models/pi0_config.py b/src/openpi/models/pi0_config.py
+--- a/src/openpi/models/pi0_config.py
++++ b/src/openpi/models/pi0_config.py
+@@ -27,6 +27,8 @@
+     # Physical action dimensions; remaining dimensions stay at their initial noise.
+     active_action_dim: int | None = None
+     use_return_belief: bool = False
++    use_return_belief_prefix: bool = False
++    belief_prefix_queries_per_view: int = 4
+     max_token_len: int = None  # type: ignore
+     # Pi05 has two differences from Pi0:
+     # - the state input is part of the discrete language tokens rather than a continuous input that is part of the suffix
+@@ -38,7 +40,11 @@
+     pytorch_compile_mode: str | None = "max-autotune"
+ 
+     def __post_init__(self):
+-        if self.use_return_belief and not self.pi05:
++        if self.use_return_belief and self.use_return_belief_prefix:
++            raise ValueError("late and prefix Belief modes are mutually exclusive")
++        if type(self.belief_prefix_queries_per_view) is not int or not 1 <= self.belief_prefix_queries_per_view <= 196:
++            raise ValueError("belief_prefix_queries_per_view must be an integer from1 to196")
++        if (self.use_return_belief or self.use_return_belief_prefix) and not self.pi05:
+             raise ValueError("return Belief integration requires pi0.5")
+         if self.active_action_dim is not None and not 0 < self.active_action_dim <= self.action_dim:
+             raise ValueError("active_action_dim must lie within action_dim")
+@@ -46,7 +52,7 @@
+             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)
+         if self.discrete_state_input is None:
+             object.__setattr__(self, "discrete_state_input", self.pi05)
+-        if self.use_return_belief and (not self.discrete_state_input or self.active_action_dim != 7 or self.action_horizon != 50 or self.action_dim != 32):
++        if (self.use_return_belief or self.use_return_belief_prefix) and (not self.discrete_state_input or self.active_action_dim != 7 or self.action_horizon != 50 or self.action_dim != 32):
+             raise ValueError("return Belief requires the matched state-aware H50/7D pi0.5 contract")
+         if self.pytorch_compile_mode is not None:
+             assert self.pytorch_compile_mode in [
+@@ -90,7 +96,7 @@
+                 tokenized_prompt=jax.ShapeDtypeStruct([batch_size, self.max_token_len], jnp.int32),
+                 tokenized_prompt_mask=jax.ShapeDtypeStruct([batch_size, self.max_token_len], bool),
+             )
+-        if self.use_return_belief:
++        if self.use_return_belief or self.use_return_belief_prefix:
+             with at.disable_typechecking():
+                 observation_spec = dataclasses.replace(
+                     observation_spec,
+@@ -98,6 +104,13 @@
+                     return_belief_proprio=jax.ShapeDtypeStruct([batch_size, 5, 16], jnp.float32),
+                     return_belief_delay_ticks=jax.ShapeDtypeStruct([batch_size, 5], jnp.float32),
+                     return_belief_probabilities=jax.ShapeDtypeStruct([batch_size, 5], jnp.float32),
++                )
++        if self.use_return_belief_prefix:
++            with at.disable_typechecking():
++                observation_spec = dataclasses.replace(
++                    observation_spec,
++                    return_belief_latency_probabilities=jax.ShapeDtypeStruct([batch_size, 20], jnp.float32),
++                    return_belief_known_delay=jax.ShapeDtypeStruct([batch_size, 2], jnp.float32),
+                 )
+         action_spec = jax.ShapeDtypeStruct([batch_size, self.action_horizon, self.action_dim], jnp.float32)
+ 
+diff --git a/src/openpi/models/pi0.py b/src/openpi/models/pi0.py
+--- a/src/openpi/models/pi0.py
++++ b/src/openpi/models/pi0.py
+@@ -119,6 +119,15 @@
+             from latency_meta_mdp.openpi_belief_adapter import ReturnBeliefAdapter
+ 
+             self.return_belief_adapter = ReturnBeliefAdapter(action_width=action_expert_config.width, rngs=rngs)
++        self.return_belief_prefix = None
++        if config.use_return_belief_prefix:
++            from latency_meta_mdp.openpi_belief_prefix import ReturnBeliefPrefixEncoder
++
++            self.return_belief_prefix = ReturnBeliefPrefixEncoder(
++                vlm_width=paligemma_config.width,
++                queries_per_view=config.belief_prefix_queries_per_view,
++                rngs=rngs,
++            )
+ 
+     @at.typecheck
+     def embed_prefix(
+@@ -149,6 +158,20 @@
+             input_mask.append(obs.tokenized_prompt_mask)
+             # full attention between image and language inputs
+             ar_mask += [False] * tokenized_inputs.shape[1]
++        encoder = getattr(self, "return_belief_prefix", None)
++        if encoder is not None:
++            fields = (
++                obs.return_belief_visual, obs.return_belief_proprio, obs.return_belief_delay_ticks,
++                obs.return_belief_probabilities, obs.return_belief_latency_probabilities,
++                obs.return_belief_known_delay,
++            )
++            if any(value is None for value in fields):
++                raise ValueError("prefix policy requires a complete forecast/law packet")
++            forecast_tokens = encoder(*fields).astype(tokens[0].dtype)
++            tokens.append(forecast_tokens)
++            input_mask.append(jnp.ones(forecast_tokens.shape[:2], dtype=jnp.bool_))
++            # Forecasts are available at launch, share the prefix group, and cannot read actions.
++            ar_mask += [False] * forecast_tokens.shape[1]
+         tokens = jnp.concatenate(tokens, axis=1)
+         input_mask = jnp.concatenate(input_mask, axis=1)
+         ar_mask = jnp.array(ar_mask)
+diff --git a/src/openpi/training/data_loader.py b/src/openpi/training/data_loader.py
+--- a/src/openpi/training/data_loader.py
++++ b/src/openpi/training/data_loader.py
+@@ -268,6 +268,7 @@
+     num_batches: int | None = None,
+     skip_norm_stats: bool = False,
+     framework: Literal["jax", "pytorch"] = "jax",
++    start_batch: int = 0,
+ ) -> DataLoader[tuple[_model.Observation, _model.Actions]]:
+     """Create a data loader for training.
+ 
+@@ -303,6 +304,7 @@
+         num_batches=num_batches,
+         num_workers=config.num_workers,
+         seed=config.seed,
++        start_batch=start_batch,
+         skip_norm_stats=skip_norm_stats,
+         framework=framework,
+     )
+@@ -320,6 +322,7 @@
+     num_batches: int | None = None,
+     num_workers: int = 0,
+     seed: int = 0,
++    start_batch: int = 0,
+     framework: str = "jax",
+ ) -> DataLoader[tuple[_model.Observation, _model.Actions]]:
+     """Create a data loader for training.
+@@ -340,12 +343,17 @@
+         seed: The seed to use for shuffling the data.
+     """
+     dataset = create_torch_dataset(data_config, action_horizon, model_config)
++    return_sampler = None
++    if data_config.return_policy_view is not None and data_config.return_policy_view.get("conditioning") == "prefix":
++        if framework != "jax":
++            raise ValueError("return-prefix training currently requires replicated JAX data parallelism")
++        return_sampler = dataset.training_sampler(seed=seed, batch_size=batch_size, start_batch=start_batch)
+     dataset = transform_dataset(dataset, data_config, skip_norm_stats=skip_norm_stats)
+ 
+     # Use TorchDataLoader for both frameworks
+     # For PyTorch DDP, create DistributedSampler and divide batch size by world size
+     # For JAX, divide by process count
+-    sampler = None
++    sampler = return_sampler
+     if framework == "pytorch":
+         if torch.distributed.is_initialized():
+             sampler = torch.utils.data.distributed.DistributedSampler(
+diff --git a/scripts/train.py b/scripts/train.py
+--- a/scripts/train.py
++++ b/scripts/train.py
+@@ -243,6 +243,7 @@
+         config,
+         sharding=data_sharding,
+         shuffle=True,
++        start_batch=int(checkpoint_manager.latest_step()) if resuming and getattr(config.model, "use_return_belief_prefix", False) else 0,
+     )
+     data_iter = iter(data_loader)
+     batch = next(data_iter)

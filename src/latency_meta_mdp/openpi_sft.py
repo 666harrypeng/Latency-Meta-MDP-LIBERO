@@ -174,6 +174,66 @@ def build_return_policy_train_config(
     )
 
 
+def build_prefix_return_policy_train_config(
+    *,
+    clean_config: Any,
+    clean_checkpoint: Path,
+    view_spec: dict,
+    experiment_name: str,
+    queries_per_view: int = 4,
+) -> Any:
+    """Post-train the native VLM/action expert with balanced D20 forecast-prefix data."""
+    import flax.nnx as nnx
+    from openpi.shared.nnx_utils import PathRegex
+    from openpi.training.config import AssetsConfig
+    from openpi.training.weight_loaders import CheckpointWeightLoader
+
+    from latency_meta_mdp.openpi_belief_adapter import NativePolicyWithReturnBeliefLoader
+    from latency_meta_mdp.openpi_belief_data import PrefixReturnBeliefDataConfig
+
+    if not hasattr(clean_config.model, "use_return_belief_prefix"):
+        raise ValueError("forecast-prefix training requires OpenPI patch0006")
+    view = {**view_spec, "conditioning": "prefix"}
+    base = build_return_policy_train_config(
+        clean_config=clean_config,
+        clean_checkpoint=clean_checkpoint,
+        view_spec=view,
+        experiment_name=experiment_name,
+        adapter_only=False,
+    )
+    return dataclasses.replace(
+        base,
+        name=f"{base.name}_prefix",
+        model=dataclasses.replace(
+            base.model,
+            use_return_belief=False,
+            use_return_belief_prefix=True,
+            belief_prefix_queries_per_view=queries_per_view,
+        ),
+        data=PrefixReturnBeliefDataConfig(
+            repo_id=clean_config.data.repo_id,
+            base_config=clean_config.data.base_config,
+            assets=AssetsConfig(
+                assets_dir=str(clean_config.assets_dirs), asset_id=clean_config.data.repo_id
+            ),
+            return_policy_view=view,
+        ),
+        weight_loader=NativePolicyWithReturnBeliefLoader(
+            CheckpointWeightLoader(str(clean_checkpoint)), parameter_key="return_belief_prefix"
+        ),
+        freeze_filter=nnx.Any(
+            PathRegex("PaliGemma/img/.*"), PathRegex("PaliGemma/llm/embedder/.*")
+        ),
+        policy_metadata={
+            **base.policy_metadata,
+            "conditioning": "prefix",
+            "prefix_tokens": 1 + 5 * (1 + 2 * queries_per_view),
+            "training_delay_objective": "uniform_d20_nonempty_pairs",
+            "trainable_scope": "prefix_vlm_action_expert",
+        },
+    )
+
+
 def build_level_train_config(
     *,
     profile: SFTProfile,
