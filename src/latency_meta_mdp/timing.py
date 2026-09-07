@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -34,8 +35,11 @@ class ClockLedger:
             raise ValueError("clock intervals must be positive")
         if formal_tick_us % physics_dt_us:
             raise ValueError("formal_tick_us must be an integer multiple of physics_dt_us")
-        if representation_tolerance_seconds < 0:
-            raise ValueError("representation tolerance must be non-negative")
+        if (
+            not math.isfinite(representation_tolerance_seconds)
+            or representation_tolerance_seconds < 0
+        ):
+            raise ValueError("representation tolerance must be finite and non-negative")
         self.physics_dt_us = physics_dt_us
         self.formal_tick_us = formal_tick_us
         self.representation_tolerance_seconds = representation_tolerance_seconds
@@ -76,7 +80,15 @@ class ClockLedger:
     def validate_sim_time(self, sim_time_seconds: float, *, step_index: int | None = None) -> None:
         candidate_step = self.physics_step_index if step_index is None else step_index
         expected = candidate_step * self.physics_dt_us / 1_000_000
-        if abs(float(sim_time_seconds) - expected) > self.representation_tolerance_seconds:
+        # MuJoCo accumulates its float clock by repeated dt additions. Bound their
+        # roundoff with gamma_n = n*u/(1-n*u), including dt/expected conversion;
+        # integer steps remain authoritative and a missing physics step still fails.
+        roundoff = (candidate_step + 2) * math.ulp(1.0) / 2
+        tolerance = max(self.representation_tolerance_seconds, expected * roundoff / (1 - roundoff))
+        if (
+            not math.isfinite(sim_time_seconds)
+            or abs(float(sim_time_seconds) - expected) > tolerance
+        ):
             raise ValueError(
                 "simulator time mismatch: "
                 f"expected {expected:.12f}s at physics step {candidate_step}, "
