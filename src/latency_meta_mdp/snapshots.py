@@ -18,6 +18,13 @@ def _readonly_copy(value: Any) -> np.ndarray:
     return copied
 
 
+def make_offscreen_context_current(env: Any) -> None:
+    """Select the owning GL context before rendering or freeing its MuJoCo objects."""
+    context = getattr(getattr(env, "sim", None), "_render_context_offscreen", None)
+    if context is not None:
+        context.gl_ctx.make_current()
+
+
 @dataclass(frozen=True)
 class CameraSample:
     name: str
@@ -99,6 +106,9 @@ class BoundarySnapshotter:
         )
 
         cameras: dict[str, CameraSample] = {}
+        if self.camera_names:
+            # RoboSuite 1.5.2 binds only at construction; GT replay uses a second context.
+            make_offscreen_context_current(env)
         for camera_name in self.camera_names:
             rgb = _readonly_copy(
                 np.flipud(

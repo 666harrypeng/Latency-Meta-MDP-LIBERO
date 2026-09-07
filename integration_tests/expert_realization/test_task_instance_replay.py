@@ -23,6 +23,47 @@ from latency_meta_mdp.expert_realization.task_instance import (
 pytestmark = pytest.mark.integration
 
 
+@pytest.mark.parametrize("shadow_lifecycle", ["render", "close_current", "close_other"])
+def test_shadow_runtime_preserves_primary_camera_pixels_and_physics(shadow_lifecycle: str) -> None:
+    """GT replay must not alter either deployment camera or the physical trajectory."""
+    from latency_meta_mdp.expert_realization.task_instance import _build_task_instance_runtime
+
+    task = materialize_task_instance(project_root=Path.cwd(), level=3, task_instance_seed=4000)
+    control = _build_task_instance_runtime(task)
+    try:
+        initial = control.executor.initialize()
+        action = np.zeros(control.env.action_dim, dtype=np.float32)
+        expected = control.executor.step_formal(action)
+    finally:
+        control.close()
+
+    primary = _build_task_instance_runtime(task)
+    shadow = None
+    try:
+        actual_initial = primary.executor.initialize()
+        for name in initial.cameras:
+            np.testing.assert_array_equal(
+                actual_initial.cameras[name].rgb, initial.cameras[name].rgb
+            )
+        shadow = _build_task_instance_runtime(task)
+        shadow.executor.initialize()
+        shadow.executor.step_formal(action)
+        if shadow_lifecycle == "close_other":
+            # Closing a non-current renderer must not free the primary's GL objects.
+            primary.env.sim._render_context_offscreen.gl_ctx.make_current()
+        if shadow_lifecycle != "render":
+            shadow.close()
+        actual = primary.executor.step_formal(action)
+        np.testing.assert_array_equal(actual.qpos, expected.qpos)
+        np.testing.assert_array_equal(actual.qvel, expected.qvel)
+        for name in expected.cameras:
+            np.testing.assert_array_equal(actual.cameras[name].rgb, expected.cameras[name].rgb)
+    finally:
+        if shadow is not None:
+            shadow.close()
+        primary.close()
+
+
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 

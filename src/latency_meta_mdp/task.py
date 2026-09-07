@@ -232,6 +232,13 @@ def _make_environment_class() -> type[Any]:
                 mujoco_objects=self.ball,
             )
 
+        def _destroy_sim(self) -> None:
+            from latency_meta_mdp.snapshots import make_offscreen_context_current
+
+            # MuJoCo frees GL resources in the current context, which may belong to GT replay.
+            make_offscreen_context_current(self)
+            super()._destroy_sim()
+
         def _setup_references(self) -> None:
             super()._setup_references()
             self.ball_body_id = self.sim.model.body_name2id(self.ball.root_body)
