@@ -107,7 +107,12 @@ def test_flow_loss_all_masked_is_finite_zero_and_full_mask_matches_legacy():
     def loss(o):
         return Pi0.compute_loss(model, jax.random.key(3), o, actions)
 
-    np.testing.assert_allclose(loss(obs), loss(dataclasses.replace(obs, action_loss_mask=None)))
+    # CUDA can reassociate these equivalent float32 reductions by one ULP.
+    np.testing.assert_array_max_ulp(
+        np.asarray(loss(obs)),
+        np.asarray(loss(dataclasses.replace(obs, action_loss_mask=None))),
+        maxulp=2,
+    )
     empty = dataclasses.replace(obs, action_loss_mask=jnp.zeros((2, 3, 4), bool))
     np.testing.assert_array_equal(loss(empty), 0)
 
