@@ -97,6 +97,7 @@ class InProcessOpenpiPolicy:
         if not isinstance(noise_rng, np.random.Generator) or belief_input_key not in {
             "return_belief",
             "known_delay_oracle",
+            "prefix",
         }:
             raise ValueError("policy noise stream or Belief input route is invalid")
         self.policy = policy
@@ -106,7 +107,15 @@ class InProcessOpenpiPolicy:
     def __call__(self, observation: PolicyObservation, belief):
         inputs = observation.to_policy_inputs()
         if belief is not None:
-            inputs[self.belief_input_key] = belief
+            if self.belief_input_key == "prefix":
+                if not isinstance(belief, dict) or set(belief) not in (
+                    {"return_belief"},
+                    {"return_belief", "known_delay_oracle"},
+                ):
+                    raise ValueError("prefix bridge requires its explicit nested input packet")
+                inputs.update(belief)
+            else:
+                inputs[self.belief_input_key] = belief
         noise = self.noise_rng.standard_normal((50, 32), dtype=np.float32)
         return self.policy.infer(inputs, noise=noise)
 

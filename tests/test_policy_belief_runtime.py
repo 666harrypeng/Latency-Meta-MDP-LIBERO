@@ -94,6 +94,55 @@ def test_oracle_peek_and_harness_consume_share_exactly_one_delay_draw():
     assert coupled() == 7
 
 
+def test_prefix_provider_preserves_full_forecast_and_nests_only_privileged_delay():
+    from latency_meta_mdp.policy_belief_runtime import PrefixBeliefProvider, PrivilegedDelayCoupler
+
+    packet = {
+        "visual": np.zeros((5, 2, 196, 384), np.float16),
+        "proprio": np.arange(80, dtype=np.float32).reshape(5, 16),
+        "delay_ticks": np.array([4, 8, 12, 16, 20]),
+        "probabilities": np.array([0.25, 0.2, 0.2, 0.2, 0.15]),
+    }
+
+    class Provider:
+        privileged = False
+
+        def observe(self, observation, previous_action):
+            self.last = (observation, previous_action)
+
+        def __call__(self, observation, executable_controls):
+            return packet
+
+    provider = Provider()
+    pmf = np.full(20, 0.05)
+    main = PrefixBeliefProvider(provider, probabilities=pmf)
+    main.observe("observation", "action")
+    assert provider.last == ("observation", "action")
+    pmf[0] = 0  # Caller mutation cannot change the frozen episode law.
+    result = main(None, None)
+    assert set(result) == {"return_belief"} and not main.privileged
+    np.testing.assert_array_equal(result["return_belief"]["latency_probabilities"], 0.05)
+    assert "latency_probabilities" not in packet
+    coupled = PrivilegedDelayCoupler(lambda: 7)
+    with pytest.raises(ValueError, match="privileged"):
+        PrefixBeliefProvider(
+            provider, probabilities=np.full(20, 0.05), known_delay_reader=coupled.peek
+        )
+    provider.privileged = True
+    oracle = PrefixBeliefProvider(
+        provider, probabilities=np.full(20, 0.05), known_delay_reader=coupled.peek
+    )
+    result = oracle(None, None)
+    assert oracle.privileged and result["known_delay_oracle"] == {"known_delay_ticks": 7}
+    assert coupled() == 7
+    np.testing.assert_array_equal(result["return_belief"]["proprio"], packet["proprio"])
+    provider.known_delay_reader = coupled.peek
+    with pytest.raises(ValueError, match="complete"):
+        PrefixBeliefProvider(
+            provider, probabilities=np.full(20, 0.05), known_delay_reader=coupled.peek
+        )
+
+
 def test_gt_replay_uses_actual_future_controls_and_exact_oracle_delay():
     from pathlib import Path
     from types import SimpleNamespace

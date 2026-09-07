@@ -36,6 +36,44 @@ class PrivilegedDelayCoupler:
         return value
 
 
+class PrefixBeliefProvider:
+    """Attach the public law after prediction; keep oracle delay a separate input."""
+
+    def __init__(self, provider, *, probabilities, known_delay_reader=None):
+        self.privileged = bool(getattr(provider, "privileged", False))
+        if known_delay_reader is not None and not self.privileged:
+            raise ValueError("known delay requires a privileged evaluation provider")
+        if getattr(provider, "known_delay_reader", None) is not None:
+            raise ValueError("prefix conditioning requires the complete five-anchor forecast")
+        pmf = np.array(probabilities, dtype=np.float32, copy=True)
+        if (
+            pmf.shape != (20,)
+            or not np.isfinite(pmf).all()
+            or np.any(pmf < 0)
+            or not np.isclose(pmf.sum(), 1, atol=1e-6, rtol=0)
+        ):
+            raise ValueError("prefix law must be a normalized D20 PMF")
+        pmf.setflags(write=False)
+        self.probabilities = pmf
+        self.provider = provider
+        self.known_delay_reader = known_delay_reader
+
+    def observe(self, observation, previous_action):
+        self.provider.observe(observation, previous_action)
+
+    def __call__(self, observation, executable_controls):
+        forecast = self.provider(observation, executable_controls)
+        if set(forecast) != {"visual", "proprio", "delay_ticks", "probabilities"}:
+            raise ValueError("prefix provider requires the unprivileged forecast packet fields")
+        result = {"return_belief": {**forecast, "latency_probabilities": self.probabilities.copy()}}
+        if self.known_delay_reader is not None:
+            delay = self.known_delay_reader()
+            if type(delay) is not int or not 1 <= delay <= 20:
+                raise ValueError("known delay must be an integer on D20")
+            result["known_delay_oracle"] = {"known_delay_ticks": delay}
+        return result
+
+
 class FrozenJepaBelief:
     """Store 50 Hz RGB/proprio/controls; encode only the real frames a query needs."""
 

@@ -563,3 +563,31 @@ def test_clean_loader_allows_only_new_prefix_initialization(patched_openpi):
     assert got["return_belief_prefix"] is prefix
     with pytest.raises(ValueError):
         loader.load({"native": jnp.ones((3, 3)), "return_belief_prefix": prefix})
+
+
+def test_runtime_bridge_keeps_native_inputs_and_oracle_envelope_separate(patched_openpi):
+    from openpi.policies.policy import Policy
+
+    from latency_meta_mdp.policy_execution import InProcessOpenpiPolicy, PolicyObservation
+
+    policy = object.__new__(Policy)
+    policy.infer = lambda inputs, noise: (inputs, noise)
+    bridge = InProcessOpenpiPolicy(
+        policy, noise_rng=np.random.default_rng(7), belief_input_key="prefix"
+    )
+    observation = PolicyObservation(
+        formal_tick=10,
+        image=np.zeros((8, 8, 3), np.uint8),
+        wrist_image=np.zeros((8, 8, 3), np.uint8),
+        state=np.zeros(16, np.float32),
+    )
+    forecast = {"return_belief": {"visual": "fixture"}}
+    inputs, noise = bridge(observation, forecast)
+    assert inputs["return_belief"] == forecast["return_belief"]
+    assert "known_delay_oracle" not in inputs and noise.shape == (50, 32)
+    np.testing.assert_array_equal(inputs["observation/state"], observation.state)
+    forecast["known_delay_oracle"] = {"known_delay_ticks": 7}
+    inputs, _ = bridge(observation, forecast)
+    assert inputs["known_delay_oracle"] == forecast["known_delay_oracle"]
+    with pytest.raises(ValueError, match="nested"):
+        bridge(observation, {"return_belief": {}, "state": "injected"})
