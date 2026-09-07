@@ -134,3 +134,41 @@ def test_recording_has_both_initial_and_terminal_formal_boundaries(monkeypatch):
     assert recorded == [0, 1, 2, 3]
     assert report["recorded_frames"] == 4
     assert report["success"]
+
+
+def test_conditioned_episode_uses_native_bootstrap_and_actual_buffer(monkeypatch):
+    from latency_meta_mdp import policy_evaluation as evaluation
+
+    monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
+    observed, queried, native = [], [], []
+
+    class Belief:
+        def observe(self, observation, previous_action):
+            observed.append(observation.formal_tick)
+
+        def __call__(self, observation, controls):
+            assert controls.shape == (20, 7)
+            queried.append(observation.formal_tick)
+            return observation.formal_tick
+
+    def bootstrap(observation):
+        native.append(observation.formal_tick)
+        return np.zeros((50, 7))
+
+    def conditioned(observation, belief):
+        assert belief == observation.formal_tick
+        return np.ones((50, 7))
+
+    result = evaluation.run_native_policy_episode(
+        runtime=Runtime(succeed_at=60),
+        policy=conditioned,
+        bootstrap_policy=bootstrap,
+        belief_provider_factory=lambda runtime, snapshot: Belief(),
+        client_config=load_action_chunk_client_config(
+            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+        ),
+        delay_sampler=lambda: 4,
+    )
+    assert result["success"] and result["belief_calls"] == 2
+    assert native == [0] and queried == [25, 54]
+    assert observed == list(range(60))

@@ -22,6 +22,10 @@ def run_native_policy_episode(
     delay_sampler,
     maximum_steps: int = 1000,
     record_observation=None,
+    bootstrap_policy=None,
+    belief_provider_factory=None,
+    allow_privileged_belief: bool = False,
+    latency_probabilities=None,
 ) -> dict:
     """Execute an owned simulator to its task terminal condition or an explicit time limit.
 
@@ -34,14 +38,25 @@ def run_native_policy_episode(
             raise ValueError("maximum_steps must be a positive integer")
         started = time.perf_counter()
         latest = runtime.executor.initialize()
+        if belief_provider_factory is not None and bootstrap_policy is None:
+            raise ValueError("conditioned evaluation requires an explicit native bootstrap")
+        belief = (
+            belief_provider_factory(runtime, lambda: latest)
+            if belief_provider_factory is not None
+            else None
+        )
         engine = LogicalPolicyRuntime(
             action_contract=runtime.action_contract,
             client_config=client_config,
             simulation_time_reader=lambda: runtime.executor.ledger.time_us,
             delay_sampler=delay_sampler,
             policy=policy,
-            bootstrap_policy=lambda obs: policy(obs, None),
+            bootstrap_policy=bootstrap_policy or (lambda obs: policy(obs, None)),
             scheduler=FixedCursorScheduler(25),
+            belief_provider=belief,
+            policy_uses_belief=belief is not None,
+            allow_privileged_belief=allow_privileged_belief,
+            latency_probabilities=latency_probabilities,
         )
 
         def observe():
