@@ -1,0 +1,92 @@
+diff --git a/src/openpi/models/pi0.py b/src/openpi/models/pi0.py
+--- a/src/openpi/models/pi0.py
++++ b/src/openpi/models/pi0.py
+@@ -288,8 +288,18 @@
+         *,
+         num_steps: int | at.Int[at.Array, ""] = 10,
+         noise: at.Float[at.Array, "b ah ad"] | None = None,
++        rtc_previous_actions: at.Float[at.Array, "b ah ad"] | None = None,
++        rtc_weights: at.Float[at.Array, "b ah ad"] | None = None,
++        rtc_max_guidance_weight: float = 5.0,
+     ) -> _model.Actions:
+         observation = _model.preprocess_observation(None, observation, train=False)
++        if (rtc_previous_actions is None) != (rtc_weights is None):
++            raise ValueError("RTC requires both normalized previous actions and guidance weights")
++        if rtc_previous_actions is not None and (
++            getattr(self, "return_belief_adapter", None) is not None
++            or getattr(self, "return_belief_prefix", None) is not None
++        ):
++            raise ValueError("legacy return-indexed policy checkpoints cannot use RTC alignment")
+         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
+         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
+         dt = -1.0 / num_steps
+@@ -305,8 +315,7 @@
+         positions = jnp.cumsum(prefix_mask, axis=1) - 1
+         _, kv_cache = self.PaliGemma.llm([prefix_tokens, None], mask=prefix_attn_mask, positions=positions)
+ 
+-        def step(carry):
+-            x_t, time = carry
++        def velocity_field(x_t, time):
+             suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
+                 observation, x_t, jnp.broadcast_to(time, batch_size)
+             )
+@@ -343,6 +352,22 @@
+             if self.active_action_dim is not None:
+                 # Match noise-only padded coordinates used by masked training.
+                 v_t = v_t.at[..., self.active_action_dim :].set(0.0)
++            return v_t
++
++        def step(carry):
++            x_t, time = carry
++            if rtc_previous_actions is None:
++                v_t = velocity_field(x_t, time)
++            else:
++                from latency_meta_mdp.openpi_rtc import rtc_guided_velocity
++
++                v_t = rtc_guided_velocity(
++                    lambda value: velocity_field(value, time), x_t, time,
++                    rtc_previous_actions, rtc_weights,
++                    max_guidance_weight=rtc_max_guidance_weight,
++                )
++                if self.active_action_dim is not None:
++                    v_t = v_t.at[..., self.active_action_dim :].set(0.0)
+             return x_t + dt * v_t, time + dt
+ 
+         def cond(carry):
+diff --git a/src/openpi/policies/policy.py b/src/openpi/policies/policy.py
+--- a/src/openpi/policies/policy.py
++++ b/src/openpi/policies/policy.py
+@@ -65,7 +65,7 @@
+             self._rng = rng or jax.random.key(0)
+ 
+     @override
+-    def infer(self, obs: dict, *, noise: np.ndarray | None = None) -> dict:  # type: ignore[misc]
++    def infer(self, obs: dict, *, noise: np.ndarray | None = None, rtc_delay_ticks: int | None = None) -> dict:  # type: ignore[misc]
+         # Make a copy since transformations may modify the inputs in place.
+         inputs = jax.tree.map(lambda x: x, obs)
+         inputs = self._input_transform(inputs)
+@@ -86,6 +86,24 @@
+             if noise.ndim == 2:  # If noise is (action_horizon, action_dim), add batch dimension
+                 noise = noise[None, ...]  # Make it (1, action_horizon, action_dim)
+             sample_kwargs["noise"] = noise
++
++        if rtc_delay_ticks is not None:
++            from latency_meta_mdp.openpi_rtc import build_rtc_weights
++
++            if self._is_pytorch_model or getattr(self._model, "active_action_dim", None) != 7:
++                raise ValueError("RTC requires the matched JAX active-7D policy")
++            if "actions" not in inputs or "actions_is_pad" not in obs:
++                raise ValueError("RTC requires controller-native previous actions and their validity mask")
++            guidance_limit = sample_kwargs.get("rtc_max_guidance_weight", 5.0)
++            if not np.isfinite(guidance_limit) or guidance_limit < 0:
++                raise ValueError("RTC guidance bound must be finite and nonnegative")
++            weights = build_rtc_weights(
++                valid_mask=~np.asarray(obs["actions_is_pad"]),
++                estimated_delay_ticks=rtc_delay_ticks,
++                active_action_dim=7, model_action_dim=inputs["actions"].shape[-1],
++            )
++            sample_kwargs["rtc_previous_actions"] = inputs["actions"]
++            sample_kwargs["rtc_weights"] = jnp.asarray(weights)[None, ...]
+ 
+         observation = _model.Observation.from_dict(inputs)
+         start_time = time.monotonic()

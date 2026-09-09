@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from latency_meta_mdp.latency_law import load_latency_law
 from latency_meta_mdp.latency_law_family import load_episode_latency_law_family
 from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
 from latency_meta_mdp.policy_evaluation import run_native_policy_episode
+from latency_meta_mdp.rtc_protocol import load_rtc_client_config
 from latency_meta_mdp.sft_launch import SFTLaunchRequest
 from latency_meta_mdp.sft_profile import load_sft_profile
 
@@ -39,6 +41,8 @@ def main(argv=None):
     parser.add_argument("--maximum-steps", type=int, default=1000)
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--record-video", action="store_true")
+    parser.add_argument("--protocol", choices=("sharp", "rtc"), default="sharp")
+    parser.add_argument("--rtc-max-guidance-weight", type=float, default=5.0)
     parser.add_argument(
         "--regime",
         choices=(
@@ -58,6 +62,8 @@ def main(argv=None):
         parser.error("worker index must belong to the positive worker count")
     if args.max_cases is not None and args.max_cases <= 0:
         parser.error("max-cases must be positive")
+    if not np.isfinite(args.rtc_max_guidance_weight) or args.rtc_max_guidance_weight < 0:
+        parser.error("RTC guidance bound must be finite and nonnegative")
     root = Path.cwd()
     cohort = json.loads(args.cohort.read_text())
     verified = json.loads(args.checkpoint_verification.read_text())
@@ -87,6 +93,26 @@ def main(argv=None):
         "regime": args.regime,
         "maximum_steps": args.maximum_steps,
     }
+    if args.protocol == "rtc":
+        expected_repo = f"yypeng666/metamdp-pi05-l{level}-clean-state16-h50-full-sft-v1"
+        if verified["repo_id"] != expected_repo:
+            raise ValueError("initial RTC evaluation requires the verified clean checkpoint")
+        # Verify original training patches above, then record the additional runtime
+        # patches without rewriting the immutable training/preparation provenance.
+        patches = tuple(sorted((root / "patches/openpi").glob("000[1-7]-*.patch")))
+        if not any(p.name == "0007-inference-time-rtc.patch" for p in patches):
+            raise ValueError("RTC runtime patch is missing")
+        identity.update(
+            protocol_id="rtc_observation_time_h50_v1",
+            runtime_patch_sha256={p.name: sha256_file(p) for p in patches},
+            client_config_sha256=sha256_file(
+                root / "configs/client/rtc_observation_time_h50_v1.yaml"
+            ),
+            rtc_max_guidance_weight=args.rtc_max_guidance_weight,
+            runtime_code_revision=subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], text=True
+            ).strip(),
+        )
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]
@@ -101,7 +127,10 @@ def main(argv=None):
         from openpi.policies.policy_config import create_trained_policy
 
         from latency_meta_mdp.openpi_sft import build_level_train_config
-        from latency_meta_mdp.policy_execution import InProcessOpenpiPolicy
+        from latency_meta_mdp.policy_execution import (
+            InProcessOpenpiPolicy,
+            InProcessRtcOpenpiPolicy,
+        )
 
         config = build_level_train_config(
             profile=profile,
@@ -129,9 +158,16 @@ def main(argv=None):
                 )
             )
             return
-        policy = create_trained_policy(config, args.checkpoint)
-        client_config = load_action_chunk_client_config(
-            root / "configs/client/sharp_return_time_h50_e25_v1.yaml"
+        sample_kwargs = (
+            {"rtc_max_guidance_weight": args.rtc_max_guidance_weight}
+            if args.protocol == "rtc" else None
+        )
+        policy = create_trained_policy(config, args.checkpoint, sample_kwargs=sample_kwargs)
+        client_config = (
+            load_rtc_client_config(root / "configs/client/rtc_observation_time_h50_v1.yaml")
+            if args.protocol == "rtc" else load_action_chunk_client_config(
+                root / "configs/client/sharp_return_time_h50_e25_v1.yaml"
+            )
         )
         for case in cases:
             target = (
@@ -179,7 +215,10 @@ def main(argv=None):
                 def sampler():
                     return int(rng.choice(np.arange(1, 21), p=probabilities))
 
-            actor = InProcessOpenpiPolicy(
+            actor_type = (
+                InProcessRtcOpenpiPolicy if args.protocol == "rtc" else InProcessOpenpiPolicy
+            )
+            actor = actor_type(
                 policy, noise_rng=np.random.default_rng(case["policy_seed"])
             )
             print(
@@ -201,6 +240,7 @@ def main(argv=None):
                     delay_sampler=sampler,
                     maximum_steps=args.maximum_steps,
                     record_observation=recording.write if recording is not None else None,
+                    policy_alignment="observation_time" if args.protocol == "rtc" else None,
                 )
             if args.record_video:
                 result["video"] = {

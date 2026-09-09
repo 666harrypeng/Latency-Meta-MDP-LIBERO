@@ -18,6 +18,7 @@ from latency_meta_mdp.rtc_client import RtcActionChunkClient
 from latency_meta_mdp.rtc_protocol import (
     RtcActionChunkClientConfig,
     RtcDecisionState,
+    RtcInferenceContext,
     TimedActionPlan,
 )
 
@@ -124,6 +125,39 @@ class InProcessOpenpiPolicy:
                 inputs[self.belief_input_key] = belief
         noise = self.noise_rng.standard_normal((50, 32), dtype=np.float32)
         return self.policy.infer(inputs, noise=noise)
+
+
+class InProcessRtcOpenpiPolicy(InProcessOpenpiPolicy):
+    """Use the native policy transforms for both observations and the old action buffer."""
+
+    action_alignment = "observation_time"
+
+    def __init__(self, policy, *, noise_rng):
+        super().__init__(policy, noise_rng=noise_rng)
+        model = policy._model
+        if policy._is_pytorch_model or not getattr(model, "pi05", False):
+            raise ValueError("RTC bridge requires the matched JAX pi0.5 model")
+        if getattr(model, "active_action_dim", None) != 7 or model.action_horizon != 50:
+            raise ValueError("RTC bridge requires the native H50 active-7D action contract")
+        if any(
+            getattr(model, name, None) is not None
+            for name in ("return_belief_adapter", "return_belief_prefix")
+        ):
+            raise ValueError("return-indexed policy checkpoints cannot use RTC alignment")
+
+    def __call__(self, observation: PolicyObservation, context):
+        if context is None:
+            return super().__call__(observation, None)
+        if (
+            not isinstance(context, RtcInferenceContext)
+            or context.origin_tick != observation.formal_tick
+        ):
+            raise ValueError("RTC policy requires a matching source-time request context")
+        inputs = observation.to_policy_inputs()
+        inputs["actions"] = context.previous_actions
+        inputs["actions_is_pad"] = ~context.previous_action_mask
+        noise = self.noise_rng.standard_normal((50, 32), dtype=np.float32)
+        return self.policy.infer(inputs, noise=noise, rtc_delay_ticks=context.estimated_delay_ticks)
 
 
 @dataclass(frozen=True)

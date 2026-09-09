@@ -5,4 +5,3 @@ delay_history_capacity: 32
 # Conservative configured prior, not an observed latency. Real runs may replace
 # this with explicitly recorded, independent warm-up calibration before the run.
 initial_delay_ticks: [20]
-
