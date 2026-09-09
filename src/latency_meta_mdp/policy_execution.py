@@ -14,6 +14,12 @@ import numpy as np
 from latency_meta_mdp.action_chunk_client import ChunkDecisionState, SharpActionChunkClient
 from latency_meta_mdp.latency_harness import HarnessEventKind, LogicalLatencyHarness
 from latency_meta_mdp.meta_transitions import DecisionStageAccumulator
+from latency_meta_mdp.rtc_client import RtcActionChunkClient
+from latency_meta_mdp.rtc_protocol import (
+    RtcActionChunkClientConfig,
+    RtcDecisionState,
+    TimedActionPlan,
+)
 
 
 @dataclass(frozen=True)
@@ -42,7 +48,7 @@ class PolicyObservation:
                 )
             if not valid:
                 raise ValueError(
-                    "policy observation must have two RGB images and finite current16 state"
+                    "policy observation must have two RGB images and finite current 16D proprio"
                 )
             value.setflags(write=False)
             object.__setattr__(self, name, value)
@@ -139,7 +145,8 @@ class FixedCursorScheduler:
             raise ValueError("fixed launch interval must be positive")
 
     def __call__(self, state, observation, belief):
-        return state.actions_consumed >= self.interval
+        age = state.plan_age if isinstance(state, RtcDecisionState) else state.actions_consumed
+        return age >= self.interval
 
 
 class ImmediateLaunchScheduler:
@@ -221,7 +228,16 @@ class LogicalPolicyRuntime:
         monotonic_ns=time.perf_counter_ns,
         allow_privileged_belief=False,
         latency_probabilities=None,
+        policy_alignment=None,
     ):
+        self.is_rtc = isinstance(client_config, RtcActionChunkClientConfig)
+        if self.is_rtc:
+            if policy_alignment != "observation_time":
+                raise ValueError("RTC requires an explicitly verified observation_time policy")
+            if latency_probabilities is not None:
+                raise ValueError("RTC actor uses completed-delay history, not the episode PMF")
+            if policy_uses_belief or scheduler_uses_belief:
+                raise ValueError("RTC forecast integration requires its new query interface")
         if getattr(belief_provider, "privileged", False) and not allow_privileged_belief:
             raise ValueError(
                 "a privileged Belief provider requires an explicit oracle/GT evaluation lane"
@@ -264,7 +280,8 @@ class LogicalPolicyRuntime:
             simulation_time_reader=simulation_time_reader,
             monotonic_ns=monotonic_ns,
         )
-        self.client = SharpActionChunkClient(
+        client_type = RtcActionChunkClient if self.is_rtc else SharpActionChunkClient
+        self.client = client_type(
             action_contract=action_contract,
             config=client_config,
             harness=self.harness,
@@ -350,6 +367,11 @@ class LogicalPolicyRuntime:
         self._event("belief", observation.formal_tick, start, self.clock())
         return belief
 
+    def _launch_deadline_reached(self, state):
+        if self.is_rtc:
+            return state.remaining_actions <= self.client.config.maximum_delay_ticks
+        return state.actions_consumed >= self.client.config.launch_trigger_horizon
+
     def step(self, *, formal_tick: int, observe, execute):
         if self.terminated:
             raise RuntimeError("the policy episode already terminated")
@@ -365,20 +387,19 @@ class LogicalPolicyRuntime:
         self.prepared_belief = None
         step_result = None
 
-        def decide(state: ChunkDecisionState):
+        def decide(state: ChunkDecisionState | RtcDecisionState):
             # The episode law is known information for both Meta ablations;
             # only future-state prediction is removed in the no-Belief lane.
-            state = replace(state, latency_probabilities=self.latency_probabilities)
+            if not self.is_rtc:
+                state = replace(state, latency_probabilities=self.latency_probabilities)
+            deadline = self.shield and self._launch_deadline_reached(state)
             due = (
                 self.last_decision_tick is None
                 or self.last_action == "launch"
                 or formal_tick - self.last_decision_tick >= self.interval
-                or (
-                    self.shield
-                    and state.actions_consumed >= self.client.config.launch_trigger_horizon
-                )
+                or deadline
             )
-            if formal_tick < self.minimum_tick or not due:
+            if (formal_tick < self.minimum_tick and not (self.is_rtc and deadline)) or not due:
                 return False
             belief = self._belief(observation, state) if self.scheduler_uses_belief else None
             decision_state = {"observation": observation, "buffer": state, "belief": belief}
@@ -390,11 +411,7 @@ class LogicalPolicyRuntime:
             proposed = self.scheduler(state, observation, belief)
             if type(proposed) is not bool:
                 raise TypeError("scheduler must return a boolean Launch/Wait decision")
-            forced = (
-                self.shield
-                and state.actions_consumed >= self.client.config.launch_trigger_horizon
-                and not proposed
-            )
+            forced = deadline and not proposed
             launch = proposed or forced
             if launch and callable(getattr(self.scheduler, "on_launch", None)):
                 self.scheduler.on_launch(state, observation, belief)
@@ -424,13 +441,33 @@ class LogicalPolicyRuntime:
             return launch
 
         def infer(context):
-            self._event("policy_launch", formal_tick, self.clock(), request_id=context.request_id)
-            self.policy_calls += 1
-            output = self.policy(
-                context.observation, self.prepared_belief if self.policy_uses_belief else None
+            rtc_fields = (
+                {
+                    "origin_tick": context.origin_tick,
+                    "estimated_delay_ticks": context.estimated_delay_ticks,
+                    "buffer_version": context.buffer_version,
+                    "available_prefix_actions": int(context.previous_action_mask.sum()),
+                }
+                if self.is_rtc else {}
             )
+            self._event(
+                "policy_launch", formal_tick, self.clock(),
+                request_id=context.request_id, **rtc_fields,
+            )
+            self.policy_calls += 1
+            condition = self.prepared_belief if self.policy_uses_belief else None
+            if self.is_rtc:
+                condition = context
+            output = self.policy(context.observation, condition)
             self._event("policy_return", formal_tick, self.clock(), request_id=context.request_id)
-            return self._project(output)
+            actions = self._project(output)
+            if self.is_rtc:
+                return TimedActionPlan(
+                    origin_tick=context.origin_tick, request_id=context.request_id,
+                    buffer_version=context.buffer_version, actions=actions,
+                    valid_mask=np.ones(50, dtype=bool),
+                )
+            return actions
 
         def advance(action):
             nonlocal step_result
@@ -499,6 +536,9 @@ class LogicalPolicyRuntime:
                 {
                     "request_id": request_id,
                     "launch_formal_tick": tick,
+                    "source_formal_tick": launch.get("origin_tick", tick),
+                    "estimated_delay_ticks": launch.get("estimated_delay_ticks"),
+                    "installed_index": None if installed is None else installed["installed_index"],
                     "observation_start_ns": stages["observation"]["wall_start_ns"],
                     "observation_ready_ns": stages["observation"]["wall_end_ns"],
                     "belief_complete_ns": stages.get("belief", {}).get("wall_end_ns"),
@@ -516,6 +556,13 @@ class LogicalPolicyRuntime:
 
     def summary(self):
         return {
+            "protocol_id": self.client.config.protocol_id,
+            "rtc": {
+                "initial_delay_ticks": list(self.client.config.initial_delay_ticks),
+                "delay_history_capacity": self.client.config.delay_history_capacity,
+                "delay_history_ticks": list(self.client.delay_history.delays),
+                "timeout_count": self.client.timeout_count,
+            } if self.is_rtc else None,
             "latency_mode": "controlled_logical_policy_delay",
             "concurrent_deployment_verified": False,
             "policy_calls": self.policy_calls,

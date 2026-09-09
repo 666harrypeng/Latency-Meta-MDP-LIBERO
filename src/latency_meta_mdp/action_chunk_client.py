@@ -196,7 +196,7 @@ class BootstrapRecord:
     wall_duration_ns: int
 
     def __post_init__(self) -> None:
-        if self.protocol_id != "sharp_return_time_chunk_v2":
+        if self.protocol_id not in {"sharp_return_time_chunk_v2", "rtc_observation_time_h50_v1"}:
             raise ValueError("bootstrap record protocol is invalid")
         for name in (
             "installed_chunk_id",
