@@ -1,0 +1,14 @@
+schema_version: 1
+probe_id: dinov3_flow_belief_law_retention_probe_v1
+training_context_limit: 1024
+validation_context_limit: 512
+encoder_batch_size: 8
+readout_batch_size: 256
+readout_max_epochs: 200
+readout_patience: 25
+learning_rate: 0.001
+weight_decay: 0.0001
+effective_mean_mae_ms_max: 5.0
+baseline_relative_improvement_min: 0.50
+ordering_accuracy_min: 0.95
+random_seed: 20260828
