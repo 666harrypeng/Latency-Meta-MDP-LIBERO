@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import json
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from latency_meta_mdp.latency_law import load_latency_law
 from latency_meta_mdp.latency_law_family import load_episode_latency_law_family
 from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
 from latency_meta_mdp.policy_evaluation import run_native_policy_episode
+from latency_meta_mdp.rtc_calibration import load_rtc_calibration
 from latency_meta_mdp.rtc_protocol import load_rtc_client_config
 from latency_meta_mdp.sft_launch import SFTLaunchRequest
 from latency_meta_mdp.sft_profile import load_sft_profile
@@ -43,6 +45,7 @@ def main(argv=None):
     parser.add_argument("--record-video", action="store_true")
     parser.add_argument("--protocol", choices=("sharp", "rtc"), default="sharp")
     parser.add_argument("--rtc-max-guidance-weight", type=float, default=5.0)
+    parser.add_argument("--rtc-calibration", type=Path)
     parser.add_argument(
         "--regime",
         choices=(
@@ -65,6 +68,12 @@ def main(argv=None):
     if not np.isfinite(args.rtc_max_guidance_weight) or args.rtc_max_guidance_weight < 0:
         parser.error("RTC guidance bound must be finite and nonnegative")
     root = Path.cwd()
+    if args.rtc_calibration is not None and args.protocol != "rtc":
+        parser.error("RTC calibration requires the RTC protocol")
+    calibration = (
+        load_rtc_calibration(args.rtc_calibration, project_root=root)
+        if args.rtc_calibration is not None else None
+    )
     cohort = json.loads(args.cohort.read_text())
     verified = json.loads(args.checkpoint_verification.read_text())
     if (
@@ -113,6 +122,8 @@ def main(argv=None):
                 ["git", "rev-parse", "HEAD"], text=True
             ).strip(),
         )
+        if calibration is not None:
+            identity["rtc_calibration"] = dataclasses.asdict(calibration)
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]
@@ -146,6 +157,16 @@ def main(argv=None):
             checkpoint_root=args.checkpoint.parent,
             wandb_enabled=False,
         )
+        client_config = (
+            load_rtc_client_config(root / "configs/client/rtc_observation_time_h50_v1.yaml")
+            if args.protocol == "rtc" else load_action_chunk_client_config(
+                root / "configs/client/sharp_return_time_h50_e25_v1.yaml"
+            )
+        )
+        if calibration is not None:
+            client_config = dataclasses.replace(
+                client_config, initial_delay_ticks=calibration.delay_ticks
+            )
         if args.preflight_only:
             print(
                 json.dumps(
@@ -154,6 +175,10 @@ def main(argv=None):
                         "case_count": len(cases),
                         "state_tokens": config.model.discrete_state_input,
                         "action_horizon": config.model.action_horizon,
+                        "initial_delay_ticks": (
+                            list(client_config.initial_delay_ticks)
+                            if args.protocol == "rtc" else None
+                        ),
                     }
                 )
             )
@@ -163,12 +188,6 @@ def main(argv=None):
             if args.protocol == "rtc" else None
         )
         policy = create_trained_policy(config, args.checkpoint, sample_kwargs=sample_kwargs)
-        client_config = (
-            load_rtc_client_config(root / "configs/client/rtc_observation_time_h50_v1.yaml")
-            if args.protocol == "rtc" else load_action_chunk_client_config(
-                root / "configs/client/sharp_return_time_h50_e25_v1.yaml"
-            )
-        )
         for case in cases:
             target = (
                 args.output_root

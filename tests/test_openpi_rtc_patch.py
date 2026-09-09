@@ -143,7 +143,7 @@ def test_policy_bridge_normalizes_previous_actions_exactly_once(patched_rtc):
 
 
 def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_patch(
-    tmp_path, capsys
+    tmp_path, capsys, monkeypatch
 ):
     import json
 
@@ -198,6 +198,16 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
     assert result["identity"]["protocol_id"] == "rtc_observation_time_h50_v1"
     assert "0007-inference-time-rtc.patch" in result["identity"]["runtime_patch_sha256"]
     assert prep_file.read_bytes() == before
+    from latency_meta_mdp.rtc_calibration import RtcDelayCalibration
+
+    monkeypatch.setattr(
+        "latency_meta_mdp.cli.evaluate_policy.load_rtc_calibration",
+        lambda path, project_root: RtcDelayCalibration((4, 6), "source-sha", "calibration-sha"),
+    )
+    main(args + ["--rtc-calibration", str(tmp_path / "calibration.json")])
+    calibrated = json.loads(capsys.readouterr().out)
+    assert calibrated["initial_delay_ticks"] == [4, 6]
+    assert calibrated["identity"]["rtc_calibration"]["calibration_sha256"] == "calibration-sha"
     data = json.loads(verification.read_text())
     data["repo_id"] = "yypeng666/metamdp-pi05-l3-predicted-mixture-state16-h50-prefix-q4-2epochs-v1"
     verification.write_text(json.dumps(data))

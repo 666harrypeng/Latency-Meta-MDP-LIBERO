@@ -46,6 +46,10 @@ def temporary_patched_openpi_copy(
             yield copied
         finally:
             _purge_worktree_modules(copied, modules_before)
+            sys.path[:] = [
+                entry for entry in sys.path
+                if not Path(entry).resolve().is_relative_to(copied)
+            ]
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -59,24 +63,31 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def _purge_worktree_modules(worktree: Path, modules_before: set[str]) -> None:
+    owned = []
     for name, module in tuple(sys.modules.items()):
         if name in modules_before:
             continue
         module_file = getattr(module, "__file__", None)
-        if module_file is None:
-            continue
         try:
-            belongs_to_worktree = Path(module_file).resolve().is_relative_to(worktree)
+            locations = (
+                [module_file] if module_file is not None else list(getattr(module, "__path__", ()))
+            )
+            belongs_to_worktree = any(
+                Path(location).resolve().is_relative_to(worktree) for location in locations
+            )
         except (OSError, RuntimeError):
             belongs_to_worktree = False
         # Project transforms cache upstream classes/enums too. Keeping them
         # across source contexts mixes incompatible ModelType identities.
         if belongs_to_worktree or name.startswith("latency_meta_mdp.openpi_"):
-            sys.modules.pop(name, None)
-            parent_name, _, child_name = name.rpartition(".")
-            parent = sys.modules.get(parent_name)
-            if parent is not None and getattr(parent, child_name, None) is module:
-                delattr(parent, child_name)
+            owned.append((name, module))
+    # Resolve namespace locations while their parents still exist, then remove children first.
+    for name, module in sorted(owned, key=lambda item: item[0].count("."), reverse=True):
+        sys.modules.pop(name, None)
+        parent_name, _, child_name = name.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is not None and getattr(parent, child_name, None) is module:
+            delattr(parent, child_name)
 
 
 @contextlib.contextmanager
