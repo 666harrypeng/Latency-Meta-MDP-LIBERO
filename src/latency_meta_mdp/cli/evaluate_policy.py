@@ -124,6 +124,8 @@ def main(argv=None):
         )
         if calibration is not None:
             identity["rtc_calibration"] = dataclasses.asdict(calibration)
+            # Keep in-memory identity equal to its saved JSON representation on resume.
+            identity["rtc_calibration"]["delay_ticks"] = list(calibration.delay_ticks)
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]

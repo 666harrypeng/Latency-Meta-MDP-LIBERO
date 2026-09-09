@@ -143,7 +143,7 @@ def test_policy_bridge_normalizes_previous_actions_exactly_once(patched_rtc):
 
 
 def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_patch(
-    tmp_path, capsys, monkeypatch
+    tmp_path, capsys, monkeypatch, patched_rtc
 ):
     import json
 
@@ -155,7 +155,19 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
     prep = tmp_path / "preparation"
     prep.mkdir()
     cohort = tmp_path / "cohort.json"
-    cohort.write_text(json.dumps({"partition": "train_pool_development", "level": 3, "cases": []}))
+    case = {
+        "master_index": 62,
+        "policy_seed": 0,
+        "task_instance_id": {
+            "level": 3,
+            "task_instance_seed": 62,
+            "motion_profile_sha256": "a" * 64,
+            "initial_state_sha256": "b" * 64,
+        },
+    }
+    cohort.write_text(
+        json.dumps({"partition": "train_pool_development", "level": 3, "cases": [case]})
+    )
     verification = tmp_path / "verification.json"
     verification.write_text(
         json.dumps(
@@ -208,6 +220,16 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
     calibrated = json.loads(capsys.readouterr().out)
     assert calibrated["initial_delay_ticks"] == [4, 6]
     assert calibrated["identity"]["rtc_calibration"]["calibration_sha256"] == "calibration-sha"
+    from openpi.policies import policy_config
+
+    # No model or simulator is needed when the identical case result already exists.
+    monkeypatch.setattr(policy_config, "create_trained_policy", lambda *a, **kw: None)
+    cached = tmp_path / "eval/master-062-seed-0-zero.json"
+    cached.write_text(json.dumps({"identity": calibrated["identity"], "case": case}))
+    cached_before = cached.read_bytes()
+    resume_args = [a for a in args if a != "--preflight-only"]
+    main(resume_args + ["--rtc-calibration", str(tmp_path / "calibration.json")])
+    assert cached.read_bytes() == cached_before
     data = json.loads(verification.read_text())
     data["repo_id"] = "yypeng666/metamdp-pi05-l3-predicted-mixture-state16-h50-prefix-q4-2epochs-v1"
     verification.write_text(json.dumps(data))
