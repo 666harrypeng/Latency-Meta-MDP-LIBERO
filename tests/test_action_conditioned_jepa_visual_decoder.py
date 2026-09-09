@@ -105,3 +105,49 @@ def test_decoder_dataset_pairs_exact_boundaries_without_copying_feature_cache(tm
     assert features[1, 0, 0].item() == pixels[1, 0, 0, 0].item() == 21
     assert features.dtype == torch.float16 and pixels.dtype == torch.uint8
     assert ds.__getstate__()["_maps"] == {}
+
+
+def test_rgb_metrics_report_coordinate_error_and_empty_red_region():
+    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_evaluation import RGBMetrics
+
+    metric = RGBMetrics()
+    target = torch.zeros(1, 2, 3, 224, 224)
+    prediction = torch.full_like(target, 0.1)
+    metric.add(prediction, target)
+    report = metric.report()
+    assert report["agentview"]["mae"] == pytest.approx(0.1)
+    assert report["agentview"]["rmse"] == pytest.approx(0.1)
+    assert report["agentview"]["psnr_db"] == pytest.approx(20.0)
+    assert report["agentview"]["red_pixel_proxy_mae"] is None
+
+
+def test_decoder_checkpoint_roundtrip_preserves_weights_and_resume_cursor(tmp_path):
+    import dataclasses
+    import json
+
+    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_evaluation import (
+        load_visual_decoder,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_run import (
+        save_decoder_training_checkpoint,
+    )
+
+    config = VisualDecoderConfig(depth=1)
+    model = DualViewVisualDecoder(config)
+    opt = torch.optim.AdamW(model.parameters())
+    z = torch.randn(1, 2, 196, 384)
+    model(z).mean().backward()
+    opt.step()
+    cursor = {"next_epoch": 0, "next_batch": 2, "optimizer_steps": 2, "examples_seen": 512}
+    (tmp_path / "run.json").write_text(json.dumps({"model": dataclasses.asdict(config)}))
+    save_decoder_training_checkpoint(model, opt, tmp_path, cursor)
+    restored = load_visual_decoder(tmp_path, device="cpu")
+    for a, b in zip(model.parameters(), restored.parameters(), strict=True):
+        torch.testing.assert_close(a, b, atol=0, rtol=0)
+    state = torch.load(tmp_path / "trainer.pt", weights_only=True)
+    assert state["progress"] == cursor and state["optimizer"]["state"]
+    data = tmp_path / "model.safetensors"
+    with data.open("ab") as f:
+        f.write(b"corrupt")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        load_visual_decoder(tmp_path, device="cpu")
