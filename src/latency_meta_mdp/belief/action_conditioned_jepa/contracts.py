@@ -14,6 +14,90 @@ _PROPRIO_DIM = 16
 _ACTION_DIM = 7
 
 
+@dataclass(frozen=True)
+class ForecastQuery:
+    """Exact 50 Hz query under the supplied buffer, with h-8/h-4/h history.
+
+    Query time is a requested prediction horizon, never the pending realized delay.
+    Masked suffix storage is deliberately opaque: it must be removed before arithmetic.
+    Proprio inputs are normalized; controls retain their controller-native units.
+    """
+
+    vision_history: torch.Tensor
+    proprio_history: torch.Tensor
+    executed_controls: torch.Tensor
+    executable_controls: torch.Tensor
+    control_mask: torch.Tensor
+    query_ticks: torch.Tensor
+    source_ticks: torch.Tensor
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.vision_history, torch.Tensor) or self.vision_history.ndim != 5:
+            raise ValueError("query vision_history must have five dimensions")
+        batch = self.vision_history.shape[0]
+        if batch < 1:
+            raise ValueError("query batch cannot be empty")
+        for name, shape, dtype in (
+            ("vision_history", (batch, 3, 2, 196, 384), torch.float16),
+            ("proprio_history", (batch, 3, 16), torch.float32),
+            ("executed_controls", (batch, 2, 4, 7), torch.float32),
+            ("executable_controls", (batch, 20, 7), torch.float32),
+            ("control_mask", (batch, 20), torch.bool),
+            ("query_ticks", (batch,), torch.int64),
+            ("source_ticks", (batch,), torch.int64),
+        ):
+            _require_tensor(getattr(self, name), name=name, shape=shape, dtype=dtype)
+        _require_same_device(*vars(self).values())
+        if bool(((self.query_ticks < 0) | (self.query_ticks > 20)).any()):
+            raise ValueError("query ticks must be between 0 and 20")
+        if bool((self.source_ticks < 8).any()):
+            raise ValueError("source ticks must supply h-8 history")
+        expected = (
+            torch.arange(20, device=self.query_ticks.device)[None] < self.query_ticks[:, None]
+        )
+        if not torch.equal(self.control_mask, expected):
+            raise ValueError("control mask must select exactly the prefix before query time")
+
+    def to(self, device: torch.device | str) -> ForecastQuery:
+        return ForecastQuery(**{name: value.to(device) for name, value in vars(self).items()})
+
+    def validate_finite(self) -> None:
+        _validate_finite(
+            self.vision_history,
+            self.proprio_history,
+            self.executed_controls,
+            self.executable_controls[self.control_mask],
+        )
+
+
+@dataclass(frozen=True)
+class FutureLatentPrediction:
+    """Single queried endpoint: frozen-DINO coordinates and physical future 16D proprio."""
+
+    source_ticks: torch.Tensor
+    target_ticks: torch.Tensor
+    visual_latents: torch.Tensor
+    proprio: torch.Tensor
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_ticks, torch.Tensor) or self.source_ticks.ndim != 1:
+            raise ValueError("prediction source ticks must be a vector")
+        batch = self.source_ticks.shape[0]
+        if batch < 1:
+            raise ValueError("prediction batch cannot be empty")
+        for name, shape, dtype in (
+            ("source_ticks", (batch,), torch.int64),
+            ("target_ticks", (batch,), torch.int64),
+            ("visual_latents", (batch, 2, 196, 384), torch.float16),
+            ("proprio", (batch, 16), torch.float32),
+        ):
+            _require_tensor(getattr(self, name), name=name, shape=shape, dtype=dtype)
+        _require_same_device(*vars(self).values())
+        q = self.target_ticks - self.source_ticks
+        if bool(((self.source_ticks < 8) | (q < 0) | (q > 20)).any()):
+            raise ValueError("prediction source/target ticks disagree with query support")
+
+
 def _require_tensor(
     value: object,
     *,
