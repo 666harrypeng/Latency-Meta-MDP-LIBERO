@@ -234,6 +234,83 @@ def build_prefix_return_policy_train_config(
     )
 
 
+def build_forecast_policy_train_config(
+    *, clean_config: Any, clean_checkpoint: Path, forecast_identity: dict, experiment_name: str
+) -> Any:
+    """Native decoded-future post-training; source provider attaches explicit forecasts."""
+    import re
+
+    import flax.nnx as nnx
+    from openpi.shared.nnx_utils import PathRegex
+    from openpi.training.config import AssetsConfig
+    from openpi.training.weight_loaders import CheckpointWeightLoader
+
+    from latency_meta_mdp.openpi_forecast import ForecastPolicyDataConfig
+    from latency_meta_mdp.openpi_policy_data import StructuredPolicyDataConfig
+
+    model = clean_config.model
+    if (
+        not isinstance(clean_config.data, StructuredPolicyDataConfig)
+        or clean_config.fsdp_devices != 1
+        or not model.pi05
+        or not model.discrete_state_input
+        or model.active_action_dim != 7
+        or model.action_horizon != 50
+        or clean_config.policy_metadata.get("state_dim") != 16
+        or any(
+            getattr(model, key, False)
+            for key in ("use_return_belief", "use_return_belief_prefix", "use_rtc_forecast")
+        )
+    ):
+        raise ValueError("forecast SFT requires the matched clean state-aware checkpoint config")
+    expected = {
+        "predictor_architecture",
+        "predictor_sha256",
+        "decoder_sha256",
+        "jepa_normalization_sha256",
+    }
+    if set(forecast_identity) != expected or not isinstance(
+        forecast_identity["predictor_architecture"], str
+    ):
+        raise ValueError("forecast checkpoint identity fields are incomplete")
+    if any(
+        not isinstance(forecast_identity[k], str)
+        or re.fullmatch(r"[0-9a-f]{64}", forecast_identity[k]) is None
+        for k in expected - {"predictor_architecture"}
+    ):
+        raise ValueError("forecast identity requires SHA256 digests")
+    return dataclasses.replace(
+        clean_config,
+        name=f"{clean_config.name}_rtc_forecast",
+        exp_name=experiment_name,
+        model=dataclasses.replace(model, use_rtc_forecast=True, max_token_len=256),
+        data=ForecastPolicyDataConfig(
+            **{
+                f.name: getattr(clean_config.data, f.name)
+                for f in dataclasses.fields(StructuredPolicyDataConfig)
+                if f.name != "assets"
+            },
+            assets=AssetsConfig(
+                assets_dir=clean_config.data.assets.assets_dir or str(clean_config.assets_dirs),
+                asset_id=clean_config.data.assets.asset_id or clean_config.data.repo_id,
+            ),
+        ),
+        weight_loader=CheckpointWeightLoader(str(clean_checkpoint)),
+        freeze_filter=nnx.Any(
+            PathRegex("PaliGemma/img/.*"), PathRegex("PaliGemma/llm/embedder/.*")
+        ),
+        policy_metadata={
+            **clean_config.policy_metadata,
+            "conditioning": "native_rtc_forecast_rgb_v1",
+            "policy_alignment": "observation_time",
+            "protocol_id": "rtc_observation_time_h50_v1",
+            "forecast_identity": dict(forecast_identity),
+            "source_tail_policy": "missing_forecast_preserve_action_supervision_v1",
+            "trainable_scope": "native_vlm_action_expert",
+        },
+    )
+
+
 def build_level_train_config(
     *,
     profile: SFTProfile,

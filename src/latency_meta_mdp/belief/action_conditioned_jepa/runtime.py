@@ -7,7 +7,10 @@ from collections import deque
 import torch
 
 from latency_meta_mdp.belief.action_conditioned_jepa.config import JepaTemporalSampling
-from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
+from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
+    ForecastQuery,
+    LaunchContextBatch,
+)
 from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
     JepaProprioNormalization,
 )
@@ -31,12 +34,21 @@ class JepaRuntimeHistory:
         source_boundaries = temporal_sampling.history_span_ticks + 1
         self._vision: deque[torch.Tensor] = deque(maxlen=source_boundaries)
         self._proprio: deque[torch.Tensor] = deque(maxlen=source_boundaries)
-        self._controls: deque[torch.Tensor] = deque(
-            maxlen=temporal_sampling.history_span_ticks
-        )
+        self._controls: deque[torch.Tensor] = deque(maxlen=temporal_sampling.history_span_ticks)
         self._device: torch.device | None = None
         self._mean = torch.tensor(proprio_normalization.mean, dtype=torch.float32)
         self._scale = torch.tensor(proprio_normalization.scale, dtype=torch.float32)
+        self._last_tick: int | None = None
+        self._episode_id: str | None = None
+
+    def reset(self) -> None:
+        """Discard all observations/controls before starting a different episode."""
+        self._vision.clear()
+        self._proprio.clear()
+        self._controls.clear()
+        self._last_tick = None
+        self._episode_id = None
+        self._device = None
 
     @property
     def ready(self) -> bool:
@@ -53,7 +65,25 @@ class JepaRuntimeHistory:
         vision_features: torch.Tensor,
         proprio: torch.Tensor,
         executed_control_from_previous: torch.Tensor | None,
+        formal_tick: int | None = None,
+        episode_id: str | None = None,
     ) -> None:
+        clocked = formal_tick is not None or episode_id is not None
+        if clocked:
+            if (
+                type(formal_tick) is not int
+                or formal_tick < 0
+                or not isinstance(episode_id, str)
+                or not episode_id
+            ):
+                raise ValueError("clocked history requires a valid tick and episode identity")
+            if self._vision:
+                if episode_id != self._episode_id:
+                    raise ValueError("runtime history episode changed without reset")
+                if self._last_tick is None or formal_tick != self._last_tick + 1:
+                    raise ValueError("runtime history ticks must be consecutive")
+        elif self._last_tick is not None:
+            raise ValueError("clocked runtime history requires consecutive timestamped inputs")
         if not isinstance(vision_features, torch.Tensor) or not isinstance(proprio, torch.Tensor):
             raise TypeError("runtime vision and proprio must be torch tensors")
         if tuple(vision_features.shape) != (2, 196, 384) or vision_features.dtype != torch.float16:
@@ -93,6 +123,35 @@ class JepaRuntimeHistory:
         normalized = (proprio - self._mean) / self._scale
         self._vision.append(vision_features.detach().clone())
         self._proprio.append(normalized.detach().clone())
+        if clocked:
+            self._last_tick = formal_tick
+            self._episode_id = episode_id
+
+    def build_forecast_query(
+        self, executable_controls: torch.Tensor, *, query_ticks: int
+    ) -> ForecastQuery:
+        if not self.ready or self._last_tick is None:
+            raise RuntimeError("Direct query requires complete, timestamped real history")
+        if (
+            self.temporal_sampling.model_stride_ticks != 4
+            or self.temporal_sampling.history_observation_count != 3
+        ):
+            raise ValueError("Direct query requires stride4 W3 history")
+        if type(query_ticks) is not int or not 0 <= query_ticks <= 20:
+            raise ValueError("query ticks must be an integer in0..20")
+        context = self.build_launch_context(executable_controls)
+        mask = torch.arange(20, device=self._device)[None] < query_ticks
+        query = ForecastQuery(
+            vision_history=context.vision_history,
+            proprio_history=context.proprio_history,
+            executed_controls=context.executed_controls,
+            executable_controls=torch.where(mask[..., None], executable_controls[None], 0),
+            control_mask=mask,
+            query_ticks=torch.tensor([query_ticks], device=self._device),
+            source_ticks=torch.tensor([self._last_tick], device=self._device),
+        )
+        query.validate_finite()
+        return query
 
     def build_launch_context(self, executable_controls: torch.Tensor) -> LaunchContextBatch:
         if not self.ready:

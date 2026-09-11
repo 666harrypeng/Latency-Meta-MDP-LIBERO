@@ -1,0 +1,152 @@
+diff --git a/src/openpi/models/pi0_config.py b/src/openpi/models/pi0_config.py
+--- a/src/openpi/models/pi0_config.py
++++ b/src/openpi/models/pi0_config.py
+@@ -28,6 +28,7 @@
+     active_action_dim: int | None = None
+     use_return_belief: bool = False
+     use_return_belief_prefix: bool = False
++    use_rtc_forecast: bool = False
+     belief_prefix_queries_per_view: int = 4
+     max_token_len: int = None  # type: ignore
+     # Pi05 has two differences from Pi0:
+@@ -40,6 +41,13 @@
+     pytorch_compile_mode: str | None = "max-autotune"
+ 
+     def __post_init__(self):
++        if self.use_rtc_forecast:
++            if self.use_return_belief or self.use_return_belief_prefix:
++                raise ValueError("RTC forecast and legacy Belief modes are mutually exclusive")
++            if not self.pi05 or self.discrete_state_input is False or self.active_action_dim != 7 or self.action_horizon != 50 or self.action_dim != 32:
++                raise ValueError("RTC forecast requires the state-aware H50/7D pi0.5 contract")
++            if self.max_token_len is None:
++                object.__setattr__(self, "max_token_len", 256)
+         if self.use_return_belief and self.use_return_belief_prefix:
+             raise ValueError("late and prefix Belief modes are mutually exclusive")
+         if type(self.belief_prefix_queries_per_view) is not int or not 1 <= self.belief_prefix_queries_per_view <= 196:
+@@ -63,6 +71,12 @@
+             ]
+ 
+     @property
++    def image_keys(self) -> tuple[str, ...]:
++        if self.use_rtc_forecast:
++            return ("base_0_rgb", "left_wrist_0_rgb", "forecast_base_0_rgb", "forecast_left_wrist_0_rgb")
++        return _model.IMAGE_KEYS
++
++    @property
+     @override
+     def model_type(self) -> _model.ModelType:
+         if self.pi05:
+@@ -82,16 +96,8 @@
+ 
+         with at.disable_typechecking():
+             observation_spec = _model.Observation(
+-                images={
+-                    "base_0_rgb": image_spec,
+-                    "left_wrist_0_rgb": image_spec,
+-                    "right_wrist_0_rgb": image_spec,
+-                },
+-                image_masks={
+-                    "base_0_rgb": image_mask_spec,
+-                    "left_wrist_0_rgb": image_mask_spec,
+-                    "right_wrist_0_rgb": image_mask_spec,
+-                },
++                images={name: image_spec for name in self.image_keys},
++                image_masks={name: image_mask_spec for name in self.image_keys},
+                 state=jax.ShapeDtypeStruct([batch_size, self.action_dim], jnp.float32),
+                 tokenized_prompt=jax.ShapeDtypeStruct([batch_size, self.max_token_len], jnp.int32),
+                 tokenized_prompt_mask=jax.ShapeDtypeStruct([batch_size, self.max_token_len], bool),
+diff --git a/src/openpi/models/pi0.py b/src/openpi/models/pi0.py
+--- a/src/openpi/models/pi0.py
++++ b/src/openpi/models/pi0.py
+@@ -78,6 +78,7 @@
+     def __init__(self, config: pi0_config.Pi0Config, rngs: nnx.Rngs):
+         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
+         self.pi05 = config.pi05
++        self.image_keys = config.image_keys if config.use_rtc_forecast else None
+         self.active_action_dim = config.active_action_dim
+         paligemma_config = _gemma.get_config(config.paligemma_variant)
+         action_expert_config = _gemma.get_config(config.action_expert_variant)
+@@ -137,7 +138,7 @@
+         ar_mask = []
+         tokens = []
+         # embed images
+-        for name in obs.images:
++        for name in (getattr(self, "image_keys", None) or obs.images):
+             image_tokens, _ = self.PaliGemma.img(obs.images[name], train=False)
+ 
+             tokens.append(image_tokens)
+@@ -231,7 +232,7 @@
+         self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
+     ) -> at.Float[at.Array, "*b ah"]:
+         preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
+-        observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
++        observation = _model.preprocess_observation(preprocess_rng, observation, train=train, image_keys=getattr(self, "image_keys", None) or _model.IMAGE_KEYS)
+ 
+         return_memory = _encode_return_belief(self, observation)
+         batch_shape = actions.shape[:-2]
+@@ -292,7 +293,7 @@
+         rtc_weights: at.Float[at.Array, "b ah ad"] | None = None,
+         rtc_max_guidance_weight: float = 5.0,
+     ) -> _model.Actions:
+-        observation = _model.preprocess_observation(None, observation, train=False)
++        observation = _model.preprocess_observation(None, observation, train=False, image_keys=getattr(self, "image_keys", None) or _model.IMAGE_KEYS)
+         if (rtc_previous_actions is None) != (rtc_weights is None):
+             raise ValueError("RTC requires both normalized previous actions and guidance weights")
+         if rtc_previous_actions is not None and (
+diff --git a/src/openpi/models/tokenizer.py b/src/openpi/models/tokenizer.py
+--- a/src/openpi/models/tokenizer.py
++++ b/src/openpi/models/tokenizer.py
+@@ -46,6 +46,33 @@
+             mask = [True] * self._max_len
+ 
+         return np.asarray(tokens), np.asarray(mask)
++
++
++    def tokenize_forecast(self, prompt, state, *, future_state, query_ticks):
++        """Use the native vocabulary for explicit current/future roles; never truncate."""
++        if type(query_ticks) is not int or not 0 <= query_ticks <= 20:
++            raise ValueError("forecast query must be an integer in0..20")
++
++        def state_text(value):
++            value = np.asarray(value)
++            if value.shape != (16,) or not np.isfinite(value).all():
++                raise ValueError("forecast tokenizer requires finite normalized16D states")
++            bins = np.digitize(value, bins=np.linspace(-1, 1, 256 + 1)[:-1]) - 1
++            return " ".join(map(str, bins))
++
++        cleaned = prompt.strip().replace("_", " ").replace("\n", " ")
++        future = "unavailable" if future_state is None else state_text(future_state)
++        text = (
++            f"Task: {cleaned}, State: {state_text(state)}; "
++            "Images: current main, current wrist, forecast main, forecast wrist. "
++            f"Forecast horizon: {query_ticks * 20} ms; Forecast state: {future};\nAction: "
++        )
++        tokens = self._tokenizer.encode(text, add_bos=True)
++        if len(tokens) > self._max_len:
++            raise ValueError(f"forecast tokens would truncate: {len(tokens)} > {self._max_len}")
++        count = len(tokens)
++        return (np.asarray(tokens + [0] * (self._max_len - count), dtype=np.int32),
++                np.arange(self._max_len) < count)
+ 
+ 
+ class FASTTokenizer:
+diff --git a/src/openpi/training/config.py b/src/openpi/training/config.py
+--- a/src/openpi/training/config.py
++++ b/src/openpi/training/config.py
+@@ -132,11 +132,15 @@
+                 )
+             case _model.ModelType.PI05:
+                 assert isinstance(model_config, pi0_config.Pi0Config)
++                tokenize = _transforms.TokenizePrompt
++                if model_config.use_rtc_forecast:
++                    from latency_meta_mdp.openpi_forecast import ForecastTokenizePrompt
++                    tokenize = ForecastTokenizePrompt
+                 return _transforms.Group(
+                     inputs=[
+                         _transforms.InjectDefaultPrompt(self.default_prompt),
+                         _transforms.ResizeImages(224, 224),
+-                        _transforms.TokenizePrompt(
++                        tokenize(
+                             _tokenizer.PaligemmaTokenizer(model_config.max_token_len),
+                             discrete_state_input=model_config.discrete_state_input,
+                         ),

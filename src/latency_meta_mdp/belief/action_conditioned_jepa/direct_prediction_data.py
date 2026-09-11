@@ -42,15 +42,62 @@ def materialize_direct_sample(
         raise ValueError(
             "direct training pair must have real history, controls and future endpoint"
         )
+    query = materialize_direct_query(
+        record, source_tick=source_tick, query_ticks=query_ticks, normalization=normalization
+    )
+    return DirectPredictionSample(
+        query=query,
+        target_visual=torch.from_numpy(
+            np.array(record.cache.features[source_tick + query_ticks], copy=True)
+        )
+        .half()
+        .unsqueeze(0),
+        target_proprio=torch.from_numpy(
+            np.array(record.proprio_physical[source_tick + query_ticks], copy=True)
+        )
+        .float()
+        .unsqueeze(0),
+    )
+
+
+def materialize_direct_query(
+    record: JepaEpisodeRecord,
+    *,
+    source_tick: int,
+    query_ticks: int,
+    normalization: JepaProprioNormalization,
+    executable_controls: np.ndarray | None = None,
+) -> ForecastQuery:
+    """Build inputs only; explicit deployment buffers need no recorded future endpoint.
+
+    Without an explicit buffer, only real recorded controls may be used. No GT future
+    image or proprio is read, and later-than-q controls are removed before model input.
+    """
+    if (
+        type(source_tick) is not int
+        or not FIRST_SOURCE_TICK <= source_tick <= record.terminal_tick
+        or type(query_ticks) is not int
+        or not 0 <= query_ticks <= 20
+    ):
+        raise ValueError("direct query requires real history and a supported query horizon")
     if normalization.level != record.level:
         raise ValueError("direct sample normalization level mismatch")
+    if executable_controls is None:
+        if source_tick + query_ticks > record.terminal_tick:
+            raise ValueError("query beyond the recording requires an explicit executable buffer")
+        prefix = record.controls[source_tick : source_tick + query_ticks]
+    else:
+        buffer = np.asarray(executable_controls)
+        if buffer.shape != (20, 7):
+            raise ValueError("executable buffer must have shape20x7")
+        prefix = buffer[:query_ticks]
+    future_controls = np.zeros((20, 7), dtype=np.float32)
+    future_controls[:query_ticks] = prefix
 
     def tensor(value, dtype=torch.float32):
         return torch.from_numpy(np.array(value, copy=True)).to(dtype).unsqueeze(0)
 
     history = np.array([source_tick - 8, source_tick - 4, source_tick])
-    future_controls = np.zeros((20, 7), dtype=np.float32)
-    future_controls[:query_ticks] = record.controls[source_tick : source_tick + query_ticks]
     query = ForecastQuery(
         vision_history=tensor(record.cache.features[history], torch.float16),
         proprio_history=tensor(normalization.normalize(record.proprio_physical[history])),
@@ -60,11 +107,8 @@ def materialize_direct_sample(
         query_ticks=torch.tensor([query_ticks]),
         source_ticks=torch.tensor([source_tick]),
     )
-    return DirectPredictionSample(
-        query=query,
-        target_visual=tensor(record.cache.features[source_tick + query_ticks], torch.float16),
-        target_proprio=tensor(record.proprio_physical[source_tick + query_ticks]),
-    )
+    query.validate_finite()
+    return query
 
 
 class DirectPredictionDataset(Dataset):
