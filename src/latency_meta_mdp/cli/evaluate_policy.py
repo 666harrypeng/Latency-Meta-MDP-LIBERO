@@ -30,6 +30,24 @@ from latency_meta_mdp.sft_launch import SFTLaunchRequest
 from latency_meta_mdp.sft_profile import load_sft_profile
 
 
+def evaluation_jobs(cases, *, regime, output_root, identity, fixed_delay_ticks=None):
+    """Reuse loaded models while keeping each fixed-delay cell independently identified."""
+    if fixed_delay_ticks is None:
+        for case in cases:
+            yield case, regime, output_root, identity
+        return
+    ticks = tuple(fixed_delay_ticks)
+    if not ticks or len(set(ticks)) != len(ticks) or any(
+        type(tick) is not int or not 0 <= tick <= 20 for tick in ticks
+    ):
+        raise ValueError("fixed delay grid requires unique integer ticks in0..20")
+    for tick in ticks:
+        name = "zero" if tick == 0 else f"fixed{20 * tick}"
+        cell_identity = {**identity, "regime": name, "actual_fixed_delay_ticks": tick}
+        for case in cases:
+            yield case, name, output_root / f"fixed{20 * tick}", cell_identity
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cohort", type=Path, required=True)
@@ -46,6 +64,7 @@ def main(argv=None):
     parser.add_argument("--protocol", choices=("sharp", "rtc"), default="sharp")
     parser.add_argument("--rtc-max-guidance-weight", type=float, default=5.0)
     parser.add_argument("--rtc-calibration", type=Path)
+    parser.add_argument("--fixed-delay-ticks", nargs="+", type=int)
     parser.add_argument("--forecast-assets", type=Path)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-verification", type=Path)
@@ -64,6 +83,13 @@ def main(argv=None):
         default="zero",
     )
     args = parser.parse_args(argv)
+    if args.fixed_delay_ticks is not None:
+        if args.regime != "zero":
+            parser.error("fixed-delay-ticks cannot be combined with a nondefault regime")
+        if len(set(args.fixed_delay_ticks)) != len(args.fixed_delay_ticks) or any(
+            not 0 <= tick <= 20 for tick in args.fixed_delay_ticks
+        ):
+            parser.error("fixed-delay-ticks must be unique values in0..20")
     if not 0 <= args.worker_index < args.worker_count:
         parser.error("worker index must belong to the positive worker count")
     if args.max_cases is not None and args.max_cases <= 0:
@@ -166,6 +192,10 @@ def main(argv=None):
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]
+    jobs = list(evaluation_jobs(
+        cases, regime=args.regime, output_root=args.output_root,
+        identity=identity, fixed_delay_ticks=args.fixed_delay_ticks,
+    ))
     args.output_root.mkdir(parents=True, exist_ok=True)
     with temporary_patched_openpi_copy(
         openpi_root=root / "third_party/openpi",
@@ -222,7 +252,8 @@ def main(argv=None):
                 json.dumps(
                     {
                         "identity": identity,
-                        "case_count": len(cases),
+                        "case_count": len(jobs),
+                        "fixed_delay_ticks": args.fixed_delay_ticks,
                         "state_tokens": config.model.discrete_state_input,
                         "action_horizon": config.model.action_horizon,
                         "initial_delay_ticks": (
@@ -252,14 +283,15 @@ def main(argv=None):
             forecast_components = load_forecast_components(
                 forecast_assets, project_root=root, device="cuda:0"
             )
-        for case in cases:
+        for case, regime, cell_root, cell_identity in jobs:
+            cell_root.mkdir(parents=True, exist_ok=True)
             target = (
-                args.output_root
-                / f"master-{case['master_index']:03d}-seed-{case['policy_seed']}-{args.regime}.json"
+                cell_root
+                / f"master-{case['master_index']:03d}-seed-{case['policy_seed']}-{regime}.json"
             )
             if target.exists():
                 previous = json.loads(target.read_text())
-                if previous["identity"] != identity or previous["case"] != case:
+                if previous["identity"] != cell_identity or previous["case"] != case:
                     raise ValueError("existing episode result has a different identity")
                 if args.record_video and not previous.get("video"):
                     raise ValueError("existing result lacks video; use a new recording output root")
@@ -275,15 +307,15 @@ def main(argv=None):
             rng = np.random.default_rng(
                 np.random.SeedSequence([case["master_index"], case["policy_seed"], 20260907])
             )
-            if args.regime == "zero":
+            if regime == "zero":
                 probabilities = None
                 sampler = FixedDelaySampler(0)
-            elif args.regime.startswith("fixed"):
-                delay = int(args.regime.removeprefix("fixed")) // 20
+            elif regime.startswith("fixed"):
+                delay = int(regime.removeprefix("fixed")) // 20
                 probabilities = None
                 sampler = FixedDelaySampler(delay)
             else:
-                if args.regime == "nominal":
+                if regime == "nominal":
                     probabilities = load_latency_law(
                         root / "configs/latency/truncated_beta_8_65_400ms_v1.yaml"
                     ).probabilities
@@ -316,7 +348,7 @@ def main(argv=None):
             )
             print(
                 f"START master={case['master_index']} seed={case['policy_seed']} "
-                f"regime={args.regime}",
+                f"regime={regime}",
                 flush=True,
             )
             from latency_meta_mdp.policy_video import DualCameraVideoWriter
@@ -339,7 +371,7 @@ def main(argv=None):
                 )
             if args.record_video:
                 result["video"] = {
-                    "path": str(video.relative_to(args.output_root)),
+                    "path": str(video.relative_to(cell_root)),
                     "fps": 50,
                     "frames": result["recorded_frames"],
                     "layout": "main_left_wrist_right",
@@ -347,7 +379,7 @@ def main(argv=None):
                     "recording_time_excluded_from_actor_stage_timings": True,
                 }
             result.update(
-                identity=identity,
+                identity=cell_identity,
                 case=case,
                 latency_probabilities=None if probabilities is None else probabilities.tolist(),
                 jax_memory_stats=jax.devices()[0].memory_stats(),

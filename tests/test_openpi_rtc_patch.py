@@ -220,6 +220,10 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
     calibrated = json.loads(capsys.readouterr().out)
     assert calibrated["initial_delay_ticks"] == [4, 6]
     assert calibrated["identity"]["rtc_calibration"]["calibration_sha256"] == "calibration-sha"
+    main(args + ["--fixed-delay-ticks", "0", "1", "20"])
+    grid = json.loads(capsys.readouterr().out)
+    assert grid["case_count"] == 3
+    assert grid["fixed_delay_ticks"] == [0, 1, 20]
     from openpi.policies import policy_config
 
     # No model or simulator is needed when the identical case result already exists.
