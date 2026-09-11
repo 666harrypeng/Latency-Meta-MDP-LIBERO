@@ -15,6 +15,55 @@ from latency_meta_mdp.policy_data import PolicyEpisode, _readonly, materialize_p
 
 
 @dataclass(frozen=True)
+class DecodedForecast:
+    """Public prediction bound to a source/buffer, never to a realized pending delay."""
+
+    source_tick: int
+    target_tick: int
+    requested_query_ticks: int
+    buffer_version: int
+    rgb: np.ndarray | None
+    proprio: np.ndarray | None
+
+    def __post_init__(self):
+        if (
+            any(
+                type(x) is not int or x < 0
+                for x in (
+                    self.source_tick,
+                    self.target_tick,
+                    self.requested_query_ticks,
+                    self.buffer_version,
+                )
+            )
+            or not 0 <= self.target_tick - self.source_tick <= 20
+            or self.requested_query_ticks > 20
+        ):
+            raise ValueError("forecast source/target/query identity is invalid")
+        if (self.rgb is None) != (self.proprio is None):
+            raise ValueError("forecast RGB/state availability must agree")
+        if self.rgb is not None:
+            rgb, proprio = np.asarray(self.rgb), np.asarray(self.proprio)
+            if rgb.shape != (2, 224, 224, 3) or rgb.dtype != np.uint8:
+                raise ValueError("forecast RGB must be uint8[2,224,224,3]")
+            if proprio.shape != (16,) or not np.isfinite(proprio).all():
+                raise ValueError("forecast proprio must be finite physical16D")
+            object.__setattr__(self, "rgb", _readonly(rgb))
+            object.__setattr__(self, "proprio", _readonly(proprio, dtype=np.float32))
+
+    @property
+    def available(self):
+        return self.rgb is not None
+
+    def to_condition(self):
+        return {
+            "rgb": self.rgb,
+            "proprio": self.proprio,
+            "query_ticks": self.target_tick - self.source_tick,
+        }
+
+
+@dataclass(frozen=True)
 class ForecastPolicySource:
     episode_id: str
     source_tick: int

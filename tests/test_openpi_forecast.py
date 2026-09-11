@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from test_forecast_policy_cache import built_cache as built_cache
 
 pytest.importorskip("jax")
 pytest.importorskip("flax")
@@ -19,7 +20,7 @@ def forecast_openpi():
 
     with temporary_patched_openpi_copy(
         openpi_root=Path("third_party/openpi"),
-        patch_paths=tuple(sorted(Path("patches/openpi").glob("000[1-8]-*.patch"))),
+        patch_paths=tuple(sorted(Path("patches/openpi").glob("000[1-9]-*.patch"))),
         expected_revision="15a9616a00943ada6c20a0f158e3adb39df2ccac",
     ) as root:
         sys.path.insert(0, str(root / "src"))
@@ -209,3 +210,149 @@ def test_real_attention_uses_all_views_and_is_independent_of_dict_order(
     for key in before:
         if key.startswith(("PaliGemma/img/", "PaliGemma/llm/embedder/")):
             np.testing.assert_array_equal(before[key], after[key])
+
+
+def test_production_loader_uses_forecast_sampler_and_native_loss_masks(
+    monkeypatch, tmp_path, built_cache, forecast_openpi
+):
+    from openpi.shared import normalize
+    from openpi.training import data_loader
+
+    from latency_meta_mdp.openpi_sft import _build_config, build_forecast_policy_train_config
+    from latency_meta_mdp.policy_forecast_dataset import ForecastPolicyDataset
+    from latency_meta_mdp.sft_profile import load_sft_profile
+
+    cache, record, bindings = built_cache
+
+    class Native:
+        def __len__(self):
+            return record.terminal_tick
+
+        def __getitem__(self, i):
+            return {
+                "image": np.zeros((224, 224, 3), np.uint8),
+                "wrist_image": np.zeros((224, 224, 3), np.uint8),
+                "state": record.proprio_physical[i],
+                "prompt": "pick",
+                "frame_index": i,
+                "episode_index": 0,
+            }
+
+    dataset = ForecastPolicyDataset(
+        Native(), episode_rows=list(cache.episodes.values()), cache=cache
+    )
+    clean = _build_config(
+        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+    )
+    clean = dataclasses.replace(
+        clean, assets_base_dir=str(tmp_path / "assets"), batch_size=20, num_workers=0
+    )
+    stats = {
+        k: normalize.NormStats(
+            mean=np.zeros(d), std=np.ones(d), q01=np.full(d, -2), q99=np.full(d, 2)
+        )
+        for k, d in (("state", 16), ("actions", 7))
+    }
+    normalize.save(clean.assets_dirs / clean.data.repo_id, stats)
+    config = build_forecast_policy_train_config(
+        clean_config=clean,
+        clean_checkpoint=Path("/unused/params"),
+        forecast_identity={
+            k: bindings[k]
+            for k in (
+                "predictor_sha256",
+                "decoder_sha256",
+                "jepa_normalization_sha256",
+                "predictor_architecture",
+            )
+        },
+        forecast_view={
+            "cache_root": str(cache.root),
+            "policy_export_manifest": "unused-by-fixture",
+            "bindings": bindings,
+        },
+        experiment_name="loader-test",
+    )
+    # Replace only the external LeRobot store construction; wrappers, transforms,
+    # sampler, batching and Observation conversion are the production code.
+    monkeypatch.setattr(data_loader, "create_torch_dataset", lambda *args: dataset)
+    assert config.num_train_steps == 2 * len(dataset.training_sampler(batch_size=20)) // 20
+    assert config.policy_metadata["forecast_training_budget_resolved"] is True
+    loader = data_loader.create_data_loader(config, shuffle=True, num_batches=1)
+    observation, actions = next(iter(loader))
+    assert set(observation.images) == set(config.model.image_keys)
+    assert actions.shape == (20, 50, 32)
+    mask = np.asarray(observation.action_loss_mask)
+    assert mask[:, :, :7].any(axis=(1, 2)).all()
+    assert not mask[:, :, 7:].any()
+    assert np.isfinite(actions).all()
+    assert not hasattr(observation, "realized_delay_ticks")
+
+
+def test_rtc_bridge_transports_forecast_and_normalizes_buffer_once(forecast_openpi):
+    import flax.nnx as nnx
+    from openpi import transforms
+    from openpi.models.model import ModelType
+    from openpi.policies.policy import Policy
+    from openpi.shared.normalize import NormStats
+
+    from latency_meta_mdp.openpi_forecast import ForecastPolicyInputs, ForecastTokenizePrompt
+    from latency_meta_mdp.policy_execution import InProcessRtcOpenpiPolicy, PolicyObservation
+    from latency_meta_mdp.policy_forecast import DecodedForecast
+    from latency_meta_mdp.rtc_protocol import RtcInferenceContext
+
+    class Tokenizer:
+        def tokenize_forecast(self, prompt, state, *, future_state, query_ticks):
+            np.testing.assert_allclose(state, 0.5, atol=1e-6)
+            np.testing.assert_allclose(future_state, 1.0, atol=1e-6)
+            assert query_ticks == 7
+            return np.ones(4, np.int32), np.ones(4, bool)
+
+    class Model(nnx.Module):
+        pi05 = True
+        active_action_dim = 7
+        action_horizon = 50
+        image_keys = (
+            "base_0_rgb",
+            "left_wrist_0_rgb",
+            "forecast_base_0_rgb",
+            "forecast_left_wrist_0_rgb",
+        )
+
+        def sample_actions(self, rng, obs, *, rtc_previous_actions, rtc_weights, noise):
+            import jax.numpy as jnp
+
+            assert len(obs.images) == 4
+            mask_penalty = jnp.stack(tuple(obs.image_masks.values())).sum() - 4
+            return 2 * rtc_previous_actions + mask_penalty
+
+    stats = {
+        "state": NormStats(mean=np.zeros(16), std=np.full(16, 2)),
+        "actions": NormStats(mean=np.zeros(7), std=np.full(7, 2)),
+    }
+    policy = Policy(
+        Model(),
+        transforms=[
+            ForecastPolicyInputs(
+                model_type=ModelType.PI05, state_norm_stats=stats["state"], use_quantiles=False
+            ),
+            transforms.Normalize(stats),
+            ForecastTokenizePrompt(Tokenizer(), discrete_state_input=True),
+            transforms.PadStatesAndActions(32),
+        ],
+        output_transforms=[transforms.Unnormalize(stats)],
+    )
+    obs = PolicyObservation(
+        10,
+        np.zeros((224, 224, 3), np.uint8),
+        np.zeros((224, 224, 3), np.uint8),
+        np.ones(16, np.float32),
+    )
+    packet = DecodedForecast(
+        10, 17, 7, 0, np.zeros((2, 224, 224, 3), np.uint8), np.full(16, 2, np.float32)
+    )
+    ctx = RtcInferenceContext(0, 10, obs, 0, np.ones((50, 7)), np.ones(50, bool), 7, packet)
+    bridge = InProcessRtcOpenpiPolicy(policy, noise_rng=np.random.default_rng(1))
+    np.testing.assert_allclose(bridge(obs, ctx)["actions"][:, :7], 2, atol=1e-6)
+    with pytest.raises(ValueError, match="mode disagree"):
+        bridge(obs, dataclasses.replace(ctx, forecast=None))

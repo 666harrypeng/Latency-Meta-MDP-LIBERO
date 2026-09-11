@@ -79,6 +79,8 @@ class ForecastTokenizePrompt(transforms.TokenizePrompt):
 class ForecastPolicyDataConfig(StructuredPolicyDataConfig):
     """A source provider must attach forecast fields; the clean dataset alone fails closed."""
 
+    forecast_policy_view: dict | None = None
+
     def create(self, assets_dirs, model_config):
         if not getattr(model_config, "use_rtc_forecast", False):
             raise ValueError("forecast data requires the native four-image policy config")
@@ -89,8 +91,14 @@ class ForecastPolicyDataConfig(StructuredPolicyDataConfig):
         structure["forecast"] = {
             key: f"forecast/{key}" for key in ("rgb", "proprio", "query_ticks")
         }
+        view_kwargs = {}
+        if self.forecast_policy_view is not None:
+            if not hasattr(config, "forecast_policy_view"):
+                raise ValueError("forecast data loading requires OpenPI patch0009")
+            view_kwargs["forecast_policy_view"] = self.forecast_policy_view
         return dataclasses.replace(
             config,
+            **view_kwargs,
             repack_transforms=transforms.Group(inputs=[transforms.RepackTransform(structure)]),
             data_transforms=transforms.Group(
                 inputs=[

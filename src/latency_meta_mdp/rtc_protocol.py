@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 import yaml
 
+from latency_meta_mdp.policy_forecast import DecodedForecast
 from latency_meta_mdp.temporal_contract import TemporalContract, load_temporal_contract
 
 RTC_PROTOCOL_ID = "rtc_observation_time_h50_v1"
@@ -186,7 +187,15 @@ class RtcInferenceContext:
     previous_actions: np.ndarray
     previous_action_mask: np.ndarray
     estimated_delay_ticks: int
+    forecast: DecodedForecast | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "previous_actions", _immutable(self.previous_actions))
         object.__setattr__(self, "previous_action_mask", _immutable(self.previous_action_mask))
+        if self.forecast is not None and (
+            not isinstance(self.forecast, DecodedForecast)
+            or self.forecast.source_tick != self.origin_tick
+            or self.forecast.requested_query_ticks != self.estimated_delay_ticks
+            or self.forecast.buffer_version != self.buffer_version
+        ):
+            raise ValueError("forecast does not match the request source/buffer/query")

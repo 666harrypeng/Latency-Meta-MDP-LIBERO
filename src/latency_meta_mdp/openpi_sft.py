@@ -235,7 +235,12 @@ def build_prefix_return_policy_train_config(
 
 
 def build_forecast_policy_train_config(
-    *, clean_config: Any, clean_checkpoint: Path, forecast_identity: dict, experiment_name: str
+    *,
+    clean_config: Any,
+    clean_checkpoint: Path,
+    forecast_identity: dict,
+    experiment_name: str,
+    forecast_view: dict | None = None,
 ) -> Any:
     """Native decoded-future post-training; source provider attaches explicit forecasts."""
     import re
@@ -279,12 +284,52 @@ def build_forecast_policy_train_config(
         for k in expected - {"predictor_architecture"}
     ):
         raise ValueError("forecast identity requires SHA256 digests")
+    if forecast_view is not None and any(
+        forecast_view.get("bindings", {}).get(k) != v for k, v in forecast_identity.items()
+    ):
+        raise ValueError("forecast dataset and policy checkpoint bindings disagree")
+    schedule_kwargs = {}
+    schedule_metadata = {"forecast_training_budget_resolved": False}
+    if forecast_view is not None:
+        import json
+        from math import gcd
+
+        manifest = json.loads((Path(forecast_view["cache_root"]) / "manifest.json").read_text())
+        if (
+            manifest.get("complete") is not True
+            or manifest.get("bindings") != forecast_view["bindings"]
+        ):
+            raise ValueError("forecast training budget requires the matching complete cache")
+        source_count = sum(e["frame_count"] for e in manifest["episodes"])
+        batch = clean_config.batch_size
+        multiple = batch // gcd(batch, 20)
+        per_query = ((source_count + multiple - 1) // multiple) * multiple
+        steps_per_epoch = 20 * per_query // batch
+        steps = 2 * steps_per_epoch
+        if steps_per_epoch < 1:
+            raise ValueError("forecast source inventory cannot form a training epoch")
+        schedule_kwargs = {
+            "num_train_steps": steps,
+            "lr_schedule": dataclasses.replace(
+                clean_config.lr_schedule, warmup_steps=max(1, steps // 20), decay_steps=steps
+            ),
+            "keep_period": steps_per_epoch,
+        }
+        schedule_metadata = {
+            "forecast_training_budget_resolved": True,
+            "balanced_pair_epochs": 2,
+            "real_action_sources": source_count,
+            "balanced_examples_per_epoch": 20 * per_query,
+            "training_examples": steps * batch,
+        }
     return dataclasses.replace(
         clean_config,
+        **schedule_kwargs,
         name=f"{clean_config.name}_rtc_forecast",
         exp_name=experiment_name,
         model=dataclasses.replace(model, use_rtc_forecast=True, max_token_len=256),
         data=ForecastPolicyDataConfig(
+            forecast_policy_view=forecast_view,
             **{
                 f.name: getattr(clean_config.data, f.name)
                 for f in dataclasses.fields(StructuredPolicyDataConfig)
@@ -301,6 +346,7 @@ def build_forecast_policy_train_config(
         ),
         policy_metadata={
             **clean_config.policy_metadata,
+            **schedule_metadata,
             "conditioning": "native_rtc_forecast_rgb_v1",
             "policy_alignment": "observation_time",
             "protocol_id": "rtc_observation_time_h50_v1",

@@ -1,0 +1,50 @@
+diff --git a/src/openpi/training/config.py b/src/openpi/training/config.py
+--- a/src/openpi/training/config.py
++++ b/src/openpi/training/config.py
+@@ -96,6 +96,7 @@
+ 
+     # Optional project-owned nominal return-policy index view over this dataset.
+     return_policy_view: dict | None = None
++    forecast_policy_view: dict | None = None
+ 
+     # Only used for RLDS data loader (ie currently only used for DROID).
+     rlds_data_dir: str | None = None
+diff --git a/src/openpi/training/data_loader.py b/src/openpi/training/data_loader.py
+--- a/src/openpi/training/data_loader.py
++++ b/src/openpi/training/data_loader.py
+@@ -184,6 +184,14 @@
+     if data_config.prompt_from_task:
+         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
+ 
++    if getattr(model_config, "use_rtc_forecast", False) and data_config.forecast_policy_view is None:
++        raise ValueError("RTC forecast training requires its explicit cached source view")
++    if data_config.forecast_policy_view is not None:
++        if data_config.return_policy_view is not None or not getattr(model_config, "use_rtc_forecast", False):
++            raise ValueError("forecast dataset requires an exclusive native forecast policy mode")
++        from latency_meta_mdp.policy_forecast_dataset import load_forecast_policy_dataset
++
++        dataset = load_forecast_policy_dataset(dataset, data_config.forecast_policy_view)
+     if data_config.return_policy_view is not None:
+         from latency_meta_mdp.policy_return_data import load_matched_return_policy_dataset
+ 
+@@ -344,7 +352,7 @@
+     """
+     dataset = create_torch_dataset(data_config, action_horizon, model_config)
+     return_sampler = None
+-    if data_config.return_policy_view is not None and data_config.return_policy_view.get("conditioning") == "prefix":
++    if data_config.forecast_policy_view is not None or (data_config.return_policy_view is not None and data_config.return_policy_view.get("conditioning") == "prefix"):
+         if framework != "jax":
+             raise ValueError("return-prefix training currently requires replicated JAX data parallelism")
+         return_sampler = dataset.training_sampler(seed=seed, batch_size=batch_size, start_batch=start_batch)
+diff --git a/scripts/train.py b/scripts/train.py
+--- a/scripts/train.py
++++ b/scripts/train.py
+@@ -243,7 +243,7 @@
+         config,
+         sharding=data_sharding,
+         shuffle=True,
+-        start_batch=int(checkpoint_manager.latest_step()) if resuming and getattr(config.model, "use_return_belief_prefix", False) else 0,
++        start_batch=int(checkpoint_manager.latest_step()) if resuming and (getattr(config.model, "use_return_belief_prefix", False) or getattr(config.model, "use_rtc_forecast", False)) else 0,
+     )
+     data_iter = iter(data_loader)
+     batch = next(data_iter)

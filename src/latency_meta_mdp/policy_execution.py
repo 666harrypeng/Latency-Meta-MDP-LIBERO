@@ -135,6 +135,7 @@ class InProcessRtcOpenpiPolicy(InProcessOpenpiPolicy):
     def __init__(self, policy, *, noise_rng):
         super().__init__(policy, noise_rng=noise_rng)
         model = policy._model
+        self.uses_forecast = getattr(model, "image_keys", None) is not None
         if policy._is_pytorch_model or not getattr(model, "pi05", False):
             raise ValueError("RTC bridge requires the matched JAX pi0.5 model")
         if getattr(model, "active_action_dim", None) != 7 or model.action_horizon != 50:
@@ -147,6 +148,8 @@ class InProcessRtcOpenpiPolicy(InProcessOpenpiPolicy):
 
     def __call__(self, observation: PolicyObservation, context):
         if context is None:
+            if self.uses_forecast:
+                raise ValueError("forecast policy requires a request context and native bootstrap")
             return super().__call__(observation, None)
         if (
             not isinstance(context, RtcInferenceContext)
@@ -154,6 +157,10 @@ class InProcessRtcOpenpiPolicy(InProcessOpenpiPolicy):
         ):
             raise ValueError("RTC policy requires a matching source-time request context")
         inputs = observation.to_policy_inputs()
+        if self.uses_forecast != (context.forecast is not None):
+            raise ValueError("RTC model and forecast input mode disagree")
+        if context.forecast is not None:
+            inputs["forecast"] = context.forecast.to_condition()
         inputs["actions"] = context.previous_actions
         inputs["actions_is_pad"] = ~context.previous_action_mask
         noise = self.noise_rng.standard_normal((50, 32), dtype=np.float32)
@@ -253,6 +260,7 @@ class LogicalPolicyRuntime:
         scheduler,
         bootstrap_policy=None,
         belief_provider=None,
+        forecast_provider=None,
         policy_uses_belief=False,
         scheduler_uses_belief=False,
         decision_interval_ticks=None,
@@ -265,6 +273,15 @@ class LogicalPolicyRuntime:
         policy_alignment=None,
     ):
         self.is_rtc = isinstance(client_config, RtcActionChunkClientConfig)
+        if forecast_provider is not None and (
+            not self.is_rtc
+            or belief_provider is not None
+            or policy_uses_belief
+            or scheduler_uses_belief
+        ):
+            raise ValueError("RTC forecast provider cannot be mixed with legacy Belief routes")
+        if forecast_provider is not None and bootstrap_policy is None:
+            raise ValueError("forecast runtime requires an explicit native bootstrap policy")
         if self.is_rtc:
             if policy_alignment != "observation_time":
                 raise ValueError("RTC requires an explicitly verified observation_time policy")
@@ -327,6 +344,8 @@ class LogicalPolicyRuntime:
         self.scheduler = scheduler
         self.bootstrap_policy = bootstrap_policy or (lambda observation: policy(observation, None))
         self.belief_provider = belief_provider
+        self.forecast_provider = forecast_provider
+        self.forecast_calls = 0
         self.privileged_belief = bool(getattr(belief_provider, "privileged", False))
         self.policy_uses_belief = policy_uses_belief
         self.scheduler_uses_belief = scheduler_uses_belief
@@ -418,6 +437,10 @@ class LogicalPolicyRuntime:
         ):
             self.belief_provider.observe(observation, self.previous_action)
         self._event("observation", formal_tick, start, self.clock())
+        if self.forecast_provider is not None:
+            began = self.clock()
+            self.forecast_provider.observe(observation, self.previous_action)
+            self._event("forecast_history", formal_tick, began, self.clock())
         self.prepared_belief = None
         step_result = None
 
@@ -475,6 +498,23 @@ class LogicalPolicyRuntime:
             return launch
 
         def infer(context):
+            if self.forecast_provider is not None:
+                self._event(
+                    "request_launch", formal_tick, self.clock(), request_id=context.request_id
+                )
+                began = self.clock()
+                forecast = self.forecast_provider.predict(context)
+                context = replace(context, forecast=forecast)
+                self.forecast_calls += 1
+                self._event(
+                    "forecast",
+                    formal_tick,
+                    began,
+                    self.clock(),
+                    request_id=context.request_id,
+                    target_tick=forecast.target_tick,
+                    available=forecast.available,
+                )
             rtc_fields = (
                 {
                     "origin_tick": context.origin_tick,
@@ -482,11 +522,20 @@ class LogicalPolicyRuntime:
                     "buffer_version": context.buffer_version,
                     "available_prefix_actions": int(context.previous_action_mask.sum()),
                 }
-                if self.is_rtc else {}
+                if self.is_rtc
+                else {}
             )
+            if self.is_rtc and context.forecast is not None:
+                rtc_fields.update(
+                    previous_action_buffer=context.previous_actions.tolist(),
+                    previous_action_mask=context.previous_action_mask.tolist(),
+                )
             self._event(
-                "policy_launch", formal_tick, self.clock(),
-                request_id=context.request_id, **rtc_fields,
+                "policy_launch",
+                formal_tick,
+                self.clock(),
+                request_id=context.request_id,
+                **rtc_fields,
             )
             self.policy_calls += 1
             condition = self.prepared_belief if self.policy_uses_belief else None
@@ -550,7 +599,8 @@ class LogicalPolicyRuntime:
                 e["stage"]: e
                 for e in self.events
                 if e["formal_tick"] == tick
-                and e["stage"] in {"observation", "belief", "meta_decision"}
+                and e["stage"]
+                in {"observation", "belief", "meta_decision", "request_launch", "forecast"}
             }
             returned = next(
                 e
@@ -578,6 +628,13 @@ class LogicalPolicyRuntime:
                     "belief_complete_ns": stages.get("belief", {}).get("wall_end_ns"),
                     "meta_decision_ns": stages["meta_decision"]["wall_end_ns"],
                     "policy_launch_ns": launch["wall_start_ns"],
+                    "request_launch_ns": stages.get("request_launch", launch)["wall_start_ns"],
+                    "forecast_start_ns": stages.get("forecast", {}).get("wall_start_ns"),
+                    "forecast_complete_ns": stages.get("forecast", {}).get("wall_end_ns"),
+                    "forecast_target_tick": stages.get("forecast", {}).get("target_tick"),
+                    "forecast_available": stages.get("forecast", {}).get("available"),
+                    "previous_action_buffer": launch.get("previous_action_buffer"),
+                    "previous_action_mask": launch.get("previous_action_mask"),
                     "policy_return_ns": returned["wall_start_ns"],
                     "chunk_install_ns": None if installed is None else installed["wall_start_ns"],
                     "arrival_formal_tick": None if arrival is None else arrival.arrival_formal_tick,
@@ -596,12 +653,21 @@ class LogicalPolicyRuntime:
                 "delay_history_capacity": self.client.config.delay_history_capacity,
                 "delay_history_ticks": list(self.client.delay_history.delays),
                 "timeout_count": self.client.timeout_count,
-            } if self.is_rtc else None,
+            }
+            if self.is_rtc
+            else None,
             "latency_mode": "controlled_logical_policy_delay",
             "concurrent_deployment_verified": False,
             "policy_calls": self.policy_calls,
             "bootstrap_calls": self.bootstrap_calls,
             "belief_calls": self.belief_calls,
+            "forecast_calls": self.forecast_calls,
+            "forecast_wall_ns": sum(
+                e["wall_duration_ns"] for e in self.events if e["stage"] == "forecast"
+            ),
+            "forecast_history_wall_ns": sum(
+                e["wall_duration_ns"] for e in self.events if e["stage"] == "forecast_history"
+            ),
             "shield_interventions": self.shield_interventions,
             "privileged_belief": self.privileged_belief,
             "action_limit_projections": self.action_limit_projections,
