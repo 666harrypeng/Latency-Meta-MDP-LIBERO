@@ -525,7 +525,9 @@ class LogicalPolicyRuntime:
                 if self.is_rtc
                 else {}
             )
-            if self.is_rtc and context.forecast is not None:
+            if self.is_rtc and (
+                context.forecast is not None or getattr(self.policy, "plan_construction", None)
+            ):
                 rtc_fields.update(
                     previous_action_buffer=context.previous_actions.tolist(),
                     previous_action_mask=context.previous_action_mask.tolist(),
@@ -542,7 +544,10 @@ class LogicalPolicyRuntime:
             if self.is_rtc:
                 condition = context
             output = self.policy(context.observation, condition)
-            self._event("policy_return", formal_tick, self.clock(), request_id=context.request_id)
+            self._event(
+                "policy_return", formal_tick, self.clock(), request_id=context.request_id,
+                handoff=output.get("handoff") if isinstance(output, dict) else None,
+            )
             actions = self._project(output)
             if self.is_rtc:
                 return TimedActionPlan(
@@ -636,6 +641,11 @@ class LogicalPolicyRuntime:
                     "previous_action_buffer": launch.get("previous_action_buffer"),
                     "previous_action_mask": launch.get("previous_action_mask"),
                     "policy_return_ns": returned["wall_start_ns"],
+                    "planned_handoff_tick": (returned.get("handoff") or {}).get(
+                        "planned_handoff_tick"
+                    ),
+                    "policy_input_tick": (returned.get("handoff") or {}).get("policy_input_tick"),
+                    "handoff_forecast_used": (returned.get("handoff") or {}).get("forecast_used"),
                     "chunk_install_ns": None if installed is None else installed["wall_start_ns"],
                     "arrival_formal_tick": None if arrival is None else arrival.arrival_formal_tick,
                     "realized_delay_ticks": None
@@ -648,6 +658,7 @@ class LogicalPolicyRuntime:
     def summary(self):
         return {
             "protocol_id": self.client.config.protocol_id,
+            "plan_construction": getattr(self.policy, "plan_construction", None),
             "rtc": {
                 "initial_delay_ticks": list(self.client.config.initial_delay_ticks),
                 "delay_history_capacity": self.client.config.delay_history_capacity,

@@ -76,6 +76,7 @@ def test_policy_bridge_normalizes_previous_actions_exactly_once(patched_rtc):
     import jax.numpy as jnp
     from openpi import transforms
     from openpi.models.model import ModelType
+    from openpi.policies.libero_policy import LiberoOutputs
     from openpi.policies.policy import Policy
     from openpi.shared.normalize import NormStats
 
@@ -95,8 +96,11 @@ def test_policy_bridge_normalizes_previous_actions_exactly_once(patched_rtc):
             assert rtc_weights.shape == (1, 50, 32)
             return rtc_previous_actions + jnp.ones_like(rtc_previous_actions)
 
+    tokenized_states = []
+
     class TokenizerFixture:
         def tokenize(self, prompt, state):
+            tokenized_states.append(np.array(state))
             return np.ones(4, dtype=np.int32), np.ones(4, dtype=bool)
 
     stats = {
@@ -111,7 +115,7 @@ def test_policy_bridge_normalizes_previous_actions_exactly_once(patched_rtc):
             transforms.PadStatesAndActions(32),
             transforms.TokenizePrompt(TokenizerFixture(), discrete_state_input=True),
         ],
-        output_transforms=[transforms.Unnormalize(stats)],
+        output_transforms=[transforms.Unnormalize(stats), LiberoOutputs()],
     )
     previous = np.full((50, 7), -0.2, dtype=np.float32)
     inputs = {
@@ -140,6 +144,20 @@ def test_policy_bridge_normalizes_previous_actions_exactly_once(patched_rtc):
     result = bridge(obs, context)
     np.testing.assert_allclose(result["actions"][:25, :7], 0.3, atol=2e-6)
     np.testing.assert_array_equal(inputs["actions"], previous)
+    from dataclasses import replace
+
+    from latency_meta_mdp.planned_handoff_policy import PlannedHandoffPolicy
+    from latency_meta_mdp.policy_forecast import DecodedForecast
+
+    future_state = np.linspace(-.8, .8, 16, dtype=np.float32)
+    context = replace(context, forecast=DecodedForecast(
+        0, 4, 4, 0, np.full((2, 224, 224, 3), 128, np.uint8), future_state,
+    ))
+    result = PlannedHandoffPolicy(bridge, mode="forecast")(obs, context)
+    np.testing.assert_array_equal(result["actions"][:4], previous[:4])
+    np.testing.assert_allclose(result["actions"][4:25, :7], .3, atol=2e-6)
+    np.testing.assert_allclose(tokenized_states[-1][:16], future_state, atol=2e-6)
+    assert result["handoff"]["policy_input_tick"] == 4
 
 
 def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_patch(
@@ -234,8 +252,26 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
     resume_args = [a for a in args if a != "--preflight-only"]
     main(resume_args + ["--rtc-calibration", str(tmp_path / "calibration.json")])
     assert cached.read_bytes() == cached_before
+    main(args + ["--planned-handoff", "current"])
+    handoff = json.loads(capsys.readouterr().out)
+    assert handoff["identity"]["plan_construction"] == "rtc_planned_handoff_h50_v1"
+    assert handoff["identity"]["policy_observation_mode"] == "current"
+    assets = tmp_path / "forecast-assets.json"
+    assets.write_text(json.dumps({"level": 3, "forecast_identity": {"predictor_sha256": "a"*64}}))
+    main(args + ["--planned-handoff", "forecast", "--forecast-assets", str(assets),
+                 "--bootstrap-checkpoint", str(checkpoint),
+                 "--bootstrap-verification", str(verification)])
+    replacement = json.loads(capsys.readouterr().out)
+    assert replacement["identity"]["policy_observation_mode"] == "forecast"
+    assert replacement["identity"]["conditioning"] == "native_forecast_replacement_v1"
+    assert "0008-native-rtc-forecast-inputs.patch" not in (
+        replacement["identity"]["runtime_patch_sha256"]
+    )
+    assert replacement["state_tokens"] and replacement["action_horizon"] == 50
     data = json.loads(verification.read_text())
     data["repo_id"] = "yypeng666/metamdp-pi05-l3-predicted-mixture-state16-h50-prefix-q4-2epochs-v1"
     verification.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="clean checkpoint"):
         main(args)
+    with pytest.raises(ValueError, match="clean checkpoint"):
+        main(args + ["--planned-handoff", "current"])
