@@ -1,4 +1,4 @@
-"""Run a deterministic shard of clean-policy closed-loop development episodes."""
+"""Run matched native or forecast-policy closed-loop development episodes."""
 
 from __future__ import annotations
 
@@ -46,6 +46,9 @@ def main(argv=None):
     parser.add_argument("--protocol", choices=("sharp", "rtc"), default="sharp")
     parser.add_argument("--rtc-max-guidance-weight", type=float, default=5.0)
     parser.add_argument("--rtc-calibration", type=Path)
+    parser.add_argument("--forecast-assets", type=Path)
+    parser.add_argument("--bootstrap-checkpoint", type=Path)
+    parser.add_argument("--bootstrap-verification", type=Path)
     parser.add_argument(
         "--regime",
         choices=(
@@ -68,6 +71,15 @@ def main(argv=None):
     if not np.isfinite(args.rtc_max_guidance_weight) or args.rtc_max_guidance_weight < 0:
         parser.error("RTC guidance bound must be finite and nonnegative")
     root = Path.cwd()
+    if args.forecast_assets is not None and (
+        args.protocol != "rtc" or args.bootstrap_checkpoint is None
+        or args.bootstrap_verification is None
+    ):
+        parser.error("forecast evaluation requires RTC and a verified native bootstrap")
+    if args.forecast_assets is None and (
+        args.bootstrap_checkpoint is not None or args.bootstrap_verification is not None
+    ):
+        parser.error("bootstrap arguments require forecast assets")
     if args.rtc_calibration is not None and args.protocol != "rtc":
         parser.error("RTC calibration requires the RTC protocol")
     calibration = (
@@ -82,6 +94,23 @@ def main(argv=None):
     ):
         raise ValueError("evaluation requires a development cohort and verified checkpoint")
     level = cohort["level"]
+    forecast_assets = None
+    if args.forecast_assets is not None:
+        forecast_assets = json.loads(args.forecast_assets.read_text())
+        if (
+            forecast_assets["level"] != level
+            or verified.get("conditioning") != "native_rtc_forecast_rgb_v1"
+            or verified.get("forecast_identity") != forecast_assets["forecast_identity"]
+        ):
+            raise ValueError("forecast checkpoint and predictor identities disagree")
+        bootstrap = json.loads(args.bootstrap_verification.read_text())
+        if (
+            not bootstrap["all_downloaded_hashes_match"]
+            or Path(bootstrap["checkpoint_root"]).resolve() != args.bootstrap_checkpoint.resolve()
+            or bootstrap["repo_id"]
+            != f"yypeng666/metamdp-pi05-l{level}-clean-state16-h50-full-sft-v1"
+        ):
+            raise ValueError("forecast evaluation requires the matching clean bootstrap")
     if args.checkpoint.resolve() != Path(verified["checkpoint_root"]).resolve():
         raise ValueError("checkpoint path does not match the verified download")
     preparation = json.loads((args.preparation_root / "preparation.json").read_text())
@@ -104,11 +133,12 @@ def main(argv=None):
     }
     if args.protocol == "rtc":
         expected_repo = f"yypeng666/metamdp-pi05-l{level}-clean-state16-h50-full-sft-v1"
-        if verified["repo_id"] != expected_repo:
+        if forecast_assets is None and verified["repo_id"] != expected_repo:
             raise ValueError("initial RTC evaluation requires the verified clean checkpoint")
         # Verify original training patches above, then record the additional runtime
         # patches without rewriting the immutable training/preparation provenance.
-        patches = tuple(sorted((root / "patches/openpi").glob("000[1-7]-*.patch")))
+        pattern = "000[1-9]-*.patch" if forecast_assets is not None else "000[1-7]-*.patch"
+        patches = tuple(sorted((root / "patches/openpi").glob(pattern)))
         if not any(p.name == "0007-inference-time-rtc.patch" for p in patches):
             raise ValueError("RTC runtime patch is missing")
         identity.update(
@@ -126,6 +156,13 @@ def main(argv=None):
             identity["rtc_calibration"] = dataclasses.asdict(calibration)
             # Keep in-memory identity equal to its saved JSON representation on resume.
             identity["rtc_calibration"]["delay_ticks"] = list(calibration.delay_ticks)
+        if forecast_assets is not None:
+            identity.update(
+                conditioning="native_rtc_forecast_rgb_v1",
+                forecast_identity=forecast_assets["forecast_identity"],
+                forecast_assets_sha256=sha256_file(args.forecast_assets),
+                bootstrap_verification_sha256=sha256_file(args.bootstrap_verification),
+            )
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]
@@ -139,7 +176,10 @@ def main(argv=None):
         import jax
         from openpi.policies.policy_config import create_trained_policy
 
-        from latency_meta_mdp.openpi_sft import build_level_train_config
+        from latency_meta_mdp.openpi_sft import (
+            build_forecast_policy_train_config,
+            build_level_train_config,
+        )
         from latency_meta_mdp.policy_execution import (
             InProcessOpenpiPolicy,
             InProcessRtcOpenpiPolicy,
@@ -159,6 +199,14 @@ def main(argv=None):
             checkpoint_root=args.checkpoint.parent,
             wandb_enabled=False,
         )
+        clean_config = config
+        if forecast_assets is not None:
+            config = build_forecast_policy_train_config(
+                clean_config=clean_config,
+                clean_checkpoint=args.checkpoint / "params",
+                forecast_identity=forecast_assets["forecast_identity"],
+                experiment_name="forecast-evaluation",
+            )
         client_config = (
             load_rtc_client_config(root / "configs/client/rtc_observation_time_h50_v1.yaml")
             if args.protocol == "rtc" else load_action_chunk_client_config(
@@ -190,6 +238,20 @@ def main(argv=None):
             if args.protocol == "rtc" else None
         )
         policy = create_trained_policy(config, args.checkpoint, sample_kwargs=sample_kwargs)
+        bootstrap_policy = None
+        forecast_components = None
+        if forecast_assets is not None:
+            from latency_meta_mdp.belief.action_conditioned_jepa.forecast_provider import (
+                DirectForecastProvider,
+                load_forecast_components,
+            )
+
+            bootstrap_policy = create_trained_policy(
+                clean_config, args.bootstrap_checkpoint, sample_kwargs=sample_kwargs
+            )
+            forecast_components = load_forecast_components(
+                forecast_assets, project_root=root, device="cuda:0"
+            )
         for case in cases:
             target = (
                 args.output_root
@@ -239,8 +301,18 @@ def main(argv=None):
             actor_type = (
                 InProcessRtcOpenpiPolicy if args.protocol == "rtc" else InProcessOpenpiPolicy
             )
-            actor = actor_type(
-                policy, noise_rng=np.random.default_rng(case["policy_seed"])
+            noise_rng = np.random.default_rng(case["policy_seed"])
+            actor = actor_type(policy, noise_rng=noise_rng)
+            bootstrap_actor = (
+                actor_type(bootstrap_policy, noise_rng=noise_rng)
+                if bootstrap_policy is not None else None
+            )
+            provider = (
+                DirectForecastProvider(
+                    forecast_components[0], encoder=forecast_components[1],
+                    normalization=forecast_components[2],
+                    episode_id=f"master-{case['master_index']}-seed-{case['policy_seed']}",
+                ) if forecast_components is not None else None
             )
             print(
                 f"START master={case['master_index']} seed={case['policy_seed']} "
@@ -262,6 +334,8 @@ def main(argv=None):
                     maximum_steps=args.maximum_steps,
                     record_observation=recording.write if recording is not None else None,
                     policy_alignment="observation_time" if args.protocol == "rtc" else None,
+                    bootstrap_policy=bootstrap_actor,
+                    forecast_provider=provider,
                 )
             if args.record_video:
                 result["video"] = {

@@ -27,6 +27,7 @@ def run_native_policy_episode(
     allow_privileged_belief: bool = False,
     latency_probabilities=None,
     policy_alignment=None,
+    forecast_provider=None,
 ) -> dict:
     """Execute an owned simulator to its task terminal condition or an explicit time limit.
 
@@ -59,6 +60,7 @@ def run_native_policy_episode(
             allow_privileged_belief=allow_privileged_belief,
             latency_probabilities=latency_probabilities,
             policy_alignment=policy_alignment,
+            forecast_provider=forecast_provider,
         )
 
         def observe():

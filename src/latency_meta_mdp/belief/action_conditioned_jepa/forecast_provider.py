@@ -11,6 +11,63 @@ from latency_meta_mdp.belief.action_conditioned_jepa.contracts import ForecastQu
 from latency_meta_mdp.policy_forecast import DecodedForecast
 
 
+def load_forecast_components(assets, *, project_root, device):
+    """Load exactly the frozen predictor/decoder pair bound to the policy training."""
+    from pathlib import Path
+
+    from latency_meta_mdp.artifacts import sha256_file
+    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+        load_action_conditioned_jepa_config,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+        load_jepa_proprio_normalization,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction import (
+        DirectJepaPredictor,
+        load_direct_prediction_weights,
+    )
+    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_evaluation import (
+        load_visual_decoder,
+    )
+    from latency_meta_mdp.hf_dino_encoder import HfDinoPatchEncoder
+
+    root = Path(project_root)
+    identity = assets["forecast_identity"]
+    if identity["predictor_architecture"] != "jepa_direct_q20_history_stride4_w3_v1":
+        raise ValueError("forecast evaluation requires the trained Direct architecture")
+    weights = root / assets["predictor_weights"]
+    normalization = root / assets["normalization"]
+    decoder_root = root / assets["decoder_dir"]
+    for path, key in (
+        (weights, "predictor_sha256"),
+        (normalization, "jepa_normalization_sha256"),
+        (decoder_root / "model.safetensors", "decoder_sha256"),
+    ):
+        if sha256_file(path) != identity[key]:
+            raise ValueError(f"forecast evaluation artifact mismatch: {key}")
+    level = assets["level"]
+    config = load_action_conditioned_jepa_config(
+        model_path=root / "configs/belief/action_conditioned_jepa/model.yaml",
+        level_path=root / f"configs/belief/action_conditioned_jepa/l{level}.yaml",
+        temporal_sampling_path=(
+            root / "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml"
+        ),
+    )
+    norm = load_jepa_proprio_normalization(normalization)
+    if norm.level != level:
+        raise ValueError("forecast normalization level mismatch")
+    predictor = DirectJepaPredictor(
+        backbone_config=config, proprio_normalization=norm, project_root=root
+    )
+    load_direct_prediction_weights(predictor, weights)
+    decoder = load_visual_decoder(decoder_root, device=device)
+    engine = FrozenForecastEngine(predictor, decoder, device=device)
+    encoder = HfDinoPatchEncoder.from_pretrained(
+        spec=config.vision_encoder, device=device, local_files_only=True
+    )
+    return engine, encoder, norm
+
+
 class FrozenForecastEngine:
     def __init__(self, predictor, decoder, *, device):
         self.device = torch.device(device)

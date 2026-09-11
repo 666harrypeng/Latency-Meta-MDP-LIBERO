@@ -172,3 +172,47 @@ def test_conditioned_episode_uses_native_bootstrap_and_actual_buffer(monkeypatch
     assert result["success"] and result["belief_calls"] == 2
     assert native == [0] and queried == [25, 54]
     assert observed == list(range(60))
+
+
+def test_forecast_evaluation_records_real_history_and_request_context(monkeypatch):
+    from latency_meta_mdp import policy_evaluation as evaluation
+    from latency_meta_mdp.policy_forecast import DecodedForecast
+    from latency_meta_mdp.rtc_protocol import load_rtc_client_config
+
+    monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
+    runtime = Runtime(succeed_at=70)
+
+    class Provider:
+        def __init__(self):
+            self.ticks = []
+            self.queries = []
+
+        def observe(self, observation, previous_action):
+            self.ticks.append(observation.formal_tick)
+            if observation.formal_tick > 0:
+                np.testing.assert_array_equal(previous_action, runtime.actions[-1])
+
+        def predict(self, context):
+            assert self.ticks[-1] == context.origin_tick
+            self.queries.append(context.origin_tick)
+            return DecodedForecast(
+                context.origin_tick, context.origin_tick + context.estimated_delay_ticks,
+                context.estimated_delay_ticks, context.buffer_version, None, None,
+            )
+
+    provider = Provider()
+
+    def policy(observation, context):
+        assert context.forecast.source_tick == observation.formal_tick
+        return {"actions": np.zeros((50, 7))}
+
+    result = evaluation.run_native_policy_episode(
+        runtime=runtime, policy=policy,
+        bootstrap_policy=lambda observation: {"actions": np.zeros((50, 7))},
+        forecast_provider=provider,
+        client_config=load_rtc_client_config(Path("configs/client/rtc_observation_time_h50_v1.yaml")),
+        delay_sampler=lambda: 4, maximum_steps=100, policy_alignment="observation_time",
+    )
+    assert result["success"] and runtime.closed
+    assert result["forecast_calls"] == len(provider.queries) > 0
+    assert provider.ticks == list(range(70))
