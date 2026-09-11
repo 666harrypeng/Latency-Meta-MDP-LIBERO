@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -184,6 +185,10 @@ def load_upstream_primitives(
     project_root: Path,
 ) -> UpstreamPrimitiveBundle:
     checkout = verify_upstream_checkout(reference=reference, project_root=project_root)
+    # Evaluation environments need not install the upstream Python distribution.
+    # Import from the verified checkout and retain the origin checks below.
+    if str(checkout.root) not in sys.path:
+        sys.path.insert(0, str(checkout.root))
     modules = importlib.import_module("src.models.utils.modules")
     adaln = importlib.import_module("app.plan_common.models.AdaLN_vit")
     tensors = importlib.import_module("src.utils.tensors")

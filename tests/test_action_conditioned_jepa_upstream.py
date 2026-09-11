@@ -94,10 +94,14 @@ def test_upstream_checkout_verifies_pinned_submodule() -> None:
     assert checkout.droid_reference_config_sha256 == reference.droid_reference_config_sha256
 
 
-def test_upstream_primitive_bundle_exposes_adaln_and_rope_contract() -> None:
+def test_upstream_primitive_bundle_exposes_adaln_and_rope_contract(monkeypatch) -> None:
     project_root = Path(__file__).resolve().parents[1]
     reference = load_upstream_reference(REFERENCE_PATH)
 
+    # The eval environment exposes only our src directory, not the JEPA checkout.
+    monkeypatch.setattr(
+        sys, "path", [p for p in sys.path if p != str(project_root / "third_party/jepa-wms")]
+    )
     bundle = load_upstream_primitives(reference=reference, project_root=project_root)
 
     assert bundle.rope_attention_type.__name__ == "RoPEAttention"
