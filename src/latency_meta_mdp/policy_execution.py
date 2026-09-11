@@ -146,7 +146,7 @@ class InProcessRtcOpenpiPolicy(InProcessOpenpiPolicy):
         ):
             raise ValueError("return-indexed policy checkpoints cannot use RTC alignment")
 
-    def __call__(self, observation: PolicyObservation, context):
+    def __call__(self, observation: PolicyObservation, context=None):
         if context is None:
             if self.uses_forecast:
                 raise ValueError("forecast policy requires a request context and native bootstrap")

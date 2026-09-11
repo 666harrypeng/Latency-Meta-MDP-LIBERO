@@ -216,3 +216,26 @@ def test_forecast_evaluation_records_real_history_and_request_context(monkeypatc
     assert result["success"] and runtime.closed
     assert result["forecast_calls"] == len(provider.queries) > 0
     assert provider.ticks == list(range(70))
+
+
+def test_rtc_native_bridge_can_bootstrap_with_one_observation():
+    from latency_meta_mdp.policy_execution import InProcessRtcOpenpiPolicy
+
+    bridge = InProcessRtcOpenpiPolicy.__new__(InProcessRtcOpenpiPolicy)
+    bridge.uses_forecast = False
+    bridge.noise_rng = np.random.default_rng(3)
+    calls = []
+
+    def infer(inputs, *, noise):
+        calls.append(inputs)
+        assert noise.shape == (50, 32)
+        return {"actions": np.zeros((50, 7))}
+
+    bridge.policy = SimpleNamespace(infer=infer)
+    observation = observe(Runtime().snapshot())
+    assert bridge(observation)["actions"].shape == (50, 7)
+    assert len(calls) == 1
+    bridge.uses_forecast = True
+    with pytest.raises(ValueError, match="native bootstrap"):
+        bridge(observation)
+    assert len(calls) == 1
