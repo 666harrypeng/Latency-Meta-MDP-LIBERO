@@ -65,7 +65,12 @@ def collect_implementation_provenance(project_root: Path) -> ImplementationProve
 
 
 def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Hash artifacts with bounded memory, including multi-GiB weights and caches."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:

@@ -5,10 +5,19 @@ import pytest
 
 
 @pytest.fixture
-def built_cache(tmp_path):
+def built_cache(tmp_path, monkeypatch):
     from test_action_conditioned_jepa_data import _normalization, _record
 
+    import latency_meta_mdp.policy_forecast_cache as cache_module
     from latency_meta_mdp.policy_forecast_cache import ForecastCache, write_forecast_cache
+
+    original_hash = cache_module.sha256_file
+
+    def metadata_hash_only(path):
+        assert path.name != "forecasts.sqlite", "do not hash the large prediction database"
+        return original_hash(path)
+
+    monkeypatch.setattr(cache_module, "sha256_file", metadata_hash_only)
 
     record = _record(tmp_path, terminal_tick=32)
 

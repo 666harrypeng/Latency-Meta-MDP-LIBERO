@@ -16,7 +16,7 @@ from PIL import Image
 
 from latency_meta_mdp.artifacts import sha256_file
 
-_FORMAT = "rtc_forecast_rgb_cache_v1"
+_FORMAT = "rtc_forecast_rgb_cache_v2"
 _TAIL = "missing_forecast_preserve_action_supervision_v1"
 _HASH_KEYS = {
     "predictor_sha256",
@@ -187,8 +187,8 @@ def write_forecast_cache(
             "episodes": episodes,
             "prediction_count": count,
             "png_bytes": png_bytes,
-            "database_sha256": sha256_file(database),
             "database_bytes": database.stat().st_size,
+            "verification_policy": "metadata_and_read_validation",
             "phase_coverage": phase_coverage,
             "implementation_sha256": {
                 Path(__file__).name: sha256_file(Path(__file__)),
@@ -219,8 +219,10 @@ class ForecastCache:
             raise ValueError("forecast cache is incomplete or incompatible")
         if m.get("bindings") != expected_bindings:
             raise ValueError("forecast cache binding mismatch")
-        if sha256_file(self.root / "forecasts.sqlite") != m["database_sha256"]:
-            raise ValueError("forecast cache database hash mismatch")
+        if m.get("verification_policy") != "metadata_and_read_validation":
+            raise ValueError("forecast cache verification policy is incompatible")
+        if (self.root / "forecasts.sqlite").stat().st_size != m["database_bytes"]:
+            raise ValueError("forecast cache database size mismatch")
         self.episodes = {e["episode_id"]: e for e in m["episodes"]}
         if len(self.episodes) != len(m["episodes"]):
             raise ValueError("forecast cache episode identities are not unique")
