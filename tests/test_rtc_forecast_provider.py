@@ -55,7 +55,10 @@ def test_provider_encodes_only_requested_real_history_and_shares_batch_engine():
             )
 
     class Decoder(torch.nn.Module):
+        calls = 0
+
         def forward(self, visual):
+            self.calls += 1
             return torch.full((visual.shape[0], 2, 3, 224, 224), 0.5)
 
     encoder, model = Encoder(), Predictor()
@@ -78,6 +81,28 @@ def test_provider_encodes_only_requested_real_history_and_shares_batch_engine():
     assert forecast.rgb.shape == (2, 224, 224, 3)
     assert forecast.rgb.dtype == np.uint8 and not forecast.rgb.flags.writeable
     assert not model.parameter.requires_grad
+    from latency_meta_mdp.rtc_protocol import RtcForecastContext
+
+    c = _context(10)
+    before = engine.decoder.calls
+    packet = provider.prepare(RtcForecastContext(
+        c.origin_tick, c.observation, c.buffer_version, c.previous_actions,
+        c.previous_action_mask, c.estimated_delay_ticks,
+    ))
+    assert engine.decoder.calls == before
+    assert packet.current_visual_latents.shape == (2, 196, 384)
+    assert packet.future_visual_latents.shape == (2, 196, 384)
+    assert packet.future_proprio.shape == (16,)
+    assert not hasattr(packet.context, "request_id")
+    assert not hasattr(packet.context, "realized_delay_ticks")
+    decoded = packet.decode(c)
+    np.testing.assert_array_equal(decoded.rgb, forecast.rgb)
+    np.testing.assert_array_equal(decoded.proprio, forecast.proprio)
+    assert packet.decode(c) is decoded and engine.decoder.calls == before + 1
+    for changed in (dataclasses.replace(c, buffer_version=1),
+                    dataclasses.replace(c, previous_actions=np.ones((50, 7)))):
+        with pytest.raises(ValueError, match="snapshot"):
+            packet.decode(changed)
     with pytest.raises(ValueError, match="source"):
         provider.predict(_context(9))
     with pytest.raises(ValueError, match="source differs"):

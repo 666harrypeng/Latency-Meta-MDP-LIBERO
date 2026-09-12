@@ -269,6 +269,32 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
     )
     assert replacement["state_tokens"] and replacement["action_horizon"] == 50
     data = json.loads(verification.read_text())
+    forecast_identity = {
+        "predictor_architecture": "jepa_direct_q20_history_stride4_w3_v1",
+        "predictor_sha256": "a" * 64,
+        "decoder_sha256": "b" * 64,
+        "jepa_normalization_sha256": "c" * 64,
+    }
+    assets.write_text(json.dumps({"level": 3, "forecast_identity": forecast_identity}))
+    data.update(repo_id="local/p0-l3-rtc-forecast-directq20-state16-h50-v1",
+                conditioning="native_rtc_forecast_rgb_v1",
+                forecast_identity=forecast_identity)
+    bootstrap_verification = tmp_path / "bootstrap.json"
+    bootstrap_verification.write_bytes(verification.read_bytes())
+    verification.write_text(json.dumps(data))
+    import subprocess
+
+    # A separate interpreter must import the four-image patch set, not this
+    # fixture's already imported native seven-patch OpenPI modules.
+    shared = json.loads(subprocess.check_output([
+        sys.executable, "-m", "latency_meta_mdp.cli.evaluate_policy", *args,
+        "--forecast-assets", str(assets), "--bootstrap-checkpoint", str(checkpoint),
+        "--bootstrap-verification", str(bootstrap_verification),
+        "--prepare-forecast-before-decision", "--decision-interval-ticks", "4",
+    ], text=True))
+    assert shared["identity"]["prepare_forecast_before_decision"] is True
+    assert shared["identity"]["decision_interval_ticks"] == 4
+    data = json.loads(verification.read_text())
     data["repo_id"] = "yypeng666/metamdp-pi05-l3-predicted-mixture-state16-h50-prefix-q4-2epochs-v1"
     verification.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="clean checkpoint"):

@@ -77,6 +77,10 @@ class FrozenForecastEngine:
 
     def predict(self, query: ForecastQuery):
         """Return lossless RGB storage values and physical proprio for each query."""
+        prediction = self.predict_latents(query)
+        return self.decode(prediction.visual_latents), prediction.proprio.float().cpu().numpy()
+
+    def predict_latents(self, query: ForecastQuery):
         query = query.to(self.device)
         query.validate_finite()
         with (
@@ -95,17 +99,85 @@ class FrozenForecastEngine:
                 or not torch.isfinite(prediction.proprio).all()
             ):
                 raise ValueError("forecast prediction must be finite")
-            decoded = self.decoder(prediction.visual_latents)
+        return prediction
+
+    def decode(self, visual_latents):
+        with (
+            torch.inference_mode(),
+            torch.autocast(
+                self.device.type, dtype=torch.bfloat16, enabled=self.device.type == "cuda"
+            ),
+        ):
+            decoded = self.decoder(visual_latents)
             if (
-                decoded.shape != (len(query.query_ticks), 2, 3, 224, 224)
+                decoded.shape != (len(visual_latents), 2, 3, 224, 224)
                 or not torch.isfinite(decoded).all()
             ):
                 raise ValueError("forecast decoder returned invalid RGB")
             if torch.any((decoded < 0) | (decoded > 1)):
                 raise ValueError("decoder RGB must be in0..1")
             rgb = decoded.permute(0, 1, 3, 4, 2).mul(255).round().to(torch.uint8).cpu().numpy()
-            proprio = prediction.proprio.float().cpu().numpy()
-        return rgb, proprio
+        return rgb
+
+
+class PreparedRtcForecast:
+    """One frozen prediction shared by Meta and the policy, with lazy RGB decoding.
+
+    CPU feature arrays are read-only. The original prediction tensor is retained for
+    decoding without dtype changes; these features are not a physical posterior.
+    """
+
+    def __init__(self, context, *, engine, current_visual=None, prediction=None):
+        from latency_meta_mdp.rtc_protocol import RtcForecastContext
+
+        self.context = RtcForecastContext(
+            **{key: getattr(context, key) for key in RtcForecastContext.__dataclass_fields__}
+        )
+        self._engine, self._prediction, self._decoded = engine, prediction, None
+
+        def array(tensor):
+            if tensor is None:
+                return None
+            value = tensor.detach().cpu().numpy().copy()
+            value.setflags(write=False)
+            return value
+
+        self.current_visual_latents = array(current_visual)
+        self.future_visual_latents = array(
+            None if prediction is None else prediction.visual_latents[0]
+        )
+        self.future_proprio = array(None if prediction is None else prediction.proprio[0])
+
+    @property
+    def available(self):
+        return self._prediction is not None
+
+    def decode(self, context):
+        source = self.context
+        if (
+            any(
+                getattr(source, k) != getattr(context, k)
+                for k in ("origin_tick", "buffer_version", "estimated_delay_ticks")
+            )
+            or any(
+                not np.array_equal(getattr(source, k), getattr(context, k))
+                for k in ("previous_actions", "previous_action_mask")
+            )
+            or any(
+                not np.array_equal(getattr(source.observation, k), getattr(context.observation, k))
+                for k in ("image", "wrist_image", "state", "prompt")
+            )
+        ):
+            raise ValueError("prepared forecast belongs to a different snapshot")
+        if self._decoded is None:
+            rgb = (
+                self._engine.decode(self._prediction.visual_latents)[0] if self.available else None
+            )
+            h, q = source.origin_tick, source.estimated_delay_ticks
+            self._decoded = DecodedForecast(
+                h, h + q, q, source.buffer_version, rgb, self.future_proprio
+            )
+        return self._decoded
 
 
 class DirectForecastProvider:
@@ -151,6 +223,9 @@ class DirectForecastProvider:
         self._observations.append(observation)
 
     def predict(self, context):
+        return self.prepare(context).decode(context)
+
+    def prepare(self, context):
         h, q = context.origin_tick, context.estimated_delay_ticks
         if not self._observations or self._observations[-1].formal_tick != h:
             raise ValueError("forecast source is not the latest observed boundary")
@@ -169,7 +244,7 @@ class DirectForecastProvider:
         if buffer.shape != (50, 7) or valid.shape != (50,) or valid.dtype != np.bool_:
             raise ValueError("forecast request has invalid buffer shape/validity")
         if h < 10 or len(self._observations) < 9 or not valid[:q].all():
-            return DecodedForecast(h, h + q, q, context.buffer_version, None, None)
+            return PreparedRtcForecast(context, engine=self.engine)
         history = list(self._observations)[::4]
         images = np.stack([image for obs in history for image in (obs.image, obs.wrist_image)])
         with torch.inference_mode():
@@ -189,5 +264,7 @@ class DirectForecastProvider:
             query_ticks=torch.tensor([q], device=device),
             source_ticks=torch.tensor([h], device=device),
         )
-        rgb, proprio = self.engine.predict(query)
-        return DecodedForecast(h, h + q, q, context.buffer_version, rgb[0], proprio[0])
+        prediction = self.engine.predict_latents(query)
+        return PreparedRtcForecast(
+            context, engine=self.engine, current_visual=visual[0, -1], prediction=prediction
+        )

@@ -67,6 +67,8 @@ def main(argv=None):
     parser.add_argument("--fixed-delay-ticks", nargs="+", type=int)
     parser.add_argument("--forecast-assets", type=Path)
     parser.add_argument("--planned-handoff", choices=("current", "forecast"))
+    parser.add_argument("--prepare-forecast-before-decision", action="store_true")
+    parser.add_argument("--decision-interval-ticks", type=int)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-verification", type=Path)
     parser.add_argument(
@@ -98,6 +100,13 @@ def main(argv=None):
     if not np.isfinite(args.rtc_max_guidance_weight) or args.rtc_max_guidance_weight < 0:
         parser.error("RTC guidance bound must be finite and nonnegative")
     root = Path.cwd()
+    if args.decision_interval_ticks is not None and args.decision_interval_ticks < 1:
+        parser.error("decision interval must be positive")
+    if args.prepare_forecast_before_decision and (
+        args.protocol != "rtc" or args.forecast_assets is None or args.planned_handoff is not None
+        or args.decision_interval_ticks is None
+    ):
+        parser.error("shared Meta forecast requires original conditioned RTC and explicit cadence")
     if args.planned_handoff is not None:
         if args.protocol != "rtc":
             parser.error("planned handoff requires RTC timing")
@@ -208,6 +217,11 @@ def main(argv=None):
             identity.update(
                 plan_construction=PLAN_CONSTRUCTION,
                 policy_observation_mode=args.planned_handoff,
+            )
+        if args.prepare_forecast_before_decision or args.decision_interval_ticks is not None:
+            identity.update(
+                prepare_forecast_before_decision=args.prepare_forecast_before_decision,
+                decision_interval_ticks=args.decision_interval_ticks or 1,
             )
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
@@ -383,6 +397,17 @@ def main(argv=None):
             recorder = (
                 DualCameraVideoWriter(video) if args.record_video else contextlib.nullcontext()
             )
+            transition_audit = []
+
+            def record_transition(t):
+                transition_audit.append({
+                    key: getattr(t, key) for key in (
+                        "start_tick", "end_tick", "duration_ticks", "action", "proposed_action",
+                        "shielded", "reward", "undiscounted_reward", "bootstrap_discount",
+                        "terminated", "truncated",
+                    )
+                })
+
             with recorder as recording:
                 result = run_native_policy_episode(
                     runtime=_build_task_instance_runtime(task),
@@ -394,7 +419,13 @@ def main(argv=None):
                     policy_alignment="observation_time" if args.protocol == "rtc" else None,
                     bootstrap_policy=bootstrap_actor,
                     forecast_provider=provider,
+                    scheduler_uses_forecast=args.prepare_forecast_before_decision,
+                    decision_interval_ticks=args.decision_interval_ticks,
+                    transition_sink=(record_transition
+                                     if args.prepare_forecast_before_decision else None),
                 )
+            if args.prepare_forecast_before_decision:
+                result["decision_transitions"] = transition_audit
             if args.record_video:
                 result["video"] = {
                     "path": str(video.relative_to(cell_root)),

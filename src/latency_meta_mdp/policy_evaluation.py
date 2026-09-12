@@ -28,6 +28,12 @@ def run_native_policy_episode(
     latency_probabilities=None,
     policy_alignment=None,
     forecast_provider=None,
+    scheduler=None,
+    scheduler_uses_forecast=False,
+    policy_uses_forecast=None,
+    decision_interval_ticks=None,
+    transition_sink=None,
+    gamma=1.0,
 ) -> dict:
     """Execute an owned simulator to its task terminal condition or an explicit time limit.
 
@@ -54,13 +60,18 @@ def run_native_policy_episode(
             delay_sampler=delay_sampler,
             policy=policy,
             bootstrap_policy=bootstrap_policy or (lambda obs: policy(obs, None)),
-            scheduler=FixedCursorScheduler(25),
+            scheduler=FixedCursorScheduler(25) if scheduler is None else scheduler,
             belief_provider=belief,
             policy_uses_belief=belief is not None,
             allow_privileged_belief=allow_privileged_belief,
             latency_probabilities=latency_probabilities,
             policy_alignment=policy_alignment,
             forecast_provider=forecast_provider,
+            scheduler_uses_forecast=scheduler_uses_forecast,
+            policy_uses_forecast=policy_uses_forecast,
+            decision_interval_ticks=decision_interval_ticks,
+            transition_sink=transition_sink,
+            gamma=gamma,
         )
 
         def observe():
@@ -98,6 +109,8 @@ def run_native_policy_episode(
         success = status == "success"
         reason = getattr(runtime.tracker, "terminal_reason", None)
         truncated = not engine.terminated
+        if truncated:
+            engine.truncate(formal_tick=latest.formal_tick_index)
         elapsed = len(actions) * 0.02
         differences = np.diff(np.asarray(actions), axis=0)
         return {

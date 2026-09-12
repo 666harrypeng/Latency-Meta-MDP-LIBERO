@@ -179,6 +179,36 @@ class RtcDecisionState:
 
 
 @dataclass(frozen=True)
+class RtcForecastContext:
+    """Public decision snapshot, before a request has been assigned an identity."""
+
+    origin_tick: int
+    observation: Any
+    buffer_version: int
+    previous_actions: np.ndarray
+    previous_action_mask: np.ndarray
+    estimated_delay_ticks: int
+
+    def __post_init__(self):
+        _nonnegative_integer(self.origin_tick, "origin_tick")
+        _nonnegative_integer(self.buffer_version, "buffer_version")
+        if (
+            type(self.estimated_delay_ticks) is not int
+            or not 0 <= self.estimated_delay_ticks <= 20
+            or self.observation.formal_tick != self.origin_tick
+        ):
+            raise ValueError("forecast decision snapshot has invalid time indices")
+        object.__setattr__(self, "previous_actions", _immutable(self.previous_actions))
+        object.__setattr__(self, "previous_action_mask", _immutable(self.previous_action_mask))
+
+    @classmethod
+    def from_decision(cls, observation, state):
+        return cls(state.formal_tick, observation, state.buffer_version,
+                   state.unread_action_buffer, state.unread_action_mask,
+                   state.estimated_delay_ticks)
+
+
+@dataclass(frozen=True)
 class RtcInferenceContext:
     request_id: int
     origin_tick: int

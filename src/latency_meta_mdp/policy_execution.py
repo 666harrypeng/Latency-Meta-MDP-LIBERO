@@ -18,6 +18,7 @@ from latency_meta_mdp.rtc_client import RtcActionChunkClient
 from latency_meta_mdp.rtc_protocol import (
     RtcActionChunkClientConfig,
     RtcDecisionState,
+    RtcForecastContext,
     RtcInferenceContext,
     TimedActionPlan,
 )
@@ -261,6 +262,9 @@ class LogicalPolicyRuntime:
         bootstrap_policy=None,
         belief_provider=None,
         forecast_provider=None,
+        scheduler_uses_forecast=False,
+        policy_uses_forecast=None,
+        transition_sink=None,
         policy_uses_belief=False,
         scheduler_uses_belief=False,
         decision_interval_ticks=None,
@@ -273,6 +277,14 @@ class LogicalPolicyRuntime:
         policy_alignment=None,
     ):
         self.is_rtc = isinstance(client_config, RtcActionChunkClientConfig)
+        if policy_uses_forecast is None:
+            policy_uses_forecast = forecast_provider is not None
+        if type(scheduler_uses_forecast) is not bool or type(policy_uses_forecast) is not bool:
+            raise ValueError("forecast consumers must be explicit booleans")
+        if (scheduler_uses_forecast or policy_uses_forecast) and forecast_provider is None:
+            raise ValueError("forecast consumers require a forecast provider")
+        if transition_sink is not None and not callable(transition_sink):
+            raise TypeError("transition sink must be callable")
         if forecast_provider is not None and (
             not self.is_rtc
             or belief_provider is not None
@@ -298,7 +310,7 @@ class LogicalPolicyRuntime:
         if policy_uses_belief and bootstrap_policy is None:
             raise ValueError("conditioned runtime requires an explicit native bootstrap policy")
         interval = (
-            (4 if scheduler_uses_belief else 1)
+            (4 if scheduler_uses_belief or scheduler_uses_forecast else 1)
             if decision_interval_ticks is None
             else decision_interval_ticks
         )
@@ -345,7 +357,13 @@ class LogicalPolicyRuntime:
         self.bootstrap_policy = bootstrap_policy or (lambda observation: policy(observation, None))
         self.belief_provider = belief_provider
         self.forecast_provider = forecast_provider
+        self.scheduler_uses_forecast = scheduler_uses_forecast
+        self.policy_uses_forecast = policy_uses_forecast
+        self.transition_sink = transition_sink
+        self.simulation_time_reader = simulation_time_reader
+        self.prepared_forecast = None
         self.forecast_calls = 0
+        self.forecast_decodes = 0
         self.privileged_belief = bool(getattr(belief_provider, "privileged", False))
         self.policy_uses_belief = policy_uses_belief
         self.scheduler_uses_belief = scheduler_uses_belief
@@ -425,6 +443,22 @@ class LogicalPolicyRuntime:
             return state.remaining_actions <= self.client.config.maximum_delay_ticks
         return state.actions_consumed >= self.client.config.launch_trigger_horizon
 
+    def _record_transition(self, **kwargs):
+        transition = self.collector.finish(**kwargs)
+        if self.transition_sink is None:
+            self.transitions.append(transition)
+        else:
+            self.transition_sink(transition)
+
+    def truncate(self, *, formal_tick):
+        """Record an incomplete interval without inventing a post-arrival next state.
+
+        A learning consumer must exclude this record when its continuation cannot
+        be bootstrapped; truncation is not a task terminal reward or failure.
+        """
+        if self.collector.active:
+            self._record_transition(next_formal_tick=formal_tick, next_state=None, truncated=True)
+
     def step(self, *, formal_tick: int, observe, execute):
         if self.terminated:
             raise RuntimeError("the policy episode already terminated")
@@ -442,6 +476,7 @@ class LogicalPolicyRuntime:
             self.forecast_provider.observe(observation, self.previous_action)
             self._event("forecast_history", formal_tick, began, self.clock())
         self.prepared_belief = None
+        self.prepared_forecast = None
         step_result = None
 
         def decide(state: ChunkDecisionState | RtcDecisionState):
@@ -458,12 +493,26 @@ class LogicalPolicyRuntime:
             )
             if (formal_tick < self.minimum_tick and not (self.is_rtc and deadline)) or not due:
                 return False
-            belief = self._belief(observation, state) if self.scheduler_uses_belief else None
+            if self.scheduler_uses_forecast:
+                began = self.clock()
+                simulation_before = self.simulation_time_reader()
+                self.prepared_forecast = self.forecast_provider.prepare(
+                    RtcForecastContext.from_decision(observation, state)
+                )
+                if self.simulation_time_reader() != simulation_before:
+                    raise RuntimeError("simulation advanced during forecast preparation")
+                self.forecast_calls += 1
+                self._event(
+                    "forecast_prepare", formal_tick, began, self.clock(),
+                    target_tick=formal_tick + state.estimated_delay_ticks,
+                    available=self.prepared_forecast.available,
+                )
+                belief = self.prepared_forecast
+            else:
+                belief = self._belief(observation, state) if self.scheduler_uses_belief else None
             decision_state = {"observation": observation, "buffer": state, "belief": belief}
             if self.collector.active:
-                self.transitions.append(
-                    self.collector.finish(next_formal_tick=formal_tick, next_state=decision_state)
-                )
+                self._record_transition(next_formal_tick=formal_tick, next_state=decision_state)
             began = self.clock()
             proposed = self.scheduler(state, observation, belief)
             if type(proposed) is not bool:
@@ -502,12 +551,19 @@ class LogicalPolicyRuntime:
                 self._event(
                     "request_launch", formal_tick, self.clock(), request_id=context.request_id
                 )
+            if self.policy_uses_forecast:
                 began = self.clock()
-                forecast = self.forecast_provider.predict(context)
+                if self.scheduler_uses_forecast:
+                    if self.prepared_forecast is None:
+                        raise RuntimeError("Meta Launch has no prepared forecast")
+                    forecast = self.prepared_forecast.decode(context)
+                else:
+                    forecast = self.forecast_provider.predict(context)
+                    self.forecast_calls += 1
+                self.forecast_decodes += int(forecast.available)
                 context = replace(context, forecast=forecast)
-                self.forecast_calls += 1
                 self._event(
-                    "forecast",
+                    "forecast_decode" if self.scheduler_uses_forecast else "forecast",
                     formal_tick,
                     began,
                     self.clock(),
@@ -526,7 +582,8 @@ class LogicalPolicyRuntime:
                 else {}
             )
             if self.is_rtc and (
-                context.forecast is not None or getattr(self.policy, "plan_construction", None)
+                context.forecast is not None or self.scheduler_uses_forecast
+                or getattr(self.policy, "plan_construction", None)
             ):
                 rtc_fields.update(
                     previous_action_buffer=context.previous_actions.tolist(),
@@ -579,10 +636,8 @@ class LogicalPolicyRuntime:
         if step_result.terminated:
             self.terminated = True
             if self.collector.active:
-                self.transitions.append(
-                    self.collector.finish(
-                        next_formal_tick=formal_tick + 1, next_state=None, terminated=True
-                    )
+                self._record_transition(
+                    next_formal_tick=formal_tick + 1, next_state=None, terminated=True
                 )
         return action, step_result
 
@@ -605,7 +660,8 @@ class LogicalPolicyRuntime:
                 for e in self.events
                 if e["formal_tick"] == tick
                 and e["stage"]
-                in {"observation", "belief", "meta_decision", "request_launch", "forecast"}
+                in {"observation", "belief", "meta_decision", "request_launch", "forecast",
+                    "forecast_prepare", "forecast_decode"}
             }
             returned = next(
                 e
@@ -630,14 +686,28 @@ class LogicalPolicyRuntime:
                     "installed_index": None if installed is None else installed["installed_index"],
                     "observation_start_ns": stages["observation"]["wall_start_ns"],
                     "observation_ready_ns": stages["observation"]["wall_end_ns"],
-                    "belief_complete_ns": stages.get("belief", {}).get("wall_end_ns"),
+                    "belief_complete_ns": stages.get(
+                        "forecast_prepare", stages.get("belief", {})
+                    ).get("wall_end_ns"),
                     "meta_decision_ns": stages["meta_decision"]["wall_end_ns"],
                     "policy_launch_ns": launch["wall_start_ns"],
                     "request_launch_ns": stages.get("request_launch", launch)["wall_start_ns"],
-                    "forecast_start_ns": stages.get("forecast", {}).get("wall_start_ns"),
-                    "forecast_complete_ns": stages.get("forecast", {}).get("wall_end_ns"),
-                    "forecast_target_tick": stages.get("forecast", {}).get("target_tick"),
-                    "forecast_available": stages.get("forecast", {}).get("available"),
+                    "forecast_start_ns": stages.get(
+                        "forecast_prepare", stages.get("forecast", {})
+                    ).get("wall_start_ns"),
+                    "forecast_complete_ns": stages.get(
+                        "forecast_prepare", stages.get("forecast", {})
+                    ).get("wall_end_ns"),
+                    "forecast_decode_complete_ns": stages.get("forecast_decode", {}).get(
+                        "wall_end_ns"
+                    ),
+                    "forecast_target_tick": stages.get(
+                        "forecast_prepare", stages.get("forecast", {})
+                    ).get("target_tick"),
+                    "forecast_available": stages.get(
+                        "forecast_prepare", stages.get("forecast", {})
+                    ).get("available"),
+                    "forecast_prepared_for_meta": "forecast_prepare" in stages,
                     "previous_action_buffer": launch.get("previous_action_buffer"),
                     "previous_action_mask": launch.get("previous_action_mask"),
                     "policy_return_ns": returned["wall_start_ns"],
@@ -673,8 +743,11 @@ class LogicalPolicyRuntime:
             "bootstrap_calls": self.bootstrap_calls,
             "belief_calls": self.belief_calls,
             "forecast_calls": self.forecast_calls,
+            "forecast_decodes": self.forecast_decodes,
+            "scheduler_uses_forecast": self.scheduler_uses_forecast,
             "forecast_wall_ns": sum(
-                e["wall_duration_ns"] for e in self.events if e["stage"] == "forecast"
+                e["wall_duration_ns"] for e in self.events
+                if e["stage"] in {"forecast", "forecast_prepare", "forecast_decode"}
             ),
             "forecast_history_wall_ns": sum(
                 e["wall_duration_ns"] for e in self.events if e["stage"] == "forecast_history"
