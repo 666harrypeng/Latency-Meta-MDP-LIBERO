@@ -70,6 +70,10 @@ class MetaEpisodeReplay:
                 "next_state_index": self._state_index(transition.next_state),
                 "action": int(transition.action == "launch"),
                 "reward": transition.reward,
+                "undiscounted_reward": transition.undiscounted_reward,
+                "start_tick": transition.start_tick,
+                "end_tick": transition.end_tick,
+                "proposed_action": int(transition.proposed_action == "launch"),
                 "bootstrap_discount": transition.bootstrap_discount,
                 "duration_ticks": transition.duration_ticks,
                 "terminated": transition.terminated,
@@ -95,7 +99,8 @@ class MetaEpisodeReplay:
             }
         )
         arrays["metadata_utf8"] = np.frombuffer(
-            json.dumps({"feature_format": FEATURE_FORMAT, **metadata}, allow_nan=False).encode(),
+            json.dumps({"feature_format": FEATURE_FORMAT, "replay_schema": 2, **metadata},
+                       allow_nan=False).encode(),
             dtype=np.uint8,
         )
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,3 +132,53 @@ class ExploratoryCursorScheduler:
         if self.rng.random() < self.epsilon:
             return bool(self.rng.integers(2))
         return state.plan_age >= self.cursor
+
+
+class StratifiedLaunchScheduler:
+    """Sample legal early/middle/late launch opportunities once per buffer."""
+
+    def __init__(self, *, seed, master_ordinal, replica_index):
+        self.rng = np.random.default_rng(seed)
+        self.offset = int(master_ordinal) + int(replica_index)
+        self.buffer_version = None
+        self.cycle = -1
+        self.target_age = None
+
+    def __call__(self, state, observation, belief):
+        if state.buffer_version != self.buffer_version:
+            self.buffer_version = state.buffer_version
+            self.cycle += 1
+            last = state.plan_age + max(0, state.remaining_actions - 20)
+            opportunities = list(range(state.plan_age, last + 1, 4))
+            if opportunities[-1] != last:
+                opportunities.append(last)
+            groups = np.array_split(opportunities, 3)
+            group = (self.offset + self.cycle) % 3
+            if not len(groups[group]):
+                group = int(self.rng.choice([i for i, g in enumerate(groups) if len(g)]))
+            self.target_age = int(self.rng.choice(groups[group]))
+        return bool(state.remaining_actions <= 20 or state.plan_age >= self.target_age)
+
+
+class ExploratoryQScheduler:
+    """Frozen legal Q policy with reproducible exploration, not online weight updates."""
+
+    def __init__(self, scheduler, *, seed, epsilon=0.20):
+        if not 0 <= epsilon <= 1:
+            raise ValueError("exploration epsilon must lie in [0,1]")
+        self.scheduler = scheduler
+        self.rng = np.random.default_rng(seed)
+        self.epsilon = epsilon
+
+    @property
+    def last_q_values(self):
+        return self.scheduler.last_q_values
+
+    def __call__(self, state, observation, belief):
+        greedy = self.scheduler(state, observation, belief)
+        self.last_greedy_launch = greedy
+        if state.remaining_actions <= 20:
+            return True
+        if self.rng.random() < self.epsilon:
+            return bool(self.rng.integers(2))
+        return greedy

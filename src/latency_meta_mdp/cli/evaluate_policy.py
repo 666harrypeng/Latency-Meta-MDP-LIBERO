@@ -71,10 +71,14 @@ def main(argv=None):
     parser.add_argument("--decision-interval-ticks", type=int)
     parser.add_argument("--collect-meta-transitions", action="store_true")
     parser.add_argument(
-        "--scheduler", choices=("fixed", "explore", "learned", "immediate", "coverage"),
+        "--scheduler",
+        choices=("fixed", "explore", "stratified", "learned", "immediate", "coverage"),
         default="fixed",
     )
     parser.add_argument("--meta-q-checkpoint", type=Path)
+    parser.add_argument("--meta-exploration-epsilon", type=float, default=0.0)
+    parser.add_argument("--exploration-replica", type=int, default=0)
+    parser.add_argument("--task-horizon-terminal", action="store_true")
     parser.add_argument("--discount-per-tick", type=float, default=1.0)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-verification", type=Path)
@@ -118,8 +122,14 @@ def main(argv=None):
         parser.error("physical-tick discount must lie in [0,1]")
     if args.collect_meta_transitions and not args.prepare_forecast_before_decision:
         parser.error("Meta replay collection requires the shared public forecast path")
-    if args.scheduler == "explore" and not args.collect_meta_transitions:
+    if args.scheduler in {"explore", "stratified"} and not args.collect_meta_transitions:
         parser.error("exploration requires an explicit Meta collection run")
+    if not 0 <= args.meta_exploration_epsilon <= 1 or args.exploration_replica < 0:
+        parser.error("invalid Meta exploration settings")
+    if args.meta_exploration_epsilon and (
+        args.scheduler != "learned" or not args.collect_meta_transitions
+    ):
+        parser.error("Q exploration requires learned Meta replay collection")
     if (args.scheduler == "learned") != (args.meta_q_checkpoint is not None):
         parser.error("learned scheduler requires exactly one Meta Q checkpoint")
     if args.scheduler == "learned" and not args.prepare_forecast_before_decision:
@@ -192,6 +202,8 @@ def main(argv=None):
         "regime": args.regime,
         "maximum_steps": args.maximum_steps,
     }
+    if args.task_horizon_terminal:
+        identity["task_horizon_terminal"] = True
     if args.protocol == "rtc":
         expected_repo = f"yypeng666/metamdp-pi05-l{level}-clean-state16-h50-full-sft-v1"
         if (forecast_assets is None or args.planned_handoff is not None) and (
@@ -244,9 +256,14 @@ def main(argv=None):
             identity.update(
                 meta_collection=True, meta_feature_format="rtc_meta_spatial_forecast_v1",
                 scheduler=args.scheduler, exploration_seed=20260912,
-                exploration_epsilon=.25, exploration_cursors=[10, 20, 28],
             )
-        if args.discount_per_tick != 1.0 or args.collect_meta_transitions:
+            if args.scheduler == "explore":
+                identity.update(exploration_epsilon=.25, exploration_cursors=[10, 20, 28])
+            else:
+                identity.update(exploration_epsilon=args.meta_exploration_epsilon,
+                                exploration_replica=args.exploration_replica)
+        if (args.discount_per_tick != 1.0 or args.collect_meta_transitions
+                or args.meta_q_checkpoint is not None or args.task_horizon_terminal):
             identity["discount_per_tick"] = args.discount_per_tick
         if args.meta_q_checkpoint is not None:
             from latency_meta_mdp.meta_q import validate_policy_binding
@@ -456,6 +473,25 @@ def main(argv=None):
                 scheduler = ExploratoryCursorScheduler(seed=np.random.SeedSequence(
                     [case["master_index"], case["policy_seed"], 20260912]
                 ))
+            elif args.scheduler == "stratified":
+                from latency_meta_mdp.meta_replay import StratifiedLaunchScheduler
+
+                ordinal = sorted({c["master_index"] for c in cohort["cases"]}).index(
+                    case["master_index"]
+                )
+                scheduler = StratifiedLaunchScheduler(
+                    seed=np.random.SeedSequence([case["master_index"], case["policy_seed"],
+                                                 args.exploration_replica, 20260912]),
+                    master_ordinal=ordinal, replica_index=args.exploration_replica,
+                )
+            elif args.scheduler == "learned" and args.meta_exploration_epsilon:
+                from latency_meta_mdp.meta_replay import ExploratoryQScheduler
+
+                scheduler = ExploratoryQScheduler(
+                    trained_scheduler, epsilon=args.meta_exploration_epsilon,
+                    seed=np.random.SeedSequence([case["master_index"], case["policy_seed"],
+                                                 args.exploration_replica, 20260913]),
+                )
             elif args.scheduler in {"immediate", "coverage"}:
                 from latency_meta_mdp.policy_execution import (
                     BufferCoverageScheduler,
@@ -493,6 +529,7 @@ def main(argv=None):
                                      if args.prepare_forecast_before_decision else None),
                     scheduler=scheduler,
                     gamma=args.discount_per_tick,
+                    task_horizon_terminal=args.task_horizon_terminal,
                 )
             if args.prepare_forecast_before_decision:
                 result["decision_transitions"] = transition_audit

@@ -91,7 +91,9 @@ class FittedQScheduler:
         with (
             torch.inference_mode(),
             torch.autocast(
-                self.device.type, dtype=torch.bfloat16, enabled=self.device.type == "cuda"
+                self.device.type, dtype=torch.bfloat16,
+                enabled=(self.device.type == "cuda" and
+                         self.config.get("q_precision", "bfloat16") != "float32"),
             ),
         ):
             q = self.model(

@@ -93,3 +93,31 @@ def test_amp_target_forward_does_not_detach_online_training_weights():
     assert model.visual_projection.weight.grad.abs().sum() > 0
     assert model.head[-1].weight.grad.abs().sum() > 0
     assert all(p.grad is None for p in target.parameters())
+
+
+def test_fixed_probe_labels_are_detached_and_do_not_follow_model_updates():
+    import copy
+
+    from latency_meta_mdp.cli.train_meta_q import meta_batch_predictions
+    from latency_meta_mdp.meta_q import MetaQNetwork
+
+    model = MetaQNetwork(vector_mean=torch.zeros(501), vector_scale=torch.ones(501))
+    target = copy.deepcopy(model).requires_grad_(False)
+    x = torch.zeros(2, 2, 2, 196, 384, dtype=torch.float16)
+    v = torch.zeros(2, 501)
+    records = {k: torch.tensor(a) for k, a in {
+        "state": [0, 1], "next": [1, 0], "action": [0, 1],
+        "reward": [0., 1.], "discount": [1., 0.],
+    }.items()}
+    args = (model, target, x, v, records, torch.ones(2, 2, dtype=torch.bool),
+            torch.arange(2), {"q_precision": "float32", "call_cost": 0., "forecast_cost": 0.})
+    prediction, labels, q = meta_batch_predictions(*args)
+    fixed = labels.clone()
+    assert not labels.requires_grad and prediction.dtype == torch.float32
+    torch.nn.functional.smooth_l1_loss(prediction, labels).backward()
+    assert model.head[-1].weight.grad is not None
+    with torch.no_grad():
+        model.head[-1].bias.add_(10)
+    _, changed, _ = meta_batch_predictions(*args)
+    torch.testing.assert_close(labels, fixed)
+    assert q.shape == (2, 2)

@@ -1,0 +1,115 @@
+"""Audited, zero-copy-on-disk views of completed terminal-success Meta replay."""
+
+import json
+from pathlib import Path
+
+import numpy as np
+
+from latency_meta_mdp.meta_replay import FEATURE_FORMAT
+
+PHYSICAL_KEYS = (
+    "checkpoint_step", "checkpoint_verification_sha256", "forecast_identity",
+    "client_config_sha256", "rtc_calibration", "rtc_max_guidance_weight",
+    "decision_interval_ticks", "runtime_patch_sha256", "maximum_steps",
+    "profile_sha256", "bootstrap_verification_sha256", "protocol_id", "conditioning",
+)
+
+
+def audited_episode(entry):
+    """Read and validate labels before materializing large visual arrays."""
+    result = json.loads(Path(entry["result"]).read_text())
+    if not result["terminated"] or result["truncated"]:
+        raise ValueError("success view requires a completed task episode, not capture truncation")
+    with np.load(entry["replay"], allow_pickle=False) as d:
+        meta = json.loads(d["metadata_utf8"].tobytes())
+        if meta["feature_format"] != FEATURE_FORMAT:
+            raise ValueError("Meta replay feature format differs")
+        if meta["identity"] != result["identity"] or meta["case"] != result["case"]:
+            raise ValueError("replay/result identity mismatch")
+        fields = {k: d[k] for k in (
+            "state_index", "next_state_index", "action", "reward", "bootstrap_discount",
+            "duration_ticks", "terminated", "truncated", "shielded", "vector", "legal_actions",
+        )}
+        raw = np.asarray([r["undiscounted_reward"] for r in result["decision_transitions"]])
+        if "undiscounted_reward" in d and not np.array_equal(raw, d["undiscounted_reward"]):
+            raise ValueError("raw replay/audit reward mismatch")
+    n = len(fields["action"])
+    term, duration = fields["terminated"], fields["duration_ticks"]
+    if (not n or raw.shape != (n,) or fields["truncated"].any() or
+            np.any(duration <= 0) or term.sum() != 1 or not term[-1]):
+        raise ValueError("invalid completed decision sequence")
+    expected = np.zeros(n)
+    expected[-1] = float(result["success"])
+    gamma = meta["identity"]["discount_per_tick"]
+    if not 0 <= gamma <= 1 or not np.array_equal(raw, expected):
+        raise ValueError("terminal-only reward and episode outcome disagree")
+    if not np.allclose(fields["reward"], expected * gamma ** (duration - 1)):
+        raise ValueError("source reward is not the declared terminal-success reward")
+    if not np.allclose(fields["bootstrap_discount"], np.where(term, 0, gamma ** duration)):
+        raise ValueError("source duration discount mismatch")
+    idx, nxt = fields["state_index"], fields["next_state_index"]
+    size = len(fields["vector"])
+    if (np.any(idx < 0) or np.any(idx >= size) or np.any(nxt >= size)
+            or np.any((nxt < 0) != term) or not np.isin(fields["action"], [0, 1]).all()):
+        raise ValueError("invalid replay state/action indices")
+    if not fields["legal_actions"][idx, fields["action"]].all():
+        raise ValueError("illegal executed Meta action")
+    fields["success_reward"] = raw.astype(np.float32)
+    return meta, fields
+
+
+def load_success_replay(manifest_path):
+    manifest = json.loads(Path(manifest_path).read_text())
+    entries = manifest["episodes"]
+    if (manifest["schema"] != 2 or manifest["status"] != "completed"
+            or len(entries) != manifest["expected_episodes"]):
+        raise ValueError("incomplete success replay manifest")
+    paths = [str(Path(e["replay"]).resolve()) for e in entries]
+    if len(set(paths)) != len(paths):
+        raise ValueError("duplicate replay source")
+    states, vectors, masks, rows, inventory = [], [], [], [], []
+    masters = {"train": set(), "validation": set()}
+    binding, offset = None, 0
+    for entry in entries:
+        meta, d = audited_episode(entry)
+        identity = {k: meta["identity"][k] for k in PHYSICAL_KEYS}
+        if identity["maximum_steps"] != 1000:
+            raise ValueError("success objective requires the declared1000tick task horizon")
+        if binding is not None and binding != identity:
+            raise ValueError("success view mixes physical policy/timing identities")
+        binding = identity
+        part = meta["case"]["meta_partition"]
+        masters[part].add(meta["case"]["master_index"])
+        with np.load(entry["replay"], allow_pickle=False) as source:
+            x = source["visual"]
+        v, legal = d["vector"], d["legal_actions"]
+        if x.shape[1:] != (2, 2, 196, 384) or v.shape != (len(x), 501):
+            raise ValueError("invalid replay feature shape")
+        if legal.shape != (len(x), 2) or not np.isfinite(x).all() or not np.isfinite(v).all():
+            raise ValueError("invalid replay features or legal mask")
+        states.append(x)
+        vectors.append(v)
+        masks.append(legal)
+        nxt = d["next_state_index"]
+        rows.append({
+            "state": d["state_index"] + offset,
+            "next": np.where(nxt < 0, 0, nxt + offset),
+            "action": d["action"], "reward": d["success_reward"],
+            "discount": (~d["terminated"]).astype(np.float32),
+            "train": np.full(len(nxt), part == "train", bool),
+        })
+        inventory.append({
+            **entry, "partition": part, "states": len(x), "transitions": len(nxt),
+            "source_gamma": meta["identity"]["discount_per_tick"],
+            "conversion": "verified_undiscounted_terminal_success",
+        })
+        offset += len(x)
+    if (not all(masters.values()) or masters["train"] & masters["validation"] or
+            any(sorted(masters[k]) != sorted(manifest[k + "_masters"]) for k in masters)):
+        raise ValueError("success replay grouped split differs from manifest")
+    binding.update(discount_per_tick=1.0, task_horizon_terminal=True)
+    return (
+        np.concatenate(states), np.concatenate(vectors), np.concatenate(masks),
+        {k: np.concatenate([r[k] for r in rows]) for k in rows[0]}, binding, inventory,
+        {k: sorted(v) for k, v in masters.items()},
+    )

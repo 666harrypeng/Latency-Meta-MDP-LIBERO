@@ -531,6 +531,10 @@ class LogicalPolicyRuntime:
                 launch=launch,
                 shielded=forced,
                 q_values=getattr(self.scheduler, "last_q_values", None),
+                greedy_launch=getattr(self.scheduler, "last_greedy_launch", None),
+                exploration_epsilon=getattr(self.scheduler, "epsilon", None),
+                remaining_actions=state.remaining_actions,
+                plan_age=getattr(state, "plan_age", None),
             )
             self.collector.begin(
                 formal_tick=formal_tick,

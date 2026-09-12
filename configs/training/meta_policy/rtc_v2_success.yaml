@@ -1,0 +1,13 @@
+objective: finite_horizon_success_v2
+gamma: 1.0
+task_horizon_ticks: 1000
+call_cost: 0.0
+forecast_cost: 0.0
+q_precision: float32
+seed: 27
+updates: 6000
+batch_size: 128
+learning_rate: 0.0003
+weight_decay: 0.0001
+gradient_clip: 1.0
+target_update_interval: 100

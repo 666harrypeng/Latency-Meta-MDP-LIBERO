@@ -62,3 +62,40 @@ def test_behavior_is_reproducible_and_covers_both_actions():
     x = [a(public, None, None) for _ in range(100)]
     assert x == [b(public, None, None) for _ in range(100)]
     assert set(x) == {True, False}
+
+
+def test_stratified_scheduler_visits_late_opportunities_and_resets_on_buffer():
+    from latency_meta_mdp.meta_replay import StratifiedLaunchScheduler
+
+    s = StratifiedLaunchScheduler(seed=7, master_ordinal=0, replica_index=2)
+    b = state(10, remaining=40)["buffer"]
+    assert not s(b, None, None)
+    assert s.target_age in (26, 30)
+    first = s.target_age
+    b.plan_age = first
+    assert s(b, None, None)
+    assert s.target_age == first
+    b.buffer_version = 1
+    b.plan_age = 29
+    b.remaining_actions = 21
+    s(b, None, None)
+    assert s.target_age in (29, 30)
+    b.plan_age, b.remaining_actions = 30, 20
+    assert s(b, None, None)
+
+
+def test_q_exploration_preserves_legal_actions_and_q_logging():
+    from latency_meta_mdp.meta_replay import ExploratoryQScheduler
+
+    class Greedy:
+        last_q_values = [0.8, 0.2]
+
+        def __call__(self, state, observation, belief):
+            return state.remaining_actions <= 20
+
+    s = ExploratoryQScheduler(Greedy(), seed=7, epsilon=0)
+    assert not s(state(10)["buffer"], None, None)
+    assert s.last_q_values == [0.8, 0.2]
+    s = ExploratoryQScheduler(Greedy(), seed=7, epsilon=1)
+    assert {s(state(10)["buffer"], None, None) for _ in range(100)} == {False, True}
+    assert all(s(state(10, remaining=20)["buffer"], None, None) for _ in range(50))

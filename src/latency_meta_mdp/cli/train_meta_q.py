@@ -111,50 +111,71 @@ def load_replay(root):
     )
 
 
-def meta_td_loss(model, target, visual, vector, records, admissible, indices, cfg):
-    device = visual.device
+def meta_batch_predictions(model, target, visual, vector, records, admissible, indices, cfg):
+    """One minibatch; replay may live on CPU while Q runs on GPU."""
+    device = next(model.parameters()).device
     current, nxt = records["state"][indices], records["next"][indices]
-    actions = records["action"][indices].long()
+    actions = records["action"][indices].long().to(device)
+    next_visual, next_vector = visual[nxt].to(device), vector[nxt].to(device)
+    amp = device.type == "cuda" and cfg.get("q_precision", "bfloat16") != "float32"
     # A no-grad online forward can populate AMP's weight cache with detached
     # casts. Close that scope before the differentiable online forward.
     with (
         torch.no_grad(),
-        torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"),
+        torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp),
     ):
         labels = fitted_q_targets(
-            reward=records["reward"][indices].float(),
+            reward=records["reward"][indices].float().to(device),
             action=actions,
-            discount=records["discount"][indices].float(),
-            next_online=model(visual[nxt], vector[nxt]).float(),
-            next_target=target(visual[nxt], vector[nxt]).float(),
-            next_legal=admissible[nxt],
+            discount=records["discount"][indices].float().to(device),
+            next_online=model(next_visual, next_vector).float(),
+            next_target=target(next_visual, next_vector).float(),
+            next_legal=admissible[nxt].to(device),
             call_cost=cfg["call_cost"],
             forecast_cost=cfg["forecast_cost"],
         )
-    with torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
-        predicted = (
-            model(visual[current], vector[current]).float().gather(1, actions[:, None])[:, 0]
-        )
-        loss = torch.nn.functional.smooth_l1_loss(predicted, labels)
-    return loss
+    with torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
+        q = model(visual[current].to(device), vector[current].to(device)).float()
+        predicted = q.gather(1, actions[:, None])[:, 0]
+    return predicted, labels, q
+
+
+def meta_td_loss(model, target, visual, vector, records, admissible, indices, cfg):
+    prediction, labels, _ = meta_batch_predictions(
+        model, target, visual, vector, records, admissible, indices, cfg
+    )
+    return torch.nn.functional.smooth_l1_loss(prediction, labels)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--replay-root", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--replay-root", type=Path)
+    source.add_argument("--replay-manifest", type=Path)
+    parser.add_argument("--training-config", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--no-future", action="store_true")
     args = parser.parse_args()
-    collection = json.loads((args.replay_root / "status.json").read_text())
-    if collection["status"] != "completed":
-        raise ValueError("Meta training requires the completed collection manifest")
+    if (args.replay_manifest is None) != (args.training_config is None):
+        parser.error("success replay manifest requires its explicit training config")
+    if args.replay_root is not None:
+        collection = json.loads((args.replay_root / "status.json").read_text())
+        if collection["status"] != "completed":
+            raise ValueError("Meta training requires the completed collection manifest")
     args.output_dir.mkdir(parents=True, exist_ok=False)
     torch.set_num_threads(4)
     torch.manual_seed(27)
     device = torch.device(args.device)
-    x, v, legal, data, binding, inventory, masters = load_replay(args.replay_root)
-    if len(inventory) != 120 or len(masters["train"]) != 48 or len(masters["validation"]) != 12:
+    if args.replay_manifest is not None:
+        from latency_meta_mdp.meta_success_data import load_success_replay
+
+        x, v, legal, data, binding, inventory, masters = load_success_replay(args.replay_manifest)
+    else:
+        x, v, legal, data, binding, inventory, masters = load_replay(args.replay_root)
+    if args.replay_root is not None and (
+        len(inventory) != 120 or len(masters["train"]) != 48 or len(masters["validation"]) != 12
+    ):
         raise ValueError("first Meta pilot requires the complete 48/12-master120-episode cohort")
     cfg = {
         "feature_format": FEATURE_FORMAT,
@@ -173,6 +194,16 @@ def main():
         "hidden_widths": [128, 64],
         "code_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
     }
+    if args.training_config is not None:
+        import yaml
+
+        requested = yaml.safe_load(args.training_config.read_text())
+        if (requested["objective"] != "finite_horizon_success_v2" or requested["gamma"] != 1
+                or requested["call_cost"] != 0 or requested["forecast_cost"] != 0
+                or requested["task_horizon_ticks"] != 1000):
+            raise ValueError("invalid success-only objective specification")
+        cfg.update(requested)
+        cfg["replay_manifest"] = str(args.replay_manifest.resolve())
     (args.output_dir / "config.json").write_text(json.dumps(cfg, indent=2))
     (args.output_dir / "replay-inventory.json").write_text(
         json.dumps({"files": inventory, "masters": masters}, indent=2)
@@ -187,12 +218,28 @@ def main():
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg["learning_rate"], weight_decay=cfg["weight_decay"]
     )
-    visual = torch.from_numpy(x).to(device)
-    vector = torch.from_numpy(v).to(device)
-    admissible = torch.from_numpy(legal).to(device)
-    records = {k: torch.as_tensor(a, device=device) for k, a in data.items()}
+    # Keep the large expanded replay on host when it would crowd training activations.
+    replay_device = device
+    if device.type == "cuda" and x.nbytes > 0.55 * torch.cuda.mem_get_info(device)[0]:
+        replay_device = torch.device("cpu")
+    visual = torch.from_numpy(x).to(replay_device)
+    vector = torch.from_numpy(v).to(replay_device)
+    admissible = torch.from_numpy(legal).to(replay_device)
+    records = {k: torch.as_tensor(a, device=replay_device) for k, a in data.items()}
     train = torch.where(records["train"])[0]
     validation = torch.where(~records["train"])[0]
+    visited = torch.zeros(len(data["state"]), dtype=torch.bool, device=replay_device)
+    probe, fixed_labels, previous_q = None, None, None
+    if args.replay_manifest is not None:
+        # Common old-data fit probe for both fits; validation is never used for SGD.
+        old_count = sum(e["transitions"] for e in inventory if e.get("source") == "old")
+        old_train = train[train < old_count] if old_count else train
+        rng = np.random.default_rng(27)
+        fit_probe = rng.choice(old_train.cpu().numpy(), min(256, len(old_train)), replace=False)
+        probe = torch.as_tensor(
+            np.concatenate((validation.cpu().numpy(), fit_probe)), device=replay_device
+        )
+        np.save(args.output_dir / "probe-indices.npy", probe.cpu().numpy())
     run = None
     import wandb
 
@@ -227,7 +274,8 @@ def main():
     try:
         for step in range(1, cfg["updates"] + 1):
             model.train()
-            indices = train[torch.randint(len(train), (cfg["batch_size"],), device=device)]
+            indices = train[torch.randint(len(train), (cfg["batch_size"],), device=replay_device)]
+            visited[indices] = True
             optimizer.zero_grad(set_to_none=True)
             loss = loss_for(indices)
             if not torch.isfinite(loss):
@@ -252,7 +300,44 @@ def main():
                     "validation_bellman_loss": float(np.mean(values)),
                     "grad_norm": float(grad),
                     "elapsed_seconds": time.monotonic() - started,
+                    "sample_draws": step * cfg["batch_size"],
+                    "unique_fit_transitions_visited": int(visited.sum()),
+                    "mean_draws_per_fit_transition": step * cfg["batch_size"] / len(train),
                 }
+                if probe is not None and step % 500 == 0:
+                    predictions, labels, qs = [], [], []
+                    with torch.no_grad():
+                        for batch in probe.split(128):
+                            p, y, q = meta_batch_predictions(
+                                model, target, visual, vector, records, admissible, batch, cfg
+                            )
+                            predictions.append(p.cpu())
+                            labels.append(y.cpu())
+                            qs.append(q.cpu())
+                    prediction, label, q = map(torch.cat, (predictions, labels, qs))
+                    if step == 5000:
+                        fixed_labels = label.clone()
+                    both_legal = admissible[records["state"][probe]].cpu().all(dim=1)
+                    last.update(
+                        probe_td_loss=float(torch.nn.functional.smooth_l1_loss(prediction, label)),
+                        probe_q_min=float(q.min()), probe_q_max=float(q.max()),
+                    )
+                    if previous_q is not None:
+                        last["probe_q_mean_drift"] = float((q - previous_q).abs().mean())
+                        last["probe_legal_action_flip_fraction"] = float(
+                            (q.argmax(1) != previous_q.argmax(1))[both_legal].float().mean()
+                        ) if both_legal.any() else 0.0
+                    if fixed_labels is not None:
+                        last["probe_fixed_target_loss"] = float(
+                            torch.nn.functional.smooth_l1_loss(prediction, fixed_labels)
+                        )
+                    previous_q = q
+                    np.savez_compressed(
+                        args.output_dir / f"probe-{step:06d}.npz",
+                        q=q.numpy(), prediction=prediction.numpy(), target=label.numpy(),
+                        fixed_target=(fixed_labels.numpy() if fixed_labels is not None
+                                      else np.array([], dtype=np.float32)),
+                    )
                 print(json.dumps(last), flush=True)
                 with (args.output_dir / "progress.jsonl").open("a") as f:
                     f.write(json.dumps(last) + "\n")

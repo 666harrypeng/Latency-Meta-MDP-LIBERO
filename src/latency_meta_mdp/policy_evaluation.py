@@ -34,6 +34,7 @@ def run_native_policy_episode(
     decision_interval_ticks=None,
     transition_sink=None,
     gamma=1.0,
+    task_horizon_terminal=False,
 ) -> dict:
     """Execute an owned simulator to its task terminal condition or an explicit time limit.
 
@@ -93,7 +94,9 @@ def run_native_policy_episode(
             latest = runtime.executor.step_formal(action)
             status = runtime.tracker.status.value
             return PhysicalStepResult(
-                reward=float(status == "success"), terminated=status != "running"
+                reward=float(status == "success"),
+                terminated=(status != "running" or
+                            (task_horizon_terminal and latest.formal_tick_index >= maximum_steps)),
             )
 
         record()
@@ -117,7 +120,7 @@ def run_native_policy_episode(
             **engine.summary(),
             "success": success,
             "truncated": truncated,
-            "task_status": "time_limit" if truncated else status,
+            "task_status": "time_limit" if truncated or status == "running" else status,
             "terminal_reason": getattr(reason, "value", reason),
             "executed_steps": len(actions),
             "elapsed_simulation_seconds": elapsed,

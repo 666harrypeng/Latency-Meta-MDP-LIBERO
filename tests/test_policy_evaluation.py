@@ -99,6 +99,32 @@ def test_evaluation_time_limit_is_not_success(monkeypatch):
     assert runtime.closed
 
 
+@pytest.mark.parametrize("succeed_at, expected", [(None, False), (30, True)])
+def test_declared_task_deadline_is_terminal_and_preserves_final_tick_success(
+    monkeypatch, succeed_at, expected
+):
+    from latency_meta_mdp import policy_evaluation as evaluation
+
+    monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
+    transitions = []
+    result = evaluation.run_native_policy_episode(
+        runtime=Runtime(succeed_at=succeed_at),
+        policy=lambda observation, belief: np.zeros((50, 7)),
+        client_config=load_action_chunk_client_config(
+            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+        ),
+        delay_sampler=lambda: 10,
+        maximum_steps=30,
+        task_horizon_terminal=True,
+        transition_sink=transitions.append,
+    )
+    assert result["success"] is expected
+    assert result["terminated"] and not result["truncated"]
+    assert result["executed_steps"] == 30
+    assert transitions[-1].terminated and transitions[-1].bootstrap_discount == 0
+    assert transitions[-1].undiscounted_reward == float(expected)
+
+
 def test_evaluation_closes_simulator_on_invalid_policy_output(monkeypatch):
     from latency_meta_mdp import policy_evaluation as evaluation
 
