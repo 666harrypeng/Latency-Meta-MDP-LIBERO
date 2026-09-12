@@ -746,6 +746,9 @@ class LogicalPolicyRuntime:
             "forecast_calls": self.forecast_calls,
             "forecast_decodes": self.forecast_decodes,
             "scheduler_uses_forecast": self.scheduler_uses_forecast,
+            "meta_wall_ns": sum(
+                e["wall_duration_ns"] for e in self.events if e["stage"] == "meta_decision"
+            ),
             "forecast_wall_ns": sum(
                 e["wall_duration_ns"] for e in self.events
                 if e["stage"] in {"forecast", "forecast_prepare", "forecast_decode"}

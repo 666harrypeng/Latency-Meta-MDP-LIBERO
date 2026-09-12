@@ -70,7 +70,10 @@ def main(argv=None):
     parser.add_argument("--prepare-forecast-before-decision", action="store_true")
     parser.add_argument("--decision-interval-ticks", type=int)
     parser.add_argument("--collect-meta-transitions", action="store_true")
-    parser.add_argument("--scheduler", choices=("fixed", "explore", "learned"), default="fixed")
+    parser.add_argument(
+        "--scheduler", choices=("fixed", "explore", "learned", "immediate", "coverage"),
+        default="fixed",
+    )
     parser.add_argument("--meta-q-checkpoint", type=Path)
     parser.add_argument("--discount-per-tick", type=float, default=1.0)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
@@ -255,6 +258,8 @@ def main(argv=None):
                 meta_q_sha256=sha256_file(args.meta_q_checkpoint / "model.safetensors"),
                 meta_q_config_sha256=sha256_file(config_path),
             )
+        elif args.scheduler in {"immediate", "coverage"}:
+            identity["scheduler"] = args.scheduler
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]
@@ -451,6 +456,14 @@ def main(argv=None):
                 scheduler = ExploratoryCursorScheduler(seed=np.random.SeedSequence(
                     [case["master_index"], case["policy_seed"], 20260912]
                 ))
+            elif args.scheduler in {"immediate", "coverage"}:
+                from latency_meta_mdp.policy_execution import (
+                    BufferCoverageScheduler,
+                    ImmediateLaunchScheduler,
+                )
+
+                scheduler = (ImmediateLaunchScheduler() if args.scheduler == "immediate"
+                             else BufferCoverageScheduler())
 
             def record_transition(t):
                 if replay is not None:

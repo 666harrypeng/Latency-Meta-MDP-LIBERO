@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 
@@ -53,3 +54,42 @@ def test_meta_checkpoint_cannot_silently_change_policy_or_decision_clock():
     validate_policy_binding(config, {"checkpoint_step": 7560, "decision_interval_ticks": 4})
     with pytest.raises(ValueError, match="decision_interval_ticks"):
         validate_policy_binding(config, {"checkpoint_step": 7560, "decision_interval_ticks": 1})
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA AMP gradient regression")
+def test_amp_target_forward_does_not_detach_online_training_weights():
+    import copy
+
+    from latency_meta_mdp.cli.train_meta_q import meta_td_loss
+    from latency_meta_mdp.meta_q import MetaQNetwork
+
+    device = torch.device("cuda:0")
+    model = MetaQNetwork(vector_mean=torch.zeros(501), vector_scale=torch.ones(501)).to(device)
+    target = copy.deepcopy(model).eval().requires_grad_(False)
+    visual = torch.randn(2, 2, 2, 196, 384, device=device, dtype=torch.float16)
+    vector = torch.randn(2, 501, device=device)
+    records = {
+        k: torch.tensor(v, device=device)
+        for k, v in {
+            "state": [0, 1],
+            "next": [1, 0],
+            "action": [0, 1],
+            "reward": [0.0, 1.0],
+            "discount": [0.99, 0.0],
+        }.items()
+    }
+    loss = meta_td_loss(
+        model,
+        target,
+        visual,
+        vector,
+        records,
+        torch.ones((2, 2), device=device, dtype=torch.bool),
+        torch.arange(2, device=device),
+        {"call_cost": 0.01, "forecast_cost": 0.002},
+    )
+    assert loss.requires_grad
+    loss.backward()
+    assert model.visual_projection.weight.grad.abs().sum() > 0
+    assert model.head[-1].weight.grad.abs().sum() > 0
+    assert all(p.grad is None for p in target.parameters())

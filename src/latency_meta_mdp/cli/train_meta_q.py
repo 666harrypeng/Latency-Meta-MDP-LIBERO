@@ -111,6 +111,34 @@ def load_replay(root):
     )
 
 
+def meta_td_loss(model, target, visual, vector, records, admissible, indices, cfg):
+    device = visual.device
+    current, nxt = records["state"][indices], records["next"][indices]
+    actions = records["action"][indices].long()
+    # A no-grad online forward can populate AMP's weight cache with detached
+    # casts. Close that scope before the differentiable online forward.
+    with (
+        torch.no_grad(),
+        torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"),
+    ):
+        labels = fitted_q_targets(
+            reward=records["reward"][indices].float(),
+            action=actions,
+            discount=records["discount"][indices].float(),
+            next_online=model(visual[nxt], vector[nxt]).float(),
+            next_target=target(visual[nxt], vector[nxt]).float(),
+            next_legal=admissible[nxt],
+            call_cost=cfg["call_cost"],
+            forecast_cost=cfg["forecast_cost"],
+        )
+    with torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
+        predicted = (
+            model(visual[current], vector[current]).float().gather(1, actions[:, None])[:, 0]
+        )
+        loss = torch.nn.functional.smooth_l1_loss(predicted, labels)
+    return loss
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--replay-root", type=Path, required=True)
@@ -178,25 +206,7 @@ def main():
     started = time.monotonic()
 
     def loss_for(indices):
-        current, nxt = records["state"][indices], records["next"][indices]
-        actions = records["action"][indices].long()
-        with torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
-            with torch.no_grad():
-                labels = fitted_q_targets(
-                    reward=records["reward"][indices].float(),
-                    action=actions,
-                    discount=records["discount"][indices].float(),
-                    next_online=model(visual[nxt], vector[nxt]).float(),
-                    next_target=target(visual[nxt], vector[nxt]).float(),
-                    next_legal=admissible[nxt],
-                    call_cost=cfg["call_cost"],
-                    forecast_cost=cfg["forecast_cost"],
-                )
-            predicted = (
-                model(visual[current], vector[current]).float().gather(1, actions[:, None])[:, 0]
-            )
-            loss = torch.nn.functional.smooth_l1_loss(predicted, labels)
-        return loss
+        return meta_td_loss(model, target, visual, vector, records, admissible, indices, cfg)
 
     print(
         json.dumps(
