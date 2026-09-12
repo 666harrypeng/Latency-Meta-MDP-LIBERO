@@ -69,6 +69,9 @@ def main(argv=None):
     parser.add_argument("--planned-handoff", choices=("current", "forecast"))
     parser.add_argument("--prepare-forecast-before-decision", action="store_true")
     parser.add_argument("--decision-interval-ticks", type=int)
+    parser.add_argument("--collect-meta-transitions", action="store_true")
+    parser.add_argument("--scheduler", choices=("fixed", "explore"), default="fixed")
+    parser.add_argument("--discount-per-tick", type=float, default=1.0)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-verification", type=Path)
     parser.add_argument(
@@ -107,6 +110,12 @@ def main(argv=None):
         or args.decision_interval_ticks is None
     ):
         parser.error("shared Meta forecast requires original conditioned RTC and explicit cadence")
+    if not np.isfinite(args.discount_per_tick) or not 0 <= args.discount_per_tick <= 1:
+        parser.error("physical-tick discount must lie in [0,1]")
+    if args.collect_meta_transitions and not args.prepare_forecast_before_decision:
+        parser.error("Meta replay collection requires the shared public forecast path")
+    if args.scheduler == "explore" and not args.collect_meta_transitions:
+        parser.error("exploration requires an explicit Meta collection run")
     if args.planned_handoff is not None:
         if args.protocol != "rtc":
             parser.error("planned handoff requires RTC timing")
@@ -223,6 +232,14 @@ def main(argv=None):
                 prepare_forecast_before_decision=args.prepare_forecast_before_decision,
                 decision_interval_ticks=args.decision_interval_ticks or 1,
             )
+        if args.collect_meta_transitions:
+            identity.update(
+                meta_collection=True, meta_feature_format="rtc_meta_spatial_forecast_v1",
+                scheduler=args.scheduler, exploration_seed=20260912,
+                exploration_epsilon=.25, exploration_cursors=[10, 20, 28],
+            )
+        if args.discount_per_tick != 1.0 or args.collect_meta_transitions:
+            identity["discount_per_tick"] = args.discount_per_tick
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]
@@ -331,6 +348,11 @@ def main(argv=None):
                     raise ValueError("existing episode result has a different identity")
                 if args.record_video and not previous.get("video"):
                     raise ValueError("existing result lacks video; use a new recording output root")
+                if args.collect_meta_transitions and (
+                    not previous.get("meta_replay")
+                    or not (cell_root / previous["meta_replay"]["path"]).is_file()
+                ):
+                    raise ValueError("existing Meta result lacks its replay artifact")
                 continue
             task_id = TaskInstanceId.from_mapping(case["task_instance_id"])
             if task_id.level != level:
@@ -398,8 +420,21 @@ def main(argv=None):
                 DualCameraVideoWriter(video) if args.record_video else contextlib.nullcontext()
             )
             transition_audit = []
+            replay, scheduler = None, None
+            if args.collect_meta_transitions:
+                from latency_meta_mdp.meta_replay import MetaEpisodeReplay
+
+                replay = MetaEpisodeReplay()
+            if args.scheduler == "explore":
+                from latency_meta_mdp.meta_replay import ExploratoryCursorScheduler
+
+                scheduler = ExploratoryCursorScheduler(seed=np.random.SeedSequence(
+                    [case["master_index"], case["policy_seed"], 20260912]
+                ))
 
             def record_transition(t):
+                if replay is not None:
+                    replay(t)
                 transition_audit.append({
                     key: getattr(t, key) for key in (
                         "start_tick", "end_tick", "duration_ticks", "action", "proposed_action",
@@ -423,9 +458,20 @@ def main(argv=None):
                     decision_interval_ticks=args.decision_interval_ticks,
                     transition_sink=(record_transition
                                      if args.prepare_forecast_before_decision else None),
+                    scheduler=scheduler,
+                    gamma=args.discount_per_tick,
                 )
             if args.prepare_forecast_before_decision:
                 result["decision_transitions"] = transition_audit
+            if replay is not None:
+                replay_path = cell_root / "meta-replay" / target.with_suffix(".npz").name
+                result["meta_replay"] = {
+                    **replay.save(replay_path, metadata={
+                        "identity": cell_identity, "case": case,
+                        "behavior_cursor": getattr(scheduler, "cursor", 25),
+                    }),
+                    "path": str(replay_path.relative_to(cell_root)),
+                }
             if args.record_video:
                 result["video"] = {
                     "path": str(video.relative_to(cell_root)),

@@ -291,9 +291,12 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
         "--forecast-assets", str(assets), "--bootstrap-checkpoint", str(checkpoint),
         "--bootstrap-verification", str(bootstrap_verification),
         "--prepare-forecast-before-decision", "--decision-interval-ticks", "4",
+        "--collect-meta-transitions", "--scheduler", "explore", "--discount-per-tick", ".999",
     ], text=True))
     assert shared["identity"]["prepare_forecast_before_decision"] is True
     assert shared["identity"]["decision_interval_ticks"] == 4
+    assert shared["identity"]["meta_collection"] is True
+    assert shared["identity"]["discount_per_tick"] == .999
     data = json.loads(verification.read_text())
     data["repo_id"] = "yypeng666/metamdp-pi05-l3-predicted-mixture-state16-h50-prefix-q4-2epochs-v1"
     verification.write_text(json.dumps(data))
