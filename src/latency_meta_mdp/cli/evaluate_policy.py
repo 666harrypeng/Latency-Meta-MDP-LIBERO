@@ -70,7 +70,8 @@ def main(argv=None):
     parser.add_argument("--prepare-forecast-before-decision", action="store_true")
     parser.add_argument("--decision-interval-ticks", type=int)
     parser.add_argument("--collect-meta-transitions", action="store_true")
-    parser.add_argument("--scheduler", choices=("fixed", "explore"), default="fixed")
+    parser.add_argument("--scheduler", choices=("fixed", "explore", "learned"), default="fixed")
+    parser.add_argument("--meta-q-checkpoint", type=Path)
     parser.add_argument("--discount-per-tick", type=float, default=1.0)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-verification", type=Path)
@@ -116,6 +117,10 @@ def main(argv=None):
         parser.error("Meta replay collection requires the shared public forecast path")
     if args.scheduler == "explore" and not args.collect_meta_transitions:
         parser.error("exploration requires an explicit Meta collection run")
+    if (args.scheduler == "learned") != (args.meta_q_checkpoint is not None):
+        parser.error("learned scheduler requires exactly one Meta Q checkpoint")
+    if args.scheduler == "learned" and not args.prepare_forecast_before_decision:
+        parser.error("learned Meta requires shared forecast preparation")
     if args.planned_handoff is not None:
         if args.protocol != "rtc":
             parser.error("planned handoff requires RTC timing")
@@ -240,6 +245,16 @@ def main(argv=None):
             )
         if args.discount_per_tick != 1.0 or args.collect_meta_transitions:
             identity["discount_per_tick"] = args.discount_per_tick
+        if args.meta_q_checkpoint is not None:
+            from latency_meta_mdp.meta_q import validate_policy_binding
+
+            config_path = args.meta_q_checkpoint / "config.json"
+            validate_policy_binding(json.loads(config_path.read_text()), identity)
+            identity.update(
+                scheduler="learned",
+                meta_q_sha256=sha256_file(args.meta_q_checkpoint / "model.safetensors"),
+                meta_q_config_sha256=sha256_file(config_path),
+            )
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]
@@ -336,6 +351,11 @@ def main(argv=None):
             forecast_components = load_forecast_components(
                 forecast_assets, project_root=root, device="cuda:0"
             )
+        trained_scheduler = None
+        if args.meta_q_checkpoint is not None:
+            from latency_meta_mdp.meta_q import FittedQScheduler
+
+            trained_scheduler = FittedQScheduler(args.meta_q_checkpoint, device="cuda:0")
         for case, regime, cell_root, cell_identity in jobs:
             cell_root.mkdir(parents=True, exist_ok=True)
             target = (
@@ -420,7 +440,7 @@ def main(argv=None):
                 DualCameraVideoWriter(video) if args.record_video else contextlib.nullcontext()
             )
             transition_audit = []
-            replay, scheduler = None, None
+            replay, scheduler = None, trained_scheduler
             if args.collect_meta_transitions:
                 from latency_meta_mdp.meta_replay import MetaEpisodeReplay
 

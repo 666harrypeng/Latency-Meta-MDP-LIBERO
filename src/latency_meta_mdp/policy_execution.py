@@ -530,6 +530,7 @@ class LogicalPolicyRuntime:
                 proposed_launch=proposed,
                 launch=launch,
                 shielded=forced,
+                q_values=getattr(self.scheduler, "last_q_values", None),
             )
             self.collector.begin(
                 formal_tick=formal_tick,
