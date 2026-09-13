@@ -54,6 +54,61 @@ def test_success_view_changes_objective_without_changing_source(tmp_path):
     assert len(x) == len(v) == len(legal) == 4 and len(inventory) == 2
 
 
+def test_sequence_view_keeps_duration_and_episode_links(tmp_path):
+    from latency_meta_mdp.meta_success_data import load_success_replay
+
+    data = load_success_replay(manifest_fixture(tmp_path))[3]
+    np.testing.assert_array_equal(data["next_transition"], [1, -1, 3, -1])
+    np.testing.assert_array_equal(data["duration_ticks"], [4, 1, 4, 1])
+    np.testing.assert_array_equal(data["episode_id"], [0, 0, 1, 1])
+
+
+def test_cost_view_preserves_original_reward_and_arrays(tmp_path):
+    from test_meta_cost import episode, profile
+
+    from latency_meta_mdp.meta_success_data import load_success_replay
+
+    manifest = manifest_fixture(tmp_path)
+    for p in (tmp_path / "1.json", tmp_path / "2.json"):
+        d = json.loads(p.read_text())
+        e = episode()
+        for key in ("stage_events", "bootstrap_calls", "policy_calls", "forecast_calls",
+                    "forecast_decodes"):
+            d[key] = e[key]
+        for row, timestamps in zip(d["decision_transitions"], e["decision_transitions"]):
+            row.update(timestamps)
+        p.write_text(json.dumps(d))
+        source = p.with_suffix('.npz')
+        with np.load(source) as a:
+            arrays = {k: a[k] for k in a.files}
+        metadata = json.loads(arrays["metadata_utf8"].tobytes())
+        d["identity"]["conditioning"] = "native_rtc_forecast_rgb_v1"
+        metadata["identity"] = d["identity"]
+        arrays["metadata_utf8"] = np.frombuffer(json.dumps(metadata).encode(), np.uint8)
+        np.savez_compressed(source, **arrays)
+        p.write_text(json.dumps(d))
+    before = (tmp_path / '1.npz').read_bytes()
+    p = profile()
+    p["binding"] = {}
+    data = load_success_replay(manifest, cost_profile=p)[3]
+    np.testing.assert_allclose(data["cost"], [0.21, 1.24, 0.21, 1.24])
+    np.testing.assert_array_equal(data["task_reward"], [0, 1, 0, 1])
+    assert (tmp_path / '1.npz').read_bytes() == before
+
+
+def test_success_view_rejects_broken_physical_sequence(tmp_path):
+    from latency_meta_mdp.meta_success_data import load_success_replay
+
+    manifest = manifest_fixture(tmp_path)
+    p = tmp_path / '1.npz'
+    with np.load(p) as d:
+        arrays = {k: d[k] for k in d.files}
+    arrays['next_state_index'][0] = 0
+    np.savez_compressed(p, **arrays)
+    with pytest.raises(ValueError, match='sequence'):
+        load_success_replay(manifest)
+
+
 def test_success_view_rejects_episode_outcome_reward_disagreement(tmp_path):
     from latency_meta_mdp.meta_success_data import load_success_replay
 

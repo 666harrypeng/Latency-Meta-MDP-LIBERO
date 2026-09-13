@@ -62,6 +62,7 @@ def audited_episode(entry):
         fields = {k: d[k] for k in (
             "state_index", "next_state_index", "action", "reward", "bootstrap_discount",
             "duration_ticks", "terminated", "truncated", "shielded", "vector", "legal_actions",
+            "start_tick", "end_tick",
         )}
         raw = np.asarray([r["undiscounted_reward"] for r in result["decision_transitions"]])
         if "undiscounted_reward" in d and not np.array_equal(raw, d["undiscounted_reward"]):
@@ -87,11 +88,19 @@ def audited_episode(entry):
         raise ValueError("invalid replay state/action indices")
     if not fields["legal_actions"][idx, fields["action"]].all():
         raise ValueError("illegal executed Meta action")
+    if (not np.array_equal(nxt[:-1], idx[1:])
+            or not np.array_equal(fields["end_tick"][:-1], fields["start_tick"][1:])
+            or not np.array_equal(fields["end_tick"] - fields["start_tick"], duration)):
+        raise ValueError("invalid contiguous decision sequence")
+    for i, row in enumerate(result["decision_transitions"]):
+        for key in ("start_tick", "end_tick", "duration_ticks"):
+            if key in row and row[key] != fields[key][i]:
+                raise ValueError("decision sequence differs from result audit")
     fields["success_reward"] = raw.astype(np.float32)
     return meta, fields
 
 
-def load_success_replay(manifest_path, *, visual_cache=None):
+def load_success_replay(manifest_path, *, visual_cache=None, cost_profile=None):
     manifest = json.loads(Path(manifest_path).read_text())
     entries = manifest["episodes"]
     if (manifest["schema"] != 2 or manifest["status"] != "completed"
@@ -102,8 +111,8 @@ def load_success_replay(manifest_path, *, visual_cache=None):
         raise ValueError("duplicate replay source")
     states, vectors, masks, rows, inventory = [], [], [], [], []
     masters = {"train": set(), "validation": set()}
-    binding, offset = None, 0
-    for entry in entries:
+    binding, offset, transition_offset = None, 0, 0
+    for episode_id, entry in enumerate(entries):
         meta, d = audited_episode(entry)
         identity = {k: meta["identity"][k] for k in PHYSICAL_KEYS}
         if identity["maximum_steps"] != 1000:
@@ -131,19 +140,39 @@ def load_success_replay(manifest_path, *, visual_cache=None):
         vectors.append(v)
         masks.append(legal)
         nxt = d["next_state_index"]
+        cost_report = None
+        if cost_profile is not None:
+            from latency_meta_mdp.meta_cost import episode_cost_components
+
+            cost_report = episode_cost_components(
+                json.loads(Path(entry["result"]).read_text()), cost_profile
+            )
+            if (cost_report["transition_costs"] is None
+                    or len(cost_report["transition_costs"]) != len(nxt)):
+                raise ValueError("cost ledger does not match replay transitions")
         rows.append({
             "state": d["state_index"] + offset,
             "next": np.where(nxt < 0, 0, nxt + offset),
             "action": d["action"], "reward": d["success_reward"],
             "discount": (~d["terminated"]).astype(np.float32),
             "train": np.full(len(nxt), part == "train", bool),
+            "task_reward": d["success_reward"],
+            "cost": (np.zeros(len(nxt), np.float32) if cost_report is None
+                     else np.asarray(cost_report["transition_costs"], np.float32)),
+            "duration_ticks": d["duration_ticks"],
+            "terminated": d["terminated"],
+            "episode_id": np.full(len(nxt), episode_id, np.int64),
+            "next_transition": np.where(
+                d["terminated"], -1, np.arange(len(nxt)) + transition_offset + 1),
         })
         inventory.append({
             **entry, "partition": part, "states": len(x), "transitions": len(nxt),
             "source_gamma": meta["identity"]["discount_per_tick"],
             "conversion": "verified_undiscounted_terminal_success",
+            **({} if cost_report is None else {"cost": cost_report}),
         })
         offset += len(x)
+        transition_offset += len(nxt)
     if (not all(masters.values()) or masters["train"] & masters["validation"] or
             any(sorted(masters[k]) != sorted(manifest[k + "_masters"]) for k in masters)):
         raise ValueError("success replay grouped split differs from manifest")
