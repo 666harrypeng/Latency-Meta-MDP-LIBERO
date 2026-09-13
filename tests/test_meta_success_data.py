@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -74,3 +75,45 @@ def test_success_view_rejects_duplicate_sources(tmp_path):
     p.write_text(json.dumps(m))
     with pytest.raises(ValueError, match="duplicate"):
         load_success_replay(p)
+
+
+def test_shared_visual_cache_preserves_random_batch_order_without_corpus_copy(tmp_path):
+    import torch
+
+    from latency_meta_mdp.meta_success_data import load_success_replay
+
+    manifest = manifest_fixture(tmp_path)
+    expected = load_success_replay(manifest)[0]
+    cached = load_success_replay(manifest, visual_cache=tmp_path / "shared-cache")[0]
+    indices = torch.tensor([3, 0, 3, 1])
+    np.testing.assert_array_equal(cached[indices].numpy(), expected[indices.numpy()])
+    paths = list((tmp_path / "shared-cache").glob('*.npy'))
+    mtimes = {p: p.stat().st_mtime_ns for p in paths}
+    load_success_replay(manifest, visual_cache=tmp_path / "shared-cache")
+    assert len(paths) == 2 and mtimes == {p: p.stat().st_mtime_ns for p in paths}
+
+
+def test_active_replay_append_keeps_previous_snapshot_and_rejects_eval_data(tmp_path):
+    from latency_meta_mdp.meta_success_data import append_success_replay
+
+    parent = manifest_fixture(tmp_path)
+    original = parent.read_bytes()
+    entries = json.loads(parent.read_text())["episodes"]
+    # A copied shard from a validation master must not become online training data.
+    entry = dict(entries[1])
+    copied = tmp_path / "copied.npz"
+    copied.write_bytes(Path(entry["replay"]).read_bytes())
+    entry["replay"] = str(copied)
+    with pytest.raises(ValueError, match="training"):
+        append_success_replay(parent, [entry], tmp_path / "next.json")
+    with pytest.raises(ValueError, match="duplicate"):
+        append_success_replay(parent, [entries[0]], tmp_path / "next.json")
+    assert parent.read_bytes() == original and not (tmp_path / "next.json").exists()
+    entry = dict(entries[0])
+    copied = tmp_path / "new-train.npz"
+    copied.write_bytes(Path(entry["replay"]).read_bytes())
+    entry["replay"] = str(copied)
+    next_path = tmp_path / "next.json"
+    append_success_replay(parent, [entry], next_path)
+    assert json.loads(next_path.read_text())["expected_episodes"] == 3
+    assert parent.read_bytes() == original

@@ -12,6 +12,11 @@ import numpy as np
 import torch
 from safetensors.torch import save_file
 
+from latency_meta_mdp.meta_learning_state import (
+    learning_rate_at,
+    load_learning_state,
+    save_learning_state,
+)
 from latency_meta_mdp.meta_q import MetaQNetwork, fitted_q_targets
 from latency_meta_mdp.meta_replay import FEATURE_FORMAT
 
@@ -153,6 +158,8 @@ def main():
     source.add_argument("--replay-root", type=Path)
     source.add_argument("--replay-manifest", type=Path)
     parser.add_argument("--training-config", type=Path)
+    parser.add_argument("--resume-from", type=Path)
+    parser.add_argument("--visual-cache", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--no-future", action="store_true")
@@ -163,14 +170,16 @@ def main():
         collection = json.loads((args.replay_root / "status.json").read_text())
         if collection["status"] != "completed":
             raise ValueError("Meta training requires the completed collection manifest")
-    args.output_dir.mkdir(parents=True, exist_ok=False)
+    args.output_dir.mkdir(parents=True, exist_ok=args.resume_from is not None)
     torch.set_num_threads(4)
     torch.manual_seed(27)
     device = torch.device(args.device)
     if args.replay_manifest is not None:
         from latency_meta_mdp.meta_success_data import load_success_replay
 
-        x, v, legal, data, binding, inventory, masters = load_success_replay(args.replay_manifest)
+        x, v, legal, data, binding, inventory, masters = load_success_replay(
+            args.replay_manifest, visual_cache=args.visual_cache
+        )
     else:
         x, v, legal, data, binding, inventory, masters = load_replay(args.replay_root)
     if args.replay_root is not None and (
@@ -204,10 +213,7 @@ def main():
             raise ValueError("invalid success-only objective specification")
         cfg.update(requested)
         cfg["replay_manifest"] = str(args.replay_manifest.resolve())
-    (args.output_dir / "config.json").write_text(json.dumps(cfg, indent=2))
-    (args.output_dir / "replay-inventory.json").write_text(
-        json.dumps({"files": inventory, "masters": masters}, indent=2)
-    )
+    torch.manual_seed(cfg["seed"])
     train_states = np.unique(data["state"][data["train"]])
     mean = v[train_states].mean(axis=0)
     scale = v[train_states].std(axis=0).clip(0.01)
@@ -218,11 +224,24 @@ def main():
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg["learning_rate"], weight_decay=cfg["weight_decay"]
     )
+    start_step = 0
+    if args.resume_from is not None:
+        start_step = load_learning_state(args.resume_from, model, target, optimizer, cfg)
+        if start_step >= cfg["updates"]:
+            raise ValueError("requested end step must exceed restored progress")
+    (args.output_dir / "config.json").write_text(json.dumps(cfg, indent=2))
+    inventory_name = ("replay-inventory.json" if start_step == 0
+                      else f"replay-inventory-after-{start_step:06d}.json")
+    (args.output_dir / inventory_name).write_text(
+        json.dumps({"files": inventory, "masters": masters}, indent=2)
+    )
     # Keep the large expanded replay on host when it would crowd training activations.
     replay_device = device
-    if device.type == "cuda" and x.nbytes > 0.55 * torch.cuda.mem_get_info(device)[0]:
+    if not isinstance(x, np.ndarray) or (
+        device.type == "cuda" and x.nbytes > 0.55 * torch.cuda.mem_get_info(device)[0]
+    ):
         replay_device = torch.device("cpu")
-    visual = torch.from_numpy(x).to(replay_device)
+    visual = torch.from_numpy(x).to(replay_device) if isinstance(x, np.ndarray) else x
     vector = torch.from_numpy(v).to(replay_device)
     admissible = torch.from_numpy(legal).to(replay_device)
     records = {k: torch.as_tensor(a, device=replay_device) for k, a in data.items()}
@@ -239,7 +258,11 @@ def main():
         probe = torch.as_tensor(
             np.concatenate((validation.cpu().numpy(), fit_probe)), device=replay_device
         )
-        np.save(args.output_dir / "probe-indices.npy", probe.cpu().numpy())
+        probe_path = args.output_dir / "probe-indices.npy"
+        if args.resume_from is not None and probe_path.exists():
+            probe = torch.as_tensor(np.load(probe_path), device=replay_device)
+        else:
+            np.save(probe_path, probe.cpu().numpy())
     run = None
     import wandb
 
@@ -265,6 +288,9 @@ def main():
                 "validation_transitions": len(validation),
                 "parameters": sum(p.numel() for p in model.parameters()),
                 "wandb_url": run.url,
+                "restored_step": start_step,
+                "replay_storage": ("mapped_shards" if not isinstance(x, np.ndarray)
+                                   else str(replay_device)),
             }
         ),
         flush=True,
@@ -272,9 +298,13 @@ def main():
     last = {}
     completed = False
     try:
-        for step in range(1, cfg["updates"] + 1):
+        for step in range(start_step + 1, cfg["updates"] + 1):
             model.train()
-            indices = train[torch.randint(len(train), (cfg["batch_size"],), device=replay_device)]
+            for group in optimizer.param_groups:
+                group["lr"] = learning_rate_at(step, cfg)
+            draw_device = 'cpu' if cfg.get("recoverable_training") else replay_device
+            draws = torch.randint(len(train), (cfg["batch_size"],), device=draw_device)
+            indices = train[draws.to(replay_device)]
             visited[indices] = True
             optimizer.zero_grad(set_to_none=True)
             loss = loss_for(indices)
@@ -287,7 +317,7 @@ def main():
             optimizer.step()
             if step % cfg["target_update_interval"] == 0:
                 target.load_state_dict(model.state_dict())
-            if step == 1 or step % 50 == 0:
+            if step == start_step + 1 or step % cfg.get("log_interval", 50) == 0:
                 model.eval()
                 with torch.no_grad():
                     values = [
@@ -302,7 +332,12 @@ def main():
                     "elapsed_seconds": time.monotonic() - started,
                     "sample_draws": step * cfg["batch_size"],
                     "unique_fit_transitions_visited": int(visited.sum()),
-                    "mean_draws_per_fit_transition": step * cfg["batch_size"] / len(train),
+                    "mean_draws_per_fit_transition": (
+                        (step - start_step) * cfg["batch_size"] / len(train)
+                    ),
+                    "segment_start_step": start_step,
+                    "segment_sample_draws": (step - start_step) * cfg["batch_size"],
+                    "learning_rate": optimizer.param_groups[0]["lr"],
                 }
                 if probe is not None and step % 500 == 0:
                     predictions, labels, qs = [], [], []
@@ -342,6 +377,19 @@ def main():
                 with (args.output_dir / "progress.jsonl").open("a") as f:
                     f.write(json.dumps(last) + "\n")
                 run.log(last, step=step)
+            if cfg.get("recoverable_training") and (
+                step % cfg.get("save_interval", 6000) == 0 or step == cfg["updates"]
+            ):
+                save_learning_state(
+                    args.output_dir / "recovery.pt", model, target, optimizer, step, cfg
+                )
+                checkpoint = args.output_dir / "checkpoints" / f"step-{step:06d}"
+                checkpoint.mkdir(parents=True, exist_ok=False)
+                save_file({k: v.detach().cpu().contiguous() for k, v in model.state_dict().items()},
+                          checkpoint / "model.safetensors")
+                (checkpoint / "config.json").write_text(
+                    json.dumps({**cfg, "trained_step": step}, indent=2)
+                )
         weights = {k: v.detach().cpu().contiguous() for k, v in model.state_dict().items()}
         if any(not torch.isfinite(v).all() for v in weights.values()):
             raise ValueError("nonfinite final Meta model")

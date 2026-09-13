@@ -1,6 +1,7 @@
 """Audited, zero-copy-on-disk views of completed terminal-success Meta replay."""
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,38 @@ PHYSICAL_KEYS = (
     "decision_interval_ticks", "runtime_patch_sha256", "maximum_steps",
     "profile_sha256", "bootstrap_verification_sha256", "protocol_id", "conditioning",
 )
+
+
+def append_success_replay(parent_path, entries, output_path):
+    """Commit a new immutable snapshot of the same logical replay after complete episodes."""
+    manifest = json.loads(Path(parent_path).read_text())
+    if manifest["status"] != "completed" or not entries:
+        raise ValueError("append requires a completed parent and new episodes")
+    paths = {str(Path(e["replay"]).resolve()) for e in manifest["episodes"]}
+    reference, _ = audited_episode(manifest["episodes"][0])
+    for entry in entries:
+        path = str(Path(entry["replay"]).resolve())
+        if path in paths:
+            raise ValueError("duplicate replay source")
+        paths.add(path)
+        meta, _ = audited_episode(entry)
+        if (meta["case"]["meta_partition"] != "train"
+                or meta["case"]["master_index"] not in manifest["train_masters"]):
+            raise ValueError("online append requires declared training masters")
+        if any(meta["identity"][k] != reference["identity"][k] for k in PHYSICAL_KEYS):
+            raise ValueError("online append changes the frozen physical environment")
+    manifest["episodes"] += entries
+    manifest["expected_episodes"] = len(manifest["episodes"])
+    manifest["revision"] = manifest.get("revision", 0) + 1
+    manifest["parent_snapshot"] = str(Path(parent_path).resolve())
+    output_path = Path(output_path)
+    if output_path.exists():
+        raise FileExistsError(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output_path.with_suffix('.tmp')
+    with temporary.open('x') as f:
+        json.dump(manifest, f, indent=2)
+    os.replace(temporary, output_path)
 
 
 def audited_episode(entry):
@@ -58,7 +91,7 @@ def audited_episode(entry):
     return meta, fields
 
 
-def load_success_replay(manifest_path):
+def load_success_replay(manifest_path, *, visual_cache=None):
     manifest = json.loads(Path(manifest_path).read_text())
     entries = manifest["episodes"]
     if (manifest["schema"] != 2 or manifest["status"] != "completed"
@@ -80,14 +113,21 @@ def load_success_replay(manifest_path):
         binding = identity
         part = meta["case"]["meta_partition"]
         masters[part].add(meta["case"]["master_index"])
-        with np.load(entry["replay"], allow_pickle=False) as source:
-            x = source["visual"]
+        if visual_cache is None:
+            with np.load(entry["replay"], allow_pickle=False) as source:
+                x = source["visual"]
+        else:
+            from latency_meta_mdp.meta_visual_replay import cache_visual_shard
+
+            cached = cache_visual_shard(Path(entry["replay"]), Path(visual_cache))
+            x = np.load(cached, mmap_mode='r', allow_pickle=False)
         v, legal = d["vector"], d["legal_actions"]
         if x.shape[1:] != (2, 2, 196, 384) or v.shape != (len(x), 501):
             raise ValueError("invalid replay feature shape")
-        if legal.shape != (len(x), 2) or not np.isfinite(x).all() or not np.isfinite(v).all():
+        if (legal.shape != (len(x), 2) or not np.isfinite(v).all()
+                or (visual_cache is None and not np.isfinite(x).all())):
             raise ValueError("invalid replay features or legal mask")
-        states.append(x)
+        states.append(x if visual_cache is None else cached)
         vectors.append(v)
         masks.append(legal)
         nxt = d["next_state_index"]
@@ -108,8 +148,14 @@ def load_success_replay(manifest_path):
             any(sorted(masters[k]) != sorted(manifest[k + "_masters"]) for k in masters)):
         raise ValueError("success replay grouped split differs from manifest")
     binding.update(discount_per_tick=1.0, task_horizon_terminal=True)
+    if visual_cache is not None:
+        from latency_meta_mdp.meta_visual_replay import VisualReplay
+
+        visual = VisualReplay(states)
+    else:
+        visual = np.concatenate(states)
     return (
-        np.concatenate(states), np.concatenate(vectors), np.concatenate(masks),
+        visual, np.concatenate(vectors), np.concatenate(masks),
         {k: np.concatenate([r[k] for r in rows]) for k in rows[0]}, binding, inventory,
         {k: sorted(v) for k, v in masters.items()},
     )
