@@ -3,6 +3,16 @@
 import torch
 
 
+def model_visual_batch(visual, indices, device):
+    if isinstance(visual, torch.Tensor) and visual.device.type == 'cpu' and device.type == 'cuda':
+        # Gather directly into a small pinned batch, not a second copy of the full bank.
+        batch = torch.empty((len(indices), *visual.shape[1:]), dtype=visual.dtype,
+                            pin_memory=True)
+        torch.index_select(visual, 0, indices.cpu(), out=batch)
+        return batch.to(device, non_blocking=True)
+    return visual[indices].to(device)
+
+
 def sequence_indices(next_transition, start_indices, max_steps):
     if type(max_steps) is not int or max_steps < 1:
         raise ValueError("sequence length must be a positive integer")
@@ -55,7 +65,7 @@ def greedy_trace_predictions(model, target, visual, vector, records, admissible,
     values, choices = [], []
     with torch.no_grad(), torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
         for batch in unique.split(128):
-            x, v = visual[batch].to(device), vector[batch].to(device)
+            x, v = model_visual_batch(visual, batch, device), vector[batch].to(device)
             legal = admissible[batch].to(device)
             online = model(x, v).float().masked_fill(~legal, -torch.inf)
             choice = online.argmax(1)
@@ -83,6 +93,6 @@ def greedy_trace_predictions(model, target, visual, vector, records, admissible,
         }
     current = records["state"][indices]
     with torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
-        q = model(visual[current].to(device), vector[current].to(device)).float()
+        q = model(model_visual_batch(visual, current, device), vector[current].to(device)).float()
         predicted = q.gather(1, records["action"][indices].long().to(device)[:, None])[:, 0]
     return predicted, labels, q

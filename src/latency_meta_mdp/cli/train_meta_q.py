@@ -295,7 +295,16 @@ def main():
     if isinstance(x, np.ndarray):
         visual = torch.from_numpy(x).to(replay_device)
     else:
-        visual = x.to_tensor(replay_device) if replay_device.type == "cuda" else x
+        host_available = 0
+        memory_info = Path('/proc/meminfo')
+        if replay_device.type == 'cpu' and memory_info.exists():
+            for line in memory_info.read_text().splitlines():
+                if line.startswith('MemAvailable:'):
+                    host_available = int(line.split()[1]) * 1024
+        # One contiguous host bank avoids repeatedly gathering from hundreds of mappings.
+        # Keep 8GiB headroom; the existing mapped reader remains the bounded fallback.
+        stage = replay_device.type == 'cuda' or x.nbytes + 8 * 1024**3 < host_available
+        visual = x.to_tensor(replay_device) if stage else x
     vector = torch.from_numpy(v).to(replay_device)
     admissible = torch.from_numpy(legal).to(replay_device)
     records = {k: torch.as_tensor(a, device=replay_device) for k, a in data.items()}
@@ -353,8 +362,8 @@ def main():
                 "parameters": sum(p.numel() for p in model.parameters()),
                 "wandb_url": run.url,
                 "restored_step": start_step,
-                "replay_storage": ("mapped_shards" if not isinstance(x, np.ndarray)
-                                   else str(replay_device)),
+                "replay_storage": (str(visual.device) if isinstance(visual, torch.Tensor)
+                                   else "mapped_shards"),
             }
         ),
         flush=True,

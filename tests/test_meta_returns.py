@@ -2,6 +2,17 @@ import pytest
 import torch
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason='pinned host CUDA transfer')
+def test_host_visual_batch_preserves_duplicates_order_and_dtype():
+    from latency_meta_mdp.meta_returns import model_visual_batch
+
+    visual = torch.arange(12, dtype=torch.float16).reshape(4, 3)
+    ids = torch.tensor([3, 0, 3, 1])
+    got = model_visual_batch(visual, ids, torch.device('cuda:0'))
+    assert got.dtype == visual.dtype
+    torch.testing.assert_close(got.cpu(), visual[ids], rtol=0, atol=0)
+
+
 def test_sequences_stop_at_episode_end_without_using_state_zero_placeholder():
     from latency_meta_mdp.meta_returns import sequence_indices
 
