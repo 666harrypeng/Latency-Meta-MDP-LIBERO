@@ -87,6 +87,7 @@ def test_shared_visual_cache_preserves_random_batch_order_without_corpus_copy(tm
     cached = load_success_replay(manifest, visual_cache=tmp_path / "shared-cache")[0]
     indices = torch.tensor([3, 0, 3, 1])
     np.testing.assert_array_equal(cached[indices].numpy(), expected[indices.numpy()])
+    np.testing.assert_array_equal(cached.to_tensor('cpu').numpy(), expected)
     paths = list((tmp_path / "shared-cache").glob('*.npy'))
     mtimes = {p: p.stat().st_mtime_ns for p in paths}
     load_success_replay(manifest, visual_cache=tmp_path / "shared-cache")

@@ -237,11 +237,12 @@ def main():
     )
     # Keep the large expanded replay on host when it would crowd training activations.
     replay_device = device
-    if not isinstance(x, np.ndarray) or (
-        device.type == "cuda" and x.nbytes > 0.55 * torch.cuda.mem_get_info(device)[0]
-    ):
+    if device.type == "cuda" and x.nbytes + 3 * 1024**3 > torch.cuda.mem_get_info(device)[0]:
         replay_device = torch.device("cpu")
-    visual = torch.from_numpy(x).to(replay_device) if isinstance(x, np.ndarray) else x
+    if isinstance(x, np.ndarray):
+        visual = torch.from_numpy(x).to(replay_device)
+    else:
+        visual = x.to_tensor(replay_device) if replay_device.type == "cuda" else x
     vector = torch.from_numpy(v).to(replay_device)
     admissible = torch.from_numpy(legal).to(replay_device)
     records = {k: torch.as_tensor(a, device=replay_device) for k, a in data.items()}

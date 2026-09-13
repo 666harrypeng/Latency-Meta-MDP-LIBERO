@@ -46,6 +46,16 @@ class VisualReplay:
     def __len__(self):
         return int(self.offsets[-1])
 
+    def to_tensor(self, device):
+        """Stage directly shard-by-shard when the complete replay fits the device budget."""
+        result = torch.empty((len(self), 2, 2, 196, 384), dtype=torch.float16, device=device)
+        for i, path in enumerate(self.paths):
+            shard = np.load(path, mmap_mode='r', allow_pickle=False)
+            batch = torch.from_numpy(np.array(shard, copy=True))
+            result[self.offsets[i]:self.offsets[i + 1]].copy_(batch)
+            shard._mmap.close()
+        return result
+
     def __getitem__(self, indices):
         ids = (indices.detach().cpu().numpy() if isinstance(indices, torch.Tensor)
                else np.asarray(indices))
