@@ -62,8 +62,11 @@ def audited_episode(entry):
         fields = {k: d[k] for k in (
             "state_index", "next_state_index", "action", "reward", "bootstrap_discount",
             "duration_ticks", "terminated", "truncated", "shielded", "vector", "legal_actions",
-            "start_tick", "end_tick",
         )}
+        # Earlier immutable shards kept timestamps in the paired result JSON only.
+        for key in ("start_tick", "end_tick"):
+            fields[key] = (d[key] if key in d else np.asarray(
+                [row[key] for row in result["decision_transitions"]], dtype=np.int64))
         raw = np.asarray([r["undiscounted_reward"] for r in result["decision_transitions"]])
         if "undiscounted_reward" in d and not np.array_equal(raw, d["undiscounted_reward"]):
             raise ValueError("raw replay/audit reward mismatch")

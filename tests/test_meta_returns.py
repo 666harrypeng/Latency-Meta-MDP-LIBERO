@@ -48,11 +48,14 @@ def test_single_item_trace_is_one_step_and_terminal_never_bootstraps():
     torch.testing.assert_close(y, torch.tensor([0.9**7 * 0.4, 1.]))
 
 
-def test_trace_training_uses_legal_double_q_and_gradients_only_at_start():
+@pytest.mark.parametrize('device', ['cpu', 'cuda'])
+def test_trace_training_uses_legal_double_q_and_gradients_only_at_start(device):
     from latency_meta_mdp.cli.train_meta_q import meta_batch_predictions
     from latency_meta_mdp.meta_q import MetaQNetwork
 
-    model = MetaQNetwork(vector_mean=torch.zeros(501), vector_scale=torch.ones(501))
+    if device == 'cuda' and not torch.cuda.is_available():
+        pytest.skip('CUDA not available')
+    model = MetaQNetwork(vector_mean=torch.zeros(501), vector_scale=torch.ones(501)).to(device)
     import copy
     target = copy.deepcopy(model).requires_grad_(False)
     with torch.no_grad():
@@ -74,7 +77,7 @@ def test_trace_training_uses_legal_double_q_and_gradients_only_at_start():
                                    torch.zeros(2, 501), records,
                                    torch.tensor([[True, True], [False, True]]),
                                    torch.tensor([0]), cfg)
-    torch.testing.assert_close(y, torch.tensor([-0.01 + .2 * .2 + .8 * .9]))
+    torch.testing.assert_close(y, torch.tensor([-0.01 + .2 * .2 + .8 * .9], device=device))
     assert p.requires_grad and not y.requires_grad
     (p - y).square().mean().backward()
     assert model.head[-1].bias.grad is not None

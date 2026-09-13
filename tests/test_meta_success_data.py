@@ -109,6 +109,24 @@ def test_success_view_rejects_broken_physical_sequence(tmp_path):
         load_success_replay(manifest)
 
 
+def test_legacy_sequence_timestamps_are_read_from_existing_result_audit(tmp_path):
+    from latency_meta_mdp.meta_success_data import load_success_replay
+
+    manifest = manifest_fixture(tmp_path)
+    p = tmp_path / '1.npz'
+    with np.load(p) as d:
+        arrays = {k: d[k] for k in d.files}
+    result = json.loads(p.with_suffix('.json').read_text())
+    for key in ('start_tick', 'end_tick'):
+        for row, value in zip(result['decision_transitions'], arrays.pop(key)):
+            row[key] = int(value)
+    np.savez_compressed(p, **arrays)
+    p.with_suffix('.json').write_text(json.dumps(result))
+    data = load_success_replay(manifest)[3]
+    np.testing.assert_array_equal(data['next_transition'], [1, -1, 3, -1])
+    np.testing.assert_array_equal(data['duration_ticks'], [4, 1, 4, 1])
+
+
 def test_success_view_rejects_episode_outcome_reward_disagreement(tmp_path):
     from latency_meta_mdp.meta_success_data import load_success_replay
 
