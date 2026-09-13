@@ -54,3 +54,46 @@ def test_learning_rate_has_a_settling_phase_and_is_extendable():
     assert learning_rate_at(6000, cfg) == 3e-4
     assert 3e-5 < learning_rate_at(12000, cfg) < 3e-4
     assert learning_rate_at(24000, cfg) == learning_rate_at(36000, cfg) == 3e-5
+
+
+def test_trainer_command_resume_matches_uninterrupted_training(tmp_path, monkeypatch):
+    import json
+    import sys
+    from types import SimpleNamespace
+
+    import wandb
+    import yaml
+    from safetensors.torch import load_file
+    from test_meta_success_data import manifest_fixture
+
+    from latency_meta_mdp.cli.train_meta_q import main
+
+    monkeypatch.setattr(wandb, "init", lambda **kw: SimpleNamespace(
+        url="test", log=lambda *args, **kwargs: None, finish=lambda **kw: None
+    ))
+    manifest = manifest_fixture(tmp_path)
+    cfg = dict(objective="finite_horizon_success_v2", gamma=1., task_horizon_ticks=1000,
+               call_cost=0., forecast_cost=0., q_precision="float32", seed=27,
+               batch_size=2, learning_rate=.0003, minimum_learning_rate=.00003,
+               lr_decay_start=1, lr_decay_end=4, recoverable_training=True,
+               save_interval=2, target_update_interval=2, log_interval=1)
+
+    def run(name, updates, resume=False):
+        config = tmp_path / f"{name}-{updates}.yaml"
+        config.write_text(yaml.safe_dump({**cfg, "updates": updates}))
+        out = tmp_path / name
+        args = ["train", "--replay-manifest", str(manifest), "--training-config", str(config),
+                "--output-dir", str(out), "--device", "cpu"]
+        if resume:
+            args += ["--resume-from", str(out / "recovery.pt")]
+        monkeypatch.setattr(sys, "argv", args)
+        main()
+        return out
+
+    uninterrupted = run('uninterrupted', 4)
+    run('resumed', 2)
+    resumed = run('resumed', 4, True)
+    for key, value in load_file(uninterrupted / 'model.safetensors').items():
+        torch.testing.assert_close(value, load_file(resumed / 'model.safetensors')[key],
+                                   rtol=0, atol=0)
+    assert json.loads((resumed / 'training-summary.json').read_text())['segment_start_step'] == 2

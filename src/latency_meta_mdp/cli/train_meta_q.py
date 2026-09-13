@@ -264,6 +264,16 @@ def main():
             probe = torch.as_tensor(np.load(probe_path), device=replay_device)
         else:
             np.save(probe_path, probe.cpu().numpy())
+        if args.resume_from is not None:
+            reference = args.output_dir / "probe-005000.npz"
+            if reference.exists():
+                with np.load(reference) as previous:
+                    fixed_labels = torch.from_numpy(previous["fixed_target"].copy())
+            probes = sorted(p for p in args.output_dir.glob('probe-*.npz')
+                            if int(p.stem.split('-')[1]) <= start_step)
+            if probes:
+                with np.load(probes[-1]) as previous:
+                    previous_q = torch.from_numpy(previous["q"].copy())
     run = None
     import wandb
 
