@@ -533,6 +533,7 @@ class LogicalPolicyRuntime:
                 q_values=getattr(self.scheduler, "last_q_values", None),
                 greedy_launch=getattr(self.scheduler, "last_greedy_launch", None),
                 exploration_epsilon=getattr(self.scheduler, "epsilon", None),
+                launch_probability=getattr(self.scheduler, "launch_probability", None),
                 remaining_actions=state.remaining_actions,
                 plan_age=getattr(state, "plan_age", None),
             )

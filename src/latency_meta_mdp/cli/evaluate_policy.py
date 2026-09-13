@@ -72,10 +72,12 @@ def main(argv=None):
     parser.add_argument("--collect-meta-transitions", action="store_true")
     parser.add_argument(
         "--scheduler",
-        choices=("fixed", "explore", "stratified", "learned", "immediate", "coverage"),
+        choices=("fixed", "explore", "stratified", "probabilistic", "learned",
+                 "immediate", "coverage"),
         default="fixed",
     )
     parser.add_argument("--meta-q-checkpoint", type=Path)
+    parser.add_argument("--fixed-launch-cursor", type=int, default=25)
     parser.add_argument("--meta-exploration-epsilon", type=float, default=0.0)
     parser.add_argument("--exploration-replica", type=int, default=0)
     parser.add_argument("--task-horizon-terminal", action="store_true")
@@ -122,18 +124,25 @@ def main(argv=None):
         parser.error("physical-tick discount must lie in [0,1]")
     if args.collect_meta_transitions and not args.prepare_forecast_before_decision:
         parser.error("Meta replay collection requires the shared public forecast path")
-    if args.scheduler in {"explore", "stratified"} and not args.collect_meta_transitions:
+    if (args.scheduler in {"explore", "stratified", "probabilistic"}
+            and not args.collect_meta_transitions):
         parser.error("exploration requires an explicit Meta collection run")
     if not 0 <= args.meta_exploration_epsilon <= 1 or args.exploration_replica < 0:
         parser.error("invalid Meta exploration settings")
     if args.meta_exploration_epsilon and (
-        args.scheduler != "learned" or not args.collect_meta_transitions
+        args.scheduler not in {"learned", "probabilistic"} or not args.collect_meta_transitions
     ):
         parser.error("Q exploration requires learned Meta replay collection")
-    if (args.scheduler == "learned") != (args.meta_q_checkpoint is not None):
+    if args.scheduler != "probabilistic" and (
+        (args.scheduler == "learned") != (args.meta_q_checkpoint is not None)
+    ):
         parser.error("learned scheduler requires exactly one Meta Q checkpoint")
-    if args.scheduler == "learned" and not args.prepare_forecast_before_decision:
+    if args.meta_q_checkpoint is not None and not args.prepare_forecast_before_decision:
         parser.error("learned Meta requires shared forecast preparation")
+    if not 1 <= args.fixed_launch_cursor <= 30 or (
+        args.scheduler != "fixed" and args.fixed_launch_cursor != 25
+    ):
+        parser.error("fixed launch cursor1..30 applies only to the fixed scheduler")
     if args.planned_handoff is not None:
         if args.protocol != "rtc":
             parser.error("planned handoff requires RTC timing")
@@ -204,6 +213,8 @@ def main(argv=None):
     }
     if args.task_horizon_terminal:
         identity["task_horizon_terminal"] = True
+    if args.fixed_launch_cursor != 25:
+        identity["fixed_launch_cursor"] = args.fixed_launch_cursor
     if args.protocol == "rtc":
         expected_repo = f"yypeng666/metamdp-pi05-l{level}-clean-state16-h50-full-sft-v1"
         if (forecast_assets is None or args.planned_handoff is not None) and (
@@ -262,6 +273,12 @@ def main(argv=None):
             else:
                 identity.update(exploration_epsilon=args.meta_exploration_epsilon,
                                 exploration_replica=args.exploration_replica)
+            if args.scheduler == "probabilistic":
+                identity.update(
+                    exploration_policy="remaining_opportunity_hazard_v1",
+                    exploration_epsilon=(1.0 if args.meta_q_checkpoint is None
+                                         else args.meta_exploration_epsilon),
+                )
         if (args.discount_per_tick != 1.0 or args.collect_meta_transitions
                 or args.meta_q_checkpoint is not None or args.task_horizon_terminal):
             identity["discount_per_tick"] = args.discount_per_tick
@@ -271,7 +288,7 @@ def main(argv=None):
             config_path = args.meta_q_checkpoint / "config.json"
             validate_policy_binding(json.loads(config_path.read_text()), identity)
             identity.update(
-                scheduler="learned",
+                scheduler=args.scheduler,
                 meta_q_sha256=sha256_file(args.meta_q_checkpoint / "model.safetensors"),
                 meta_q_config_sha256=sha256_file(config_path),
             )
@@ -473,6 +490,15 @@ def main(argv=None):
                 scheduler = ExploratoryCursorScheduler(seed=np.random.SeedSequence(
                     [case["master_index"], case["policy_seed"], 20260912]
                 ))
+            elif args.scheduler == "probabilistic":
+                from latency_meta_mdp.meta_replay import ProbabilisticLaunchScheduler
+
+                scheduler = ProbabilisticLaunchScheduler(
+                    trained_scheduler, epsilon=args.meta_exploration_epsilon,
+                    seed=np.random.SeedSequence([case["master_index"], case["policy_seed"],
+                                                 args.exploration_replica, 20260914]),
+                    decision_interval_ticks=args.decision_interval_ticks,
+                )
             elif args.scheduler == "stratified":
                 from latency_meta_mdp.meta_replay import StratifiedLaunchScheduler
 
@@ -500,6 +526,10 @@ def main(argv=None):
 
                 scheduler = (ImmediateLaunchScheduler() if args.scheduler == "immediate"
                              else BufferCoverageScheduler())
+            elif args.scheduler == "fixed":
+                from latency_meta_mdp.policy_execution import FixedCursorScheduler
+
+                scheduler = FixedCursorScheduler(args.fixed_launch_cursor)
 
             def record_transition(t):
                 if replay is not None:

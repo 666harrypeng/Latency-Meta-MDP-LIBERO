@@ -1,6 +1,7 @@
 """Public frozen-forecast features and episode-indexed decision-stage replay."""
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -182,3 +183,34 @@ class ExploratoryQScheduler:
         if self.rng.random() < self.epsilon:
             return bool(self.rng.integers(2))
         return greedy
+
+
+class ProbabilisticLaunchScheduler:
+    """One causal behavior policy for initial exploration and online Q interaction."""
+
+    def __init__(self, scheduler=None, *, seed, epsilon=0.2, decision_interval_ticks=4):
+        if not math.isfinite(epsilon) or not 0 <= epsilon <= 1:
+            raise ValueError("exploration epsilon must lie in [0,1]")
+        if type(decision_interval_ticks) is not int or decision_interval_ticks <= 0:
+            raise ValueError("decision interval must be a positive integer")
+        self.scheduler = scheduler
+        self.rng = np.random.default_rng(seed)
+        self.epsilon = 1.0 if scheduler is None else epsilon
+        self.interval = decision_interval_ticks
+        self.launch_probability = None
+        self.last_greedy_launch = None
+
+    @property
+    def last_q_values(self):
+        return getattr(self.scheduler, "last_q_values", None)
+
+    def __call__(self, state, observation, belief):
+        greedy = (self.scheduler(state, observation, belief)
+                  if self.scheduler is not None else False)
+        self.last_greedy_launch = greedy if self.scheduler is not None else None
+        if state.remaining_actions <= 20:
+            self.launch_probability = 1.0
+            return True
+        opportunities = math.ceil((state.remaining_actions - 20) / self.interval) + 1
+        self.launch_probability = (1 - self.epsilon) * float(greedy) + self.epsilon / opportunities
+        return bool(self.rng.random() < self.launch_probability)

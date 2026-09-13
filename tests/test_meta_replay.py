@@ -99,3 +99,35 @@ def test_q_exploration_preserves_legal_actions_and_q_logging():
     s = ExploratoryQScheduler(Greedy(), seed=7, epsilon=1)
     assert {s(state(10)["buffer"], None, None) for _ in range(100)} == {False, True}
     assert all(s(state(10, remaining=20)["buffer"], None, None) for _ in range(50))
+
+
+def test_one_probability_supplier_has_uniform_first_launch_support():
+    from latency_meta_mdp.meta_replay import ProbabilisticLaunchScheduler
+
+    scheduler = ProbabilisticLaunchScheduler(seed=27)
+    survival = 1.0
+    masses = []
+    for remaining in [40, 36, 32, 28, 24, 20]:
+        scheduler(state(50 - remaining, remaining)["buffer"], None, None)
+        probability = scheduler.launch_probability
+        masses.append(survival * probability)
+        survival *= 1 - probability
+    np.testing.assert_allclose(masses, np.full(6, 1 / 6))
+    assert survival == 0
+
+
+def test_probability_supplier_mixes_q_with_same_exploration_hazard():
+    from latency_meta_mdp.meta_replay import ProbabilisticLaunchScheduler
+
+    class Q:
+        last_q_values = [.2, .8]
+
+        def __call__(self, *args):
+            return True
+
+    s = ProbabilisticLaunchScheduler(Q(), seed=27, epsilon=.2)
+    s(state(10, 40)["buffer"], None, None)
+    assert np.isclose(s.launch_probability, .8 + .2 / 6)
+    assert s.last_q_values == [.2, .8]
+    assert s(state(30, 20)["buffer"], None, None)
+    assert s.launch_probability == 1
