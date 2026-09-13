@@ -56,7 +56,9 @@ def test_learning_rate_has_a_settling_phase_and_is_extendable():
     assert learning_rate_at(24000, cfg) == learning_rate_at(36000, cfg) == 3e-5
 
 
-def test_trainer_command_resume_matches_uninterrupted_training(tmp_path, monkeypatch):
+@pytest.mark.parametrize('budget_objective', [False, True])
+def test_trainer_command_resume_matches_uninterrupted_training(
+        tmp_path, monkeypatch, budget_objective):
     import json
     import sys
     from types import SimpleNamespace
@@ -77,15 +79,47 @@ def test_trainer_command_resume_matches_uninterrupted_training(tmp_path, monkeyp
                batch_size=2, learning_rate=.0003, minimum_learning_rate=.00003,
                lr_decay_start=1, lr_decay_end=4, recoverable_training=True,
                save_interval=2, target_update_interval=2, log_interval=1)
+    extra = []
+    if budget_objective:
+        from test_meta_cost import episode, profile
+        cost_profile = profile()
+        cost_profile['binding'] = {}
+        cost_file = tmp_path / 'cost.json'
+        cost_file.write_text(json.dumps(cost_profile))
+        for entry in json.loads(manifest.read_text())['episodes']:
+            from pathlib import Path
 
-    def run(name, updates, resume=False):
+            import numpy as np
+            p = Path(entry['result'])
+            d = json.loads(p.read_text())
+            e = episode()
+            for key in ('stage_events', 'bootstrap_calls', 'policy_calls', 'forecast_calls',
+                        'forecast_decodes'):
+                d[key] = e[key]
+            for row, timestamps in zip(d['decision_transitions'], e['decision_transitions']):
+                row.update(timestamps)
+            d['identity']['conditioning'] = 'native_rtc_forecast_rgb_v1'
+            p.write_text(json.dumps(d))
+            with np.load(entry['replay']) as source:
+                arrays = {k: source[k] for k in source.files}
+            meta = json.loads(arrays['metadata_utf8'].tobytes())
+            meta['identity'] = d['identity']
+            arrays['metadata_utf8'] = np.frombuffer(json.dumps(meta).encode(), np.uint8)
+            np.savez_compressed(entry['replay'], **arrays)
+        cfg.update(objective='rtc_budget_success_v1', target_method='greedy_trace',
+                   max_trace_steps=8, trace_decay=.8)
+        extra = ['--cost-profile', str(cost_file), '--budget', '10', '--cost-multiplier', '.1']
+
+    def run(name, updates, resume=False, init=None):
         config = tmp_path / f"{name}-{updates}.yaml"
         config.write_text(yaml.safe_dump({**cfg, "updates": updates}))
         out = tmp_path / name
         args = ["train", "--replay-manifest", str(manifest), "--training-config", str(config),
-                "--output-dir", str(out), "--device", "cpu"]
+                "--output-dir", str(out), "--device", "cpu", *extra]
         if resume:
             args += ["--resume-from", str(out / "recovery.pt")]
+        if init is not None:
+            args += ['--init-from', str(init)]
         monkeypatch.setattr(sys, "argv", args)
         main()
         return out
@@ -97,3 +131,12 @@ def test_trainer_command_resume_matches_uninterrupted_training(tmp_path, monkeyp
         torch.testing.assert_close(value, load_file(resumed / 'model.safetensors')[key],
                                    rtol=0, atol=0)
     assert json.loads((resumed / 'training-summary.json').read_text())['segment_start_step'] == 2
+    if budget_objective:
+        extra[-1] = '.2'
+        with pytest.raises(ValueError, match='cost_multiplier'):
+            run('resumed', 6, True)
+        warm = run('new-objective', 2, init=uninterrupted)
+        for key in ('vector_mean', 'vector_scale'):
+            torch.testing.assert_close(load_file(warm / 'model.safetensors')[key],
+                                       load_file(uninterrupted / 'model.safetensors')[key])
+        assert json.loads((warm / 'training-summary.json').read_text())['segment_start_step'] == 0

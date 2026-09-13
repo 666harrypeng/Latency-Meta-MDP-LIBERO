@@ -3,6 +3,7 @@
 import argparse
 import copy
 import json
+import math
 import os
 import subprocess
 import time
@@ -10,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 
 from latency_meta_mdp.meta_learning_state import (
     learning_rate_at,
@@ -118,6 +119,11 @@ def load_replay(root):
 
 def meta_batch_predictions(model, target, visual, vector, records, admissible, indices, cfg):
     """One minibatch; replay may live on CPU while Q runs on GPU."""
+    if cfg.get("target_method") == "greedy_trace":
+        from latency_meta_mdp.meta_returns import greedy_trace_predictions
+
+        return greedy_trace_predictions(
+            model, target, visual, vector, records, admissible, indices, cfg)
     device = next(model.parameters()).device
     current, nxt = records["state"][indices], records["next"][indices]
     actions = records["action"][indices].long().to(device)
@@ -158,7 +164,12 @@ def main():
     source.add_argument("--replay-root", type=Path)
     source.add_argument("--replay-manifest", type=Path)
     parser.add_argument("--training-config", type=Path)
-    parser.add_argument("--resume-from", type=Path)
+    initialization = parser.add_mutually_exclusive_group()
+    initialization.add_argument("--resume-from", type=Path)
+    initialization.add_argument("--init-from", type=Path)
+    parser.add_argument("--cost-profile", type=Path)
+    parser.add_argument("--budget", type=float)
+    parser.add_argument("--cost-multiplier", type=float)
     parser.add_argument("--visual-cache", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--device", default="cuda:0")
@@ -166,6 +177,17 @@ def main():
     args = parser.parse_args()
     if (args.replay_manifest is None) != (args.training_config is None):
         parser.error("success replay manifest requires its explicit training config")
+    cost_profile = None
+    if any(v is not None for v in (args.cost_profile, args.budget, args.cost_multiplier)):
+        if (args.replay_manifest is None or args.cost_profile is None or args.budget is None
+                or args.cost_multiplier is None or not math.isfinite(args.budget)
+                or not math.isfinite(args.cost_multiplier)
+                or args.budget <= 0 or args.cost_multiplier < 0):
+            parser.error(
+                "budget training needs a profile, positive budget and nonnegative multiplier")
+        from latency_meta_mdp.meta_cost import load_cost_profile
+
+        cost_profile = load_cost_profile(args.cost_profile)
     if args.replay_root is not None:
         collection = json.loads((args.replay_root / "status.json").read_text())
         if collection["status"] != "completed":
@@ -178,7 +200,7 @@ def main():
         from latency_meta_mdp.meta_success_data import load_success_replay
 
         x, v, legal, data, binding, inventory, masters = load_success_replay(
-            args.replay_manifest, visual_cache=args.visual_cache
+            args.replay_manifest, visual_cache=args.visual_cache, cost_profile=cost_profile
         )
     else:
         x, v, legal, data, binding, inventory, masters = load_replay(args.replay_root)
@@ -207,12 +229,25 @@ def main():
         import yaml
 
         requested = yaml.safe_load(args.training_config.read_text())
-        if (requested["objective"] != "finite_horizon_success_v2" or requested["gamma"] != 1
+        objective = ("rtc_budget_success_v1" if cost_profile is not None
+                     else "finite_horizon_success_v2")
+        if (requested["objective"] != objective or requested["gamma"] != 1
                 or requested["call_cost"] != 0 or requested["forecast_cost"] != 0
                 or requested["task_horizon_ticks"] != 1000):
-            raise ValueError("invalid success-only objective specification")
+            raise ValueError("invalid terminal-success objective specification")
         cfg.update(requested)
         cfg["replay_manifest"] = str(args.replay_manifest.resolve())
+    if cost_profile is not None:
+        if (cfg.get("target_method") != "greedy_trace"
+                or type(cfg.get("max_trace_steps")) is not int or cfg["max_trace_steps"] < 1
+                or not 0 <= cfg.get("trace_decay", -1) <= 1):
+            raise ValueError("budget objective requires a valid greedy trace configuration")
+        cfg.update(cost_profile=cost_profile, budget=args.budget,
+                   cost_multiplier=args.cost_multiplier)
+    if args.resume_from is not None:
+        previous_config = json.loads((args.resume_from.parent / "config.json").read_text())
+        if "initialization" in previous_config:
+            cfg["initialization"] = previous_config["initialization"]
     torch.manual_seed(cfg["seed"])
     train_states = np.unique(data["state"][data["train"]])
     mean = v[train_states].mean(axis=0)
@@ -220,6 +255,24 @@ def main():
     model = MetaQNetwork(vector_mean=mean, vector_scale=scale, use_future=not args.no_future).to(
         device
     )
+    if args.init_from is not None:
+        from latency_meta_mdp.artifacts import sha256_file
+        from latency_meta_mdp.meta_q import validate_policy_binding
+
+        source_config = json.loads((args.init_from / "config.json").read_text())
+        validate_policy_binding(source_config, binding)
+        if (source_config["feature_format"] != FEATURE_FORMAT
+                or source_config["use_future"] != cfg["use_future"]):
+            raise ValueError("initial Meta features differ from requested model")
+        model.load_state_dict(load_file(args.init_from / "model.safetensors"), strict=True)
+        if (any(not torch.isfinite(v).all() for v in model.state_dict().values())
+                or not (model.vector_scale > 0).all()):
+            raise ValueError("invalid initial Meta weights/normalization")
+        cfg["initialization"] = {
+            "mode": "weights_and_normalization_only",
+            "source": str(args.init_from.resolve()),
+            "weights_sha256": sha256_file(args.init_from / "model.safetensors"),
+        }
     target = copy.deepcopy(model).eval().requires_grad_(False)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg["learning_rate"], weight_decay=cfg["weight_decay"]
@@ -319,6 +372,7 @@ def main():
             visited[indices] = True
             optimizer.zero_grad(set_to_none=True)
             loss = loss_for(indices)
+            trace_metrics = dict(getattr(model, "last_trace_metrics", {}))
             if not torch.isfinite(loss):
                 raise ValueError("nonfinite Meta Q loss")
             loss.backward()
@@ -349,6 +403,7 @@ def main():
                     "segment_start_step": start_step,
                     "segment_sample_draws": (step - start_step) * cfg["batch_size"],
                     "learning_rate": optimizer.param_groups[0]["lr"],
+                    **trace_metrics,
                 }
                 if probe is not None and step % 500 == 0:
                     predictions, labels, qs = [], [], []
