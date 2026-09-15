@@ -38,3 +38,80 @@ def test_epoch_journal_reconciles_to_saved_checkpoint(tmp_path):
     assert [json.loads(s) for s in p.read_text().splitlines()] == rows
     with pytest.raises(ValueError, match="missing"):
         reconcile_epoch_journal(p, completed_epochs=4, last_report={"completed_epochs": 4})
+
+
+def test_training_entry_builds_identity_before_model_initialization(tmp_path, monkeypatch):
+    import json
+    import sys
+    from dataclasses import asdict
+    from types import SimpleNamespace
+
+    from latency_meta_mdp.artifacts import sha256_file
+    from latency_meta_mdp.belief.action_conditioned_jepa import direct_prediction_run as runner
+    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_training import (
+        DirectTrainingConfig,
+    )
+    from latency_meta_mdp.cli import train_direct_jepa as cli
+
+    norm = tmp_path / "norm.json"
+    norm.write_text("{}")
+    config = tmp_path / "job.yaml"
+    config.write_text("{}")
+    training = DirectTrainingConfig()
+    job = SimpleNamespace(
+        training=training,
+        training_config=config,
+        normalization=norm,
+        level=2,
+        microbatch_size=16,
+        device="cpu",
+    )
+    corpus = SimpleNamespace(
+        source_manifest_sha256="a" * 64,
+        cache_manifest_sha256="b" * 64,
+        split_manifest_sha256="c" * 64,
+    )
+    preflight = tmp_path / "preflight.json"
+    preflight.write_text(
+        json.dumps(
+            {
+                "status": "preflight_passed",
+                "level": 2,
+                "microbatch_size": 16,
+                "training_config": asdict(training),
+                "normalization_sha256": sha256_file(norm),
+                "source_manifest_sha256": "a" * 64,
+                "cache_manifest_sha256": "b" * 64,
+                "split_manifest_sha256": "c" * 64,
+            }
+        )
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train",
+            "--config",
+            str(config),
+            "--preflight",
+            str(preflight),
+            "--output-dir",
+            str(tmp_path / "run"),
+        ],
+    )
+    monkeypatch.setenv("WANDB_API_KEY", "test-not-a-real-key")
+    monkeypatch.setattr(
+        cli.subprocess, "check_output", lambda args, **kw: "" if "status" in args else "d" * 40
+    )
+    monkeypatch.setattr(runner, "load_direct_job", lambda *a, **kw: job)
+    monkeypatch.setattr(runner, "load_direct_data", lambda *a, **kw: (None, None, corpus, None))
+
+    class ReachedModel(Exception):
+        pass
+
+    def stop_at_model(**kwargs):
+        raise ReachedModel
+
+    monkeypatch.setattr(cli, "DirectJepaPredictor", stop_at_model)
+    with pytest.raises(ReachedModel):
+        cli.main()

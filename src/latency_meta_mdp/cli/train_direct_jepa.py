@@ -81,7 +81,7 @@ def main():
         cache_sha256=corpus.cache_manifest_sha256,
         split_sha256=corpus.split_manifest_sha256,
         normalization_sha256=digest(norm_path),
-        launcher_sha256=digest(__file__),
+        launcher_sha256=digest(Path(__file__)),
         config_sha256=digest(config_path),
         job_sha256=digest(args.config),
         preflight_sha256=digest(preflight),
