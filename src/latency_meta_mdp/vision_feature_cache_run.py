@@ -390,6 +390,7 @@ def load_verified_vision_feature_cache_run(
     *,
     expected_source_manifest_sha256: str | None = None,
     expected_spec: VisionEncoderSpec | None = None,
+    verify_payloads: bool = True,
 ) -> dict[str, Any]:
     """Strictly verify a v2 cache run and every episode cache it admits."""
 
@@ -469,7 +470,10 @@ def load_verified_vision_feature_cache_run(
             or _SHA256.fullmatch(metadata["sha256"]) is None
             or not path.is_file()
             or path.stat().st_size != metadata["bytes"]
-            or _hash_file(path) != metadata["sha256"]
+            or (
+                (verify_payloads or path.suffix != ".npy")
+                and _hash_file(path) != metadata["sha256"]
+            )
         ):
             raise ValueError(f"vision feature cache run artifact verification failed: {relative}")
 
@@ -509,6 +513,7 @@ def load_verified_vision_feature_cache_run(
         cache = load_episode_vision_feature_cache(
             root / f"L{level}" / episode_id,
             expected_spec=expected_spec,
+            verify_payloads=verify_payloads,
         )
         child = cache.manifest
         for name in (

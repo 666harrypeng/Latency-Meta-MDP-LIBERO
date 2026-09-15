@@ -282,6 +282,7 @@ def load_episode_vision_feature_cache(
     cache_dir: Path,
     *,
     expected_spec: VisionEncoderSpec | None = None,
+    verify_payloads: bool = True,
 ) -> EpisodeVisionFeatureCache:
     root = cache_dir.resolve()
     manifest_path = root / "manifest.json"
@@ -313,7 +314,7 @@ def load_episode_vision_feature_cache(
             and set(metadata) == {"bytes", "sha256"}
             and type(metadata["bytes"]) is int
             and metadata["bytes"] == feature_path.stat().st_size
-            and _hash_file(feature_path) == metadata["sha256"]
+            and (not verify_payloads or _hash_file(feature_path) == metadata["sha256"])
             and value["feature_artifact_bytes"] == feature_path.stat().st_size
             and value["feature_payload_bytes"]
             == int(np.prod(value["feature_shape"])) * np.dtype(np.float16).itemsize

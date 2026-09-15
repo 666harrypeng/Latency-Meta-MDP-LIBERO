@@ -1,0 +1,12 @@
+# Direct endpoint candidate; historical observation spacing remains 80 ms.
+# Each epoch samples 2,240 real pairs per query, with replacement within query.
+# This is 3,360,000 endpoint examples, not 75 full enumerations of all pairs.
+architecture_id: jepa_direct_q20_history_stride4_w3_v1
+max_epochs: 75
+examples_per_epoch: 44800
+global_batch_size: 256
+learning_rate: 0.0005
+weight_decay_start: 0.0000001
+weight_decay_final: 0.000001
+gradient_clip_norm: 1.0
+seed: 27

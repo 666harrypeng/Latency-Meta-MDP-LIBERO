@@ -174,3 +174,25 @@ def test_episode_cache_loader_rejects_wrong_encoder(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="encoder fingerprint"):
         load_episode_vision_feature_cache(output, expected_spec=wrong)
+
+
+def test_metadata_validation_skips_payload_hash_but_rejects_truncation(tmp_path, monkeypatch):
+    import latency_meta_mdp.vision_feature_cache as cache_module
+
+    output = tmp_path / "cache"
+    cache_module.write_episode_vision_feature_cache(
+        episode=_episode(),
+        source_corpus_manifest_sha256="a" * 64,
+        source_episode_metadata_sha256="b" * 64,
+        encoder=_DeterministicEncoder(),
+        output_dir=output,
+        boundary_batch_size=2,
+    )
+    monkeypatch.setattr(cache_module, "_hash_file", lambda p: pytest.fail("payload rehashed"))
+    cache = cache_module.load_episode_vision_feature_cache(output, verify_payloads=False)
+    assert cache.features.shape == (3, 2, 196, 384)
+    del cache
+    with (output / "features.npy").open("r+b") as stream:
+        stream.truncate(100)
+    with pytest.raises(ValueError, match="artifact"):
+        cache_module.load_episode_vision_feature_cache(output, verify_payloads=False)

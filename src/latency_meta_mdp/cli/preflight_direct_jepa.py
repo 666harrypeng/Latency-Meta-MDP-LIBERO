@@ -36,6 +36,9 @@ from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_training 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config", type=Path, help="Level-aware Direct job; omit only for historical L3 checks"
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--microbatch-size", type=int, default=16)
     parser.add_argument("--optimizer-steps", type=int, default=20)
@@ -43,47 +46,78 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args(argv)
     root = Path.cwd()
-    config_path = root / "configs/training/action_conditioned_jepa/direct_query_l3_v1.yaml"
-    training = DirectTrainingConfig(**yaml.safe_load(config_path.read_text()))
+    if args.config is not None:
+        from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_run import (
+            load_direct_data,
+            load_direct_job,
+        )
+
+        job = load_direct_job(args.config, project_root=root)
+        config_path = job.training_config
+        training = job.training
+        args.microbatch_size, args.num_workers, args.device = (
+            job.microbatch_size,
+            job.num_workers,
+            job.device,
+        )
+        norm_path = job.normalization
+        print(f"Preparing L{job.level} train records", flush=True)
+        config, normalization, corpus, dataset = load_direct_data(job, split="train")
+    else:
+        config_path = root / "configs/training/action_conditioned_jepa/direct_query_l3_v1.yaml"
+        training = DirectTrainingConfig(**yaml.safe_load(config_path.read_text()))
+        count = args.optimizer_steps * training.global_batch_size
+        if args.optimizer_steps <= 0 or count % 20:
+            parser.error(
+                "optimizer steps must give exactly balanced exposure across twenty queries"
+            )
+        if args.microbatch_size <= 0 or training.global_batch_size % args.microbatch_size:
+            parser.error("microbatch must divide global batch size")
+        if args.num_workers < 0:
+            parser.error("num workers cannot be negative")
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+        torch.manual_seed(training.seed)
+        np.random.seed(training.seed)
+        config = load_action_conditioned_jepa_config(
+            model_path=root / "configs/belief/action_conditioned_jepa/model.yaml",
+            level_path=root / "configs/belief/action_conditioned_jepa/l3.yaml",
+            temporal_sampling_path=root
+            / "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml",
+        )
+        norm_path = root / (
+            "outputs/training/action_conditioned_jepa/l3-final-admission/"
+            "stride4_80ms_history_160ms/seed-27/proprio_normalization.json"
+        )
+        normalization = load_jepa_proprio_normalization(norm_path)
+        print("Verifying shared source/cache and loading train episodes only", flush=True)
+        corpus = load_action_conditioned_jepa_corpus(
+            source_root=root
+            / "outputs/source_corpus/panda-ball-structured-source-quota-formal-100x4-v1",
+            cache_run_manifest=root
+            / "outputs/derived/vision_features"
+            / "dinov3-vits16-structured-source-100x4-v1/manifest.json",
+            split_manifest_path=root
+            / (
+                "outputs/derived/source_splits/"
+                "panda-ball-structured-source-quota-formal-100x4-v1/"
+                "train80-validation20-seed20260903-v1.json"
+            ),
+            level=3,
+            split="train",
+            config=config,
+            normalization=normalization,
+        )
+        dataset = DirectPredictionDataset(records=corpus.records, normalization=normalization)
+
     count = args.optimizer_steps * training.global_batch_size
     if args.optimizer_steps <= 0 or count % 20:
-        parser.error("optimizer steps must give exactly balanced exposure across twenty queries")
-    if args.microbatch_size <= 0 or training.global_batch_size % args.microbatch_size:
-        parser.error("microbatch must divide global batch size")
-    if args.num_workers < 0:
-        parser.error("num workers cannot be negative")
-    args.output_dir.mkdir(parents=True, exist_ok=False)
+        parser.error("optimizer steps must give balanced query exposure")
+    if not args.output_dir.exists():
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+    elif args.config is not None:
+        raise FileExistsError(args.output_dir)
     torch.manual_seed(training.seed)
     np.random.seed(training.seed)
-    config = load_action_conditioned_jepa_config(
-        model_path=root / "configs/belief/action_conditioned_jepa/model.yaml",
-        level_path=root / "configs/belief/action_conditioned_jepa/l3.yaml",
-        temporal_sampling_path=root
-        / "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml",
-    )
-    norm_path = root / (
-        "outputs/training/action_conditioned_jepa/l3-final-admission/"
-        "stride4_80ms_history_160ms/seed-27/proprio_normalization.json"
-    )
-    normalization = load_jepa_proprio_normalization(norm_path)
-    print("Verifying shared source/cache and loading train episodes only", flush=True)
-    corpus = load_action_conditioned_jepa_corpus(
-        source_root=root
-        / "outputs/source_corpus/panda-ball-structured-source-quota-formal-100x4-v1",
-        cache_run_manifest=root
-        / "outputs/derived/vision_features/dinov3-vits16-structured-source-100x4-v1/manifest.json",
-        split_manifest_path=root
-        / (
-            "outputs/derived/source_splits/"
-            "panda-ball-structured-source-quota-formal-100x4-v1/"
-            "train80-validation20-seed20260903-v1.json"
-        ),
-        level=3,
-        split="train",
-        config=config,
-        normalization=normalization,
-    )
-    dataset = DirectPredictionDataset(records=corpus.records, normalization=normalization)
     sampler = BalancedQuerySampler(dataset, sample_count=count, seed=training.seed)
     loader = DataLoader(
         dataset,
@@ -208,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     ]
     report = {
         "status": "preflight_passed",
+        "level": config.level,
         "scientific_admission": False,
         "initialization": "scratch",
         "weights_saved": False,

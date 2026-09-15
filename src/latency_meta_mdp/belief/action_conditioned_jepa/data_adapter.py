@@ -601,6 +601,7 @@ class VerifiedJepaInputs:
     source_manifest_sha256: str
     cache_manifest_sha256: str
     split_manifest_sha256: str
+    verify_payloads: bool = True
 
 
 def load_verified_jepa_inputs(
@@ -609,10 +610,11 @@ def load_verified_jepa_inputs(
     cache_run_manifest: Path,
     split_manifest_path: Path,
     config: ActionConditionedJepaConfig,
+    verify_payloads: bool = True,
 ) -> VerifiedJepaInputs:
     if not isinstance(config, ActionConditionedJepaConfig):
         raise TypeError("config must be an ActionConditionedJepaConfig")
-    source = load_verified_source_corpus(Path(source_root))
+    source = load_verified_source_corpus(Path(source_root), verify_payloads=verify_payloads)
     source_sha = _hash_file(source.root / "manifest.json")
     split_path = Path(split_manifest_path).resolve()
     split = load_verified_source_split(split_path, source)
@@ -623,6 +625,7 @@ def load_verified_jepa_inputs(
         cache_path.parent,
         expected_source_manifest_sha256=source_sha,
         expected_spec=config.vision_encoder,
+        verify_payloads=verify_payloads,
     )
     if cache_manifest["eligible"] is not True or cache_manifest["blockers"] != []:
         raise ValueError("JEPA requires an eligible complete vision cache")
@@ -646,6 +649,7 @@ def load_verified_jepa_inputs(
         source_manifest_sha256=source_sha,
         cache_manifest_sha256=_hash_file(cache_path),
         split_manifest_sha256=_hash_file(split_path),
+        verify_payloads=verify_payloads,
     )
 
 
@@ -700,6 +704,7 @@ def load_verified_jepa_record(
     cache = load_episode_vision_feature_cache(
         inputs.cache_root / Path(cache_row["cache_manifest"]).parent,
         expected_spec=inputs.config.vision_encoder,
+        verify_payloads=inputs.verify_payloads,
     )
     return JepaEpisodeRecord(
         episode_id=episode_id,
@@ -725,6 +730,7 @@ def load_action_conditioned_jepa_corpus(
     split: str,
     config: ActionConditionedJepaConfig,
     normalization: JepaProprioNormalization | None = None,
+    verify_payloads: bool = True,
 ) -> ActionConditionedJepaCorpus:
     if type(level) is not int or level not in (1, 2, 3) or config.level != level:
         raise ValueError("requested level must match the JEPA level config")
@@ -735,6 +741,7 @@ def load_action_conditioned_jepa_corpus(
         cache_run_manifest=cache_run_manifest,
         split_manifest_path=split_manifest_path,
         config=config,
+        verify_payloads=verify_payloads,
     )
     admitted = (
         inputs.split.train_episode_ids if split == "train" else inputs.split.validation_episode_ids

@@ -298,7 +298,9 @@ class VerifiedSourceCorpus:
         return frames
 
 
-def _verify_inventory(root: Path, manifest: SourceCorpusManifest) -> None:
+def _verify_inventory(
+    root: Path, manifest: SourceCorpusManifest, *, verify_payloads: bool = True
+) -> None:
     actual = set()
     for path in root.rglob("*"):
         relative = path.relative_to(root).as_posix()
@@ -319,7 +321,9 @@ def _verify_inventory(root: Path, manifest: SourceCorpusManifest) -> None:
         path = root / relative
         if path.stat().st_size != metadata["bytes"]:
             raise ValueError(f"source artifact size mismatch: {relative}")
-        if _hash_file(path) != metadata["sha256"]:
+        if (verify_payloads or relative in _FIXED_ARTIFACTS) and (
+            _hash_file(path) != metadata["sha256"]
+        ):
             raise ValueError(f"source artifact hash mismatch: {relative}")
 
 
@@ -562,12 +566,14 @@ def _validate_relations(
     return tuple(episode_rows)
 
 
-def load_verified_source_corpus(root: Path) -> VerifiedSourceCorpus:
+def load_verified_source_corpus(
+    root: Path, *, verify_payloads: bool = True
+) -> VerifiedSourceCorpus:
     root = _check_final_root(Path(root))
     manifest = SourceCorpusManifest.from_mapping(
         _load_json(root / "manifest.json", name="source manifest")
     )
-    _verify_inventory(root, manifest)
+    _verify_inventory(root, manifest, verify_payloads=verify_payloads)
     expected_schema = {
         1: legacy_split_source_schema_document,
         2: source_schema_document_v2,
