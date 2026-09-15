@@ -17,6 +17,9 @@ def load_forecast_job(path: Path, *, project_root: Path) -> dict:
     job = yaml.safe_load(path.read_text())
     if job["schema_version"] != 1:
         raise ValueError("Unsupported forecast job")
+    from latency_meta_mdp.policy.conditioning import conditioning_contract
+
+    conditioning_contract(job.get("input_mode", "current_and_forecast"))
     job["clean_job"] = (path.resolve().parent / job["clean_job"]).resolve()
     job["split_manifest"] = (project_root / job["split_manifest"]).resolve()
     job["clean"] = load_training_job(job["clean_job"])

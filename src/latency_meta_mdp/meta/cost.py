@@ -57,8 +57,9 @@ def episode_cost_components(result, profile):
     """
     validate_cost_profile(profile)
     identity = result["identity"]
-    conditioned = identity.get("conditioning") == "native_rtc_forecast_rgb_v1"
-    if identity.get("conditioning") not in (None, "native_rtc_forecast_rgb_v1"):
+    forecast_modes = ("native_rtc_forecast_rgb_v1", "native_rtc_forecast_only_rgb_v1")
+    conditioned = identity.get("conditioning") in forecast_modes
+    if identity.get("conditioning") not in (None, *forecast_modes):
         raise ValueError("cost accounting only supports native RTC and forecast RGB policies")
     bindings = {
         **profile["binding"],

@@ -346,3 +346,40 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
         main(args)
     with pytest.raises(ValueError, match="clean checkpoint"):
         main(args + ["--planned-handoff", "current"])
+    from latency_meta_mdp.policy.conditioning import conditioning_contract
+
+    data.update(repo_id="local/l3-forecast-only", conditioning="native_rtc_forecast_only_rgb_v1")
+    verification.write_text(json.dumps(data))
+    (checkpoint / "assets").mkdir()
+    contract = {
+        "input_mode": "forecast_only",
+        **conditioning_contract("forecast_only"),
+        "level": 3,
+        "forecast_identity": forecast_identity,
+        "action_horizon": 50,
+        "state_dim": 16,
+    }
+    contract_path = checkpoint / "assets/policy_contract.json"
+    contract_path.write_text(json.dumps(contract))
+    command = [
+        sys.executable,
+        "-m",
+        "latency_meta_mdp.runtime.evaluate",
+        *args,
+        "--forecast-input-mode",
+        "forecast_only",
+        "--forecast-assets",
+        str(assets),
+        "--bootstrap-checkpoint",
+        str(checkpoint),
+        "--bootstrap-verification",
+        str(bootstrap_verification),
+    ]
+    only = json.loads(subprocess.check_output(command, text=True))
+    assert only["identity"]["conditioning"] == "native_rtc_forecast_only_rgb_v1"
+    assert only["identity"]["plan_construction"] == "rtc_planned_handoff_h50_v1"
+    assert "0010-native-forecast-only-data.patch" in only["identity"]["runtime_patch_sha256"]
+    contract["target_alignment"] = "observation_time"
+    contract_path.write_text(json.dumps(contract))
+    bad = subprocess.run(command, capture_output=True, text=True)
+    assert bad.returncode != 0 and "contract differs" in bad.stderr

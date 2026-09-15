@@ -46,10 +46,13 @@ class ForecastPolicyDataset:
         )
 
     def __getitem__(self, index):
+        return self.source_sample(index)
+
+    def source_sample(self, index):
         if (
             not isinstance(index, (int, np.integer))
             or isinstance(index, bool)
-            or not 0 <= index < len(self)
+            or not 0 <= index < len(self.native_dataset) * 20
         ):
             raise IndexError("forecast policy index out of range")
         native_index, offset = divmod(int(index), 20)
@@ -99,7 +102,7 @@ class ForecastPolicyDataset:
 def load_forecast_policy_dataset(native_dataset, spec):
     from latency_meta_mdp.data.forecast.cache import ForecastCache
 
-    if not isinstance(spec, dict) or set(spec) != {
+    if not isinstance(spec, dict) or set(spec) - {"input_mode"} != {
         "cache_root",
         "policy_export_manifest",
         "bindings",
@@ -129,4 +132,13 @@ def load_forecast_policy_dataset(native_dataset, spec):
     ):
         raise ValueError("forecast export manifest hash mismatch")
     nested = json.loads(nested_path.read_text())
-    return ForecastPolicyDataset(native_dataset, episode_rows=nested["episodes"], cache=cache)
+    from latency_meta_mdp.policy.conditioning import conditioning_contract
+
+    mode = spec.get("input_mode", "current_and_forecast")
+    conditioning_contract(mode)
+    dataset_type = ForecastPolicyDataset
+    if mode == "forecast_only":
+        from latency_meta_mdp.data.forecast.only_dataset import ForecastOnlyPolicyDataset
+
+        dataset_type = ForecastOnlyPolicyDataset
+    return dataset_type(native_dataset, episode_rows=nested["episodes"], cache=cache)

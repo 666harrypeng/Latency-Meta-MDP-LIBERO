@@ -68,6 +68,11 @@ def main(argv=None):
     parser.add_argument("--rtc-calibration", type=Path)
     parser.add_argument("--fixed-delay-ticks", nargs="+", type=int)
     parser.add_argument("--forecast-assets", type=Path)
+    parser.add_argument(
+        "--forecast-input-mode",
+        choices=("current_and_forecast", "forecast_only"),
+        default="current_and_forecast",
+    )
     parser.add_argument("--planned-handoff", choices=("current", "forecast"))
     parser.add_argument("--prepare-forecast-before-decision", action="store_true")
     parser.add_argument("--decision-interval-ticks", type=int)
@@ -108,6 +113,11 @@ def main(argv=None):
         default="zero",
     )
     args = parser.parse_args(argv)
+    forecast_only = args.forecast_input_mode == "forecast_only"
+    if forecast_only and (
+        args.protocol != "rtc" or args.forecast_assets is None or args.planned_handoff is not None
+    ):
+        parser.error("forecast-only requires RTC and forecast assets, without another handoff mode")
     if args.fixed_delay_ticks is not None:
         if args.regime != "zero":
             parser.error("fixed-delay-ticks cannot be combined with a nondefault regime")
@@ -192,7 +202,12 @@ def main(argv=None):
         if forecast_assets["level"] != level or (
             args.planned_handoff is None
             and (
-                verified.get("conditioning") != "native_rtc_forecast_rgb_v1"
+                verified.get("conditioning")
+                != (
+                    "native_rtc_forecast_only_rgb_v1"
+                    if forecast_only
+                    else "native_rtc_forecast_rgb_v1"
+                )
                 or verified.get("forecast_identity") != forecast_assets["forecast_identity"]
             )
         ):
@@ -209,6 +224,20 @@ def main(argv=None):
             args.bootstrap_checkpoint.resolve() != args.checkpoint.resolve()
         ):
             raise ValueError("planned handoff must share its clean checkpoint with bootstrap")
+    if forecast_only:
+        from latency_meta_mdp.policy.conditioning import conditioning_contract
+
+        stored_contract = json.loads((args.checkpoint / "assets/policy_contract.json").read_text())
+        expected_contract = {
+            "input_mode": "forecast_only",
+            **conditioning_contract("forecast_only"),
+            "level": level,
+            "forecast_identity": forecast_assets["forecast_identity"],
+            "action_horizon": 50,
+            "state_dim": 16,
+        }
+        if stored_contract != expected_contract:
+            raise ValueError("forecast-only checkpoint input/target/runtime contract differs")
     if args.checkpoint.resolve() != Path(verified["checkpoint_root"]).resolve():
         raise ValueError("checkpoint path does not match the verified download")
     preparation = json.loads((args.preparation_root / "preparation.json").read_text())
@@ -244,6 +273,10 @@ def main(argv=None):
         appended_forecast = forecast_assets is not None and args.planned_handoff is None
         pattern = "000[1-9]-*.patch" if appended_forecast else "000[1-7]-*.patch"
         patches = tuple(sorted((root / "patches/openpi").glob(pattern)))
+        if forecast_only:
+            from latency_meta_mdp.policy.conditioning import conditioning_patches
+
+            patches = conditioning_patches(root, "forecast_only")
         if not any(p.name == "0007-inference-time-rtc.patch" for p in patches):
             raise ValueError("RTC runtime patch is missing")
         identity.update(
@@ -264,7 +297,11 @@ def main(argv=None):
         if forecast_assets is not None:
             identity.update(
                 conditioning=(
-                    "native_rtc_forecast_rgb_v1"
+                    (
+                        "native_rtc_forecast_only_rgb_v1"
+                        if forecast_only
+                        else "native_rtc_forecast_rgb_v1"
+                    )
                     if appended_forecast
                     else "native_forecast_replacement_v1"
                 ),
@@ -272,12 +309,12 @@ def main(argv=None):
                 forecast_assets_sha256=sha256_file(args.forecast_assets),
                 bootstrap_verification_sha256=sha256_file(args.bootstrap_verification),
             )
-        if args.planned_handoff is not None:
+        if args.planned_handoff is not None or forecast_only:
             from latency_meta_mdp.runtime.planned_handoff_policy import PLAN_CONSTRUCTION
 
             identity.update(
                 plan_construction=PLAN_CONSTRUCTION,
-                policy_observation_mode=args.planned_handoff,
+                policy_observation_mode="forecast" if forecast_only else args.planned_handoff,
             )
         if args.prepare_forecast_before_decision or args.decision_interval_ticks is not None:
             identity.update(
@@ -371,7 +408,14 @@ def main(argv=None):
         )
         clean_config = config
         if forecast_assets is not None and args.planned_handoff is None:
-            config = build_forecast_policy_train_config(
+            builder = build_forecast_policy_train_config
+            if forecast_only:
+                from latency_meta_mdp.policy.openpi.forecast_only import (
+                    build_forecast_only_train_config,
+                )
+
+                builder = build_forecast_only_train_config
+            config = builder(
                 clean_config=clean_config,
                 clean_checkpoint=args.checkpoint / "params",
                 forecast_identity=forecast_assets["forecast_identity"],
@@ -497,10 +541,12 @@ def main(argv=None):
                 if bootstrap_policy is not None
                 else None
             )
-            if args.planned_handoff is not None:
+            if args.planned_handoff is not None or forecast_only:
                 from latency_meta_mdp.runtime.planned_handoff_policy import PlannedHandoffPolicy
 
-                actor = PlannedHandoffPolicy(actor, mode=args.planned_handoff)
+                actor = PlannedHandoffPolicy(
+                    actor, mode="forecast" if forecast_only else args.planned_handoff
+                )
             provider = (
                 DirectForecastProvider(
                     forecast_components[0],

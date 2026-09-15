@@ -1,0 +1,18 @@
+schema_version: 1
+input_mode: forecast_only
+clean_job: clean_reference.yaml
+initialization:
+  repo_id: yypeng666/metamdp-pi05-l3-clean-state16-h50-full-sft-v1
+  revision: 3e3d7a9236aa51b1c79abd26d758dcf014d49536
+  step: 6000
+source_repo: yypeng666/metamdp-robosuite-franka-moving_ball-structured-source-100x4-v1
+source_revision: 43bb80adbdfa29f29b20e763416f4f703d5ba1ba
+split_manifest: configs/data/structured_source_split_v1.json
+predictor_repo: yypeng666/metamdp-jepa-direct-l3-q20-h160ms-epoch75-v1
+predictor_revision: d60cb4b17026c4b9c6223c4e966f0529ac0ee1e9
+decoder_repo: yypeng666/metamdp-dino-rgb-decoder-dualview-w384-d4-v1
+decoder_revision: cfe2a5be5a0e5ce84edc29a826739e1b56fcd78b
+conditioned_run_name: l3-forecast-only-state16-h50-v1
+conditioned_publish_repo: yypeng666/metamdp-pi05-l3-forecast-only-state16-h50-sft-v1
+boundary_batch_size: 6
+forecast_batch_size: 32

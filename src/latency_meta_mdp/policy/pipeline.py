@@ -23,6 +23,8 @@ def main():
     work = a.work_dir.resolve()
     work.mkdir(parents=True, exist_ok=True)
     job = load_forecast_job(a.config, project_root=Path.cwd())
+    if job.get("input_mode", "current_and_forecast") != "current_and_forecast":
+        raise ValueError("Use train_conditioned_policy.py for a forecast-only job; reuse clean SFT")
     identity = {
         "job_sha256": sha256_file(a.config),
         "clean_job_sha256": sha256_file(job["clean_job"]),

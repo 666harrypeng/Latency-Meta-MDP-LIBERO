@@ -1,0 +1,27 @@
+diff --git a/src/openpi/training/data_loader.py b/src/openpi/training/data_loader.py
+--- a/src/openpi/training/data_loader.py
++++ b/src/openpi/training/data_loader.py
+@@ -187,7 +187,10 @@
+     if getattr(model_config, "use_rtc_forecast", False) and data_config.forecast_policy_view is None:
+         raise ValueError("RTC forecast training requires its explicit cached source view")
+     if data_config.forecast_policy_view is not None:
+-        if data_config.return_policy_view is not None or not getattr(model_config, "use_rtc_forecast", False):
++        if data_config.return_policy_view is not None or (
++            not getattr(model_config, "use_rtc_forecast", False)
++            and data_config.forecast_policy_view.get("input_mode") != "forecast_only"
++        ):
+             raise ValueError("forecast dataset requires an exclusive native forecast policy mode")
+         from latency_meta_mdp.policy_forecast_dataset import load_forecast_policy_dataset
+ 
+diff --git a/scripts/train.py b/scripts/train.py
+--- a/scripts/train.py
++++ b/scripts/train.py
+@@ -243,7 +243,7 @@
+         config,
+         sharding=data_sharding,
+         shuffle=True,
+-        start_batch=int(checkpoint_manager.latest_step()) if resuming and (getattr(config.model, "use_return_belief_prefix", False) or getattr(config.model, "use_rtc_forecast", False)) else 0,
++        start_batch=int(checkpoint_manager.latest_step()) if resuming and (getattr(config.model, "use_return_belief_prefix", False) or getattr(config.model, "use_rtc_forecast", False) or getattr(config.data, "forecast_policy_view", None) is not None) else 0,
+     )
+     data_iter = iter(data_loader)
+     batch = next(data_iter)

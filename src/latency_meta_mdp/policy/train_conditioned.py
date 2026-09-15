@@ -1,4 +1,4 @@
-"""Train the native four-image forecast policy from a matched local clean milestone."""
+"""Train the selected forecast input mode from a matched clean milestone."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ def main():
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--output-dir", "--work-dir", dest="work_dir", type=Path, required=True)
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--clean-work-dir", type=Path)
+    p.add_argument("--forecast-dir", type=Path)
     p.add_argument("--wandb-disabled", action="store_true")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--check-only", action="store_true")
@@ -27,21 +29,21 @@ def main():
 def run(a):
     root = Path.cwd()
     work = a.work_dir.resolve()
-    from latency_meta_mdp.data.bundles import verify_bundle_files
     from latency_meta_mdp.data.forecast.assets import load_forecast_job
     from latency_meta_mdp.io.artifacts import sha256_file
     from latency_meta_mdp.io.policy_publish import publish_checkpoints
+    from latency_meta_mdp.policy.conditioning import conditioning_contract, conditioning_patches
     from latency_meta_mdp.policy.config import resolve_policy_profile
+    from latency_meta_mdp.policy.initialization import conditioned_initialization
     from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
     from latency_meta_mdp.policy.schedule import SFTLaunchRequest, resolve_sft_schedule
 
     job = load_forecast_job(a.config, project_root=root)
     clean_job = job["clean"]
+    input_mode = job.get("input_mode", "current_and_forecast")
+    mode_contract = conditioning_contract(input_mode)
     profile = resolve_policy_profile(clean_job)
     level = clean_job["level"]
-    bundle = work / "clean/bundles" / clean_job["dataset_revision"]
-    verify_bundle_files(bundle)
-    os.environ["HF_LEROBOT_HOME"] = str(bundle / "dataset")
     request = SFTLaunchRequest(
         level,
         clean_job["run_name"],
@@ -51,16 +53,13 @@ def run(a):
         clean_job["batch_size"],
     )
     schedule = resolve_sft_schedule(profile=profile, request=request)
-    clean_dir = (
-        work
-        / "clean/checkpoints"
-        / profile.levels[level].config_name
-        / clean_job["run_name"]
-        / str(schedule.num_train_steps)
+    clean_work = getattr(a, "clean_work_dir", None) or work / "clean"
+    bundle, clean_dir, initialization = conditioned_initialization(
+        job, profile, schedule, work=work, clean_work=clean_work.resolve()
     )
-    if not (clean_dir / "params").is_dir():
-        raise ValueError("Matched final clean checkpoint is missing")
-    cache = work / "preparation/forecasts"
+    os.environ["HF_LEROBOT_HOME"] = str(bundle / "dataset")
+    cache = getattr(a, "forecast_dir", None) or work / "preparation/forecasts"
+    cache = cache.resolve()
     manifest = json.loads((cache / "manifest.json").read_text())
     bindings = manifest["bindings"]
     identity = {
@@ -77,9 +76,12 @@ def run(a):
         "policy_export_manifest": str(bundle / "dataset/manifest.json"),
         "bindings": bindings,
     }
+    if input_mode == "forecast_only":
+        view["input_mode"] = input_mode
+    patches = conditioning_patches(root, input_mode)
     with temporary_patched_openpi_copy(
         openpi_root=root / "third_party/openpi",
-        patch_paths=tuple(sorted((root / "patches/openpi").glob("000[1-9]-*.patch"))),
+        patch_paths=patches,
         expected_revision=profile.openpi_revision,
     ) as upstream:
         sys.path.insert(0, str(upstream / "src"))
@@ -96,7 +98,14 @@ def run(a):
             checkpoint_root=work / "conditioned/checkpoints",
             wandb_enabled=not a.wandb_disabled,
         )
-        config = build_forecast_policy_train_config(
+        builder = build_forecast_policy_train_config
+        if input_mode == "forecast_only":
+            from latency_meta_mdp.policy.openpi.forecast_only import (
+                build_forecast_only_train_config,
+            )
+
+            builder = build_forecast_only_train_config
+        config = builder(
             clean_config=clean,
             clean_checkpoint=clean_dir / "params",
             forecast_identity=identity,
@@ -112,9 +121,11 @@ def run(a):
             "device_count": clean_job["device_count"],
             "num_train_steps": config.num_train_steps,
             "milestones": steps,
-            "clean_checkpoint_step": schedule.num_train_steps,
-            "clean_report_sha256": sha256_file(
-                clean_dir.parent / f"verified_run-step{schedule.num_train_steps}.json"
+            "clean_checkpoint_step": initialization["step"],
+            **(
+                {"clean_report_sha256": initialization["clean_report_sha256"]}
+                if "clean_report_sha256" in initialization
+                else {"initialization": initialization}
             ),
             "forecast_manifest_sha256": sha256_file(cache / "manifest.json"),
             "job_sha256": sha256_file(a.config),
@@ -122,13 +133,32 @@ def run(a):
             if clean_job.get("training")
             else None,
             "forecast_identity": identity,
-            "openpi_patches": {
-                p.name: sha256_file(p)
-                for p in sorted((root / "patches/openpi").glob("000[1-9]-*.patch"))
-            },
+            "openpi_patches": {p.name: sha256_file(p) for p in patches},
             "trainable_scope": config.policy_metadata["trainable_scope"],
         }
+        if input_mode == "forecast_only":
+            report.update(input_mode=input_mode, **mode_contract)
+
+        def prepare_publication():
+            if input_mode == "forecast_only":
+                for step in steps:
+                    path = destination / str(step) / "assets/policy_contract.json"
+                    path.write_text(
+                        json.dumps(
+                            {
+                                "input_mode": input_mode,
+                                **mode_contract,
+                                "level": level,
+                                "forecast_identity": identity,
+                                "action_horizon": 50,
+                                "state_dim": 16,
+                            },
+                            indent=2,
+                        )
+                    )
+
         if a.publish_only:
+            prepare_publication()
             revision = publish_checkpoints(
                 root=destination,
                 steps=steps,
@@ -150,7 +180,7 @@ def run(a):
         original = data_loader.create_torch_dataset
         data_loader.create_torch_dataset = lambda *args, **kwargs: provider
         try:
-            # Check the actual normalized four-image batch before allocating VLA weights.
+            # Check native shapes and masks before allocating VLA weights.
             check_config = dataclasses.replace(
                 config, batch_size=clean_job["device_count"], num_workers=0
             )
@@ -189,6 +219,7 @@ def run(a):
             target.write_text(json.dumps(report, indent=2))
         finally:
             data_loader.create_torch_dataset = original
+        prepare_publication()
         revision = publish_checkpoints(
             root=destination,
             steps=steps,

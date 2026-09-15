@@ -27,6 +27,14 @@ python scripts/train_clean_policy.py --config "$CONFIG" --output-dir "$RUN_DIR"
 python scripts/train_conditioned_policy.py --config "$CONFIG" --output-dir "$RUN_DIR"
 ```
 
+Conditioned jobs default to `input_mode: current_and_forecast`. Set
+`input_mode: forecast_only` to use native observation replacement with future-indexed
+action targets. To reuse another run's clean checkpoint and cache, pass
+`--clean-work-dir "$CLEAN_RUN_DIR" --forecast-dir "$FORECAST_DIR"`.
+An `initialization` block in the job may instead pin a public clean checkpoint's
+`repo_id`, `revision` and `step`. The standalone trainer then downloads that
+checkpoint and the matching training bundle. Use a separate output directory per mode.
+
 To run clean training, forecast preparation and conditioned training in sequence:
 
 ```bash

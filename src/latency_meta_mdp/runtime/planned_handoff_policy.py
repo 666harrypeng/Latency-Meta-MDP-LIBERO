@@ -22,7 +22,7 @@ class PlannedHandoffPolicy:
         if mode not in {"current", "forecast"} or not callable(native_policy):
             raise ValueError("planned handoff requires a native policy and current/forecast mode")
         if getattr(native_policy, "uses_forecast", True):
-            raise ValueError("planned handoff requires the clean native two-image policy")
+            raise ValueError("planned handoff requires a native two-camera policy")
         self.native_policy, self.mode = native_policy, mode
 
     def __call__(self, observation, context=None):
