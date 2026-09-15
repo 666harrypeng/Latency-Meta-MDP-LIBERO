@@ -112,3 +112,71 @@ def test_dataset_preserves_each_native_target_and_balances_q_with_resume(built_c
     resumed = list(data.training_sampler(seed=1, batch_size=32, start_batch=2))
     assert resumed == order[64:]
     assert data.coverage()["real_action_sources"] == record.terminal_tick
+
+
+def test_forecast_generation_resumes_after_last_complete_episode(tmp_path):
+    from test_action_conditioned_jepa_data import _normalization, _record
+
+    from latency_meta_mdp.policy_forecast_cache import ForecastCache, write_forecast_cache
+
+    records = tuple(_record(tmp_path, episode_id=f"record{i}", terminal_tick=12) for i in (1, 2))
+    norm = _normalization(records[0])
+    bindings = {
+        key: "a" * 64
+        for key in (
+            "predictor_sha256",
+            "decoder_sha256",
+            "jepa_normalization_sha256",
+            "source_manifest_sha256",
+            "split_manifest_sha256",
+            "vision_cache_manifest_sha256",
+        )
+    }
+    bindings["predictor_architecture"] = "jepa_direct_q20_history_stride4_w3_v1"
+
+    class Engine:
+        def __init__(self, fail=False):
+            self.calls = 0
+            self.fail = fail
+
+        def predict(self, q):
+            self.calls += 1
+            if self.fail and self.calls == 2:
+                raise RuntimeError("interrupted")
+            return np.zeros((len(q.query_ticks), 2, 224, 224, 3), np.uint8), np.zeros(
+                (len(q.query_ticks), 16), np.float32
+            )
+
+    out = tmp_path / "forecasts"
+    with pytest.raises(RuntimeError, match="interrupted"):
+        write_forecast_cache(
+            records=records,
+            normalization=norm,
+            engine=Engine(True),
+            output_dir=out,
+            bindings=bindings,
+            batch_size=32,
+        )
+    engine = Engine()
+    write_forecast_cache(
+        records=records,
+        normalization=norm,
+        engine=engine,
+        output_dir=out,
+        bindings=bindings,
+        batch_size=32,
+        resume=True,
+    )
+    assert engine.calls == 1
+    cache = ForecastCache(out, expected_bindings=bindings)
+    assert cache.manifest["prediction_count"] == 6
+    assert cache.read("record1", 10, 2)[0].shape == (2, 224, 224, 3)
+    with pytest.raises(ValueError, match="identity"):
+        write_forecast_cache(
+            records=records,
+            normalization=norm,
+            engine=engine,
+            output_dir=out,
+            bindings={**bindings, "decoder_sha256": "b" * 64},
+            resume=True,
+        )

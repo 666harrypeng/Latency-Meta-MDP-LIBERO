@@ -230,6 +230,7 @@ def write_vision_feature_cache_run(
     levels: tuple[int, ...],
     episode_range: tuple[int, int] | None,
     boundary_batch_size: int,
+    selected_episode_ids: tuple[str, ...] | None = None,
     load_fn: Callable[[Path], Any] | None = None,
     provenance_fn: Callable[[Path], ImplementationProvenance] = _collect_vision_cache_provenance,
     progress_fn: Callable[[str], None] | None = None,
@@ -247,6 +248,14 @@ def write_vision_feature_cache_run(
         )
 
         load_fn = load_verified_source_corpus
+    if selected_episode_ids is not None and (
+        episode_range is not None
+        or not selected_episode_ids
+        or len(set(selected_episode_ids)) != len(selected_episode_ids)
+    ):
+        raise ValueError(
+            "Explicit episode selection must be unique and cannot combine with a range"
+        )
     source_root = Path(source_root).resolve()
     source_manifest = source_root / "manifest.json"
     source_manifest_sha = _hash_file(source_manifest)
@@ -273,8 +282,12 @@ def write_vision_feature_cache_run(
                 if stop > len(episode_ids):
                     raise ValueError(f"episode_range exceeds the L{level} episode inventory")
                 episode_ids = episode_ids[start:stop]
+            if selected_episode_ids is not None:
+                episode_ids = tuple(e for e in episode_ids if e in set(selected_episode_ids))
             selections.append((level, episode_ids))
             total_selected += len(episode_ids)
+        if selected_episode_ids is not None and total_selected != len(selected_episode_ids):
+            raise ValueError("Selected episode is missing or belongs to another level")
         if total_selected == 0:
             raise ValueError("vision cache selection contains no episodes")
 

@@ -31,6 +31,7 @@ from latency_meta_mdp.policy_forecast_cache import write_forecast_cache
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--vision-cache-manifest", type=Path, required=True)
     parser.add_argument("--split-manifest", type=Path, required=True)
@@ -43,7 +44,7 @@ def main():
     parser.add_argument("--limit-episodes", type=int)
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
-    if args.output_dir.exists():
+    if args.output_dir.exists() and not args.resume:
         raise FileExistsError(args.output_dir)
     if args.limit_episodes is not None and args.limit_episodes < 1:
         raise ValueError("episode limit must be positive")
@@ -72,6 +73,8 @@ def main():
         cache_run_manifest=args.vision_cache_manifest,
         split_manifest_path=args.split_manifest,
         config=config,
+        verify_payloads=False,
+        required_episode_ids=norm.episode_ids,
     )
     ids = sorted(
         set(inputs.split.train_episode_ids) & set(inputs.source.episode_ids(level=args.level))
@@ -125,6 +128,7 @@ def main():
         output_dir=args.output_dir,
         bindings=bindings,
         batch_size=args.batch_size,
+        resume=args.resume,
     )
     print(json.dumps({"completed_manifest": str(manifest), "optimizer_steps": 0}), flush=True)
 

@@ -10,6 +10,8 @@ WORKDIR /opt/openpi
 RUN uv python install 3.11.15 \
     && GIT_LFS_SKIP_SMUDGE=1 uv sync --frozen --no-dev --python 3.11.15 \
     && uv pip install --python /opt/venv/bin/python pytest==8.3.5
+COPY docker/preparation /opt/preparation
+RUN UV_PROJECT_ENVIRONMENT=/opt/belief uv sync --project /opt/preparation --frozen --no-dev --python 3.10
 ENV PATH=/opt/venv/bin:$PATH PYTHONPATH=/workspace/src PYTHONUNBUFFERED=1 \
     HF_HOME=/data/cache/huggingface OPENPI_DATA_HOME=/data/cache/openpi \
     XLA_PYTHON_CLIENT_MEM_FRACTION=0.90 WANDB_DIR=/data/wandb

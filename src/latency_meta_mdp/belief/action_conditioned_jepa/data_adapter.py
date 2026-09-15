@@ -611,6 +611,7 @@ def load_verified_jepa_inputs(
     split_manifest_path: Path,
     config: ActionConditionedJepaConfig,
     verify_payloads: bool = True,
+    required_episode_ids: tuple[str, ...] | None = None,
 ) -> VerifiedJepaInputs:
     if not isinstance(config, ActionConditionedJepaConfig):
         raise TypeError("config must be an ActionConditionedJepaConfig")
@@ -632,10 +633,13 @@ def load_verified_jepa_inputs(
     source_ids = {
         episode_id for level in (1, 2, 3) for episode_id in source.episode_ids(level=level)
     }
+    required_ids = source_ids if required_episode_ids is None else set(required_episode_ids)
+    if not required_ids or not required_ids <= source_ids:
+        raise ValueError("Required cache episodes are not part of this source")
     cache_rows = {row["episode_id"]: row for row in cache_manifest["episodes"]}
     if (
         len(cache_rows) != len(cache_manifest["episodes"])
-        or set(cache_rows) != source_ids
+        or not required_ids <= set(cache_rows) <= source_ids
         or cache_manifest["source_corpus_id"] != source.manifest.corpus_id
     ):
         raise ValueError("JEPA source/cache episode join is incomplete")

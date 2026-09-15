@@ -41,7 +41,14 @@ def _check_bindings(bindings):
 
 
 def write_forecast_cache(
-    *, records, normalization, engine, output_dir: Path, bindings: dict, batch_size: int = 32
+    *,
+    records,
+    normalization,
+    engine,
+    output_dir: Path,
+    bindings: dict,
+    batch_size: int = 32,
+    resume: bool = False,
 ):
     """Batch only real endpoints. Missing history/tails have no rows or invented labels."""
     import torch
@@ -63,7 +70,20 @@ def write_forecast_cache(
     if type(batch_size) is not int or batch_size <= 0:
         raise ValueError("cache batch size must be positive")
     root = Path(output_dir).resolve()
-    root.mkdir(parents=True, exist_ok=False)
+    contract = {
+        "bindings": bindings,
+        "episodes": [(r.episode_id, r.terminal_tick) for r in records],
+    }
+    contract = json.loads(json.dumps(contract))
+    if resume:
+        if json.loads((root / "generation.json").read_text()) != contract:
+            raise ValueError("Forecast resume identity mismatch")
+        if (root / "manifest.json").exists():
+            ForecastCache(root, expected_bindings=bindings)
+            return root / "manifest.json"
+    else:
+        root.mkdir(parents=True, exist_ok=False)
+        (root / "generation.json").write_text(json.dumps(contract, indent=2))
     database = root / "forecasts.sqlite"
     conn = sqlite3.connect(database)
     png_pool = ThreadPoolExecutor(max_workers=4)
@@ -72,12 +92,22 @@ def write_forecast_cache(
     started = time.monotonic()
     try:
         conn.execute(
-            "CREATE TABLE predictions (episode TEXT, source INTEGER, q INTEGER, "
+            "CREATE TABLE IF NOT EXISTS predictions (episode TEXT, source INTEGER, q INTEGER, "
             "rgb BLOB, proprio BLOB, PRIMARY KEY(episode,source,q)) WITHOUT ROWID"
         )
         conn.execute(
-            "CREATE TABLE episodes (episode TEXT PRIMARY KEY, proprio BLOB, controls BLOB)"
+            "CREATE TABLE IF NOT EXISTS episodes "
+            "(episode TEXT PRIMARY KEY, proprio BLOB, controls BLOB)"
         )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS completed "
+            "(episode TEXT PRIMARY KEY, rows INTEGER, png_bytes INTEGER)"
+        )
+        done = {
+            r[0]: (r[1], r[2]) for r in conn.execute("SELECT episode,rows,png_bytes FROM completed")
+        }
+        count = sum(r[0] for r in done.values())
+        png_bytes = sum(r[1] for r in done.values())
         pending = []
 
         def flush():
@@ -142,6 +172,13 @@ def write_forecast_cache(
                     "logical_master_task_index": record.logical_master_task_index,
                 }
             )
+            if record.episode_id in done:
+                continue
+            # Incomplete episode writes are rolled back on resume; complete episodes remain.
+            with conn:
+                conn.execute("DELETE FROM predictions WHERE episode=?", (record.episode_id,))
+                conn.execute("DELETE FROM episodes WHERE episode=?", (record.episode_id,))
+            before_count, before_bytes = count, png_bytes
             with conn:
                 conn.execute(
                     "INSERT INTO episodes VALUES (?,?,?)",
@@ -160,6 +197,11 @@ def write_forecast_cache(
                     if len(pending) == batch_size:
                         flush()
             flush()
+            with conn:
+                conn.execute(
+                    "INSERT INTO completed VALUES (?,?,?)",
+                    (record.episode_id, count - before_count, png_bytes - before_bytes),
+                )
             print(
                 json.dumps(
                     {

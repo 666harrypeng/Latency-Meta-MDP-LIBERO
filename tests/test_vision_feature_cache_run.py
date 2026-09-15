@@ -263,3 +263,28 @@ def test_cache_cli_exposes_structured_source_selection(tmp_path: Path, capsys) -
     assert captured["writer"]["levels"] == (1, 3)
     assert captured["writer"]["episode_range"] == (4, 9)
     assert captured["writer"]["boundary_batch_size"] == 8
+
+
+def test_cache_can_select_explicit_training_episode_inventory(tmp_path):
+    from latency_meta_mdp.vision_feature_cache_run import (
+        load_verified_vision_feature_cache_run,
+        write_vision_feature_cache_run,
+    )
+
+    corpus = _Corpus(tmp_path / "source")
+    selected = (corpus.episode_ids(level=2)[1],)
+    output = tmp_path / "selected"
+    path = write_vision_feature_cache_run(
+        project_root=tmp_path,
+        source_root=corpus.root,
+        encoder=_DeterministicEncoder(),
+        output_dir=output,
+        levels=(2,),
+        episode_range=None,
+        boundary_batch_size=2,
+        load_fn=lambda p: corpus,
+        provenance_fn=_clean_provenance,
+        selected_episode_ids=selected,
+    )
+    manifest = load_verified_vision_feature_cache_run(path.parent)
+    assert [row["episode_id"] for row in manifest["episodes"]] == list(selected)
