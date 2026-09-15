@@ -1,0 +1,9 @@
+**
+!docker/
+!docker/sft.Dockerfile
+!third_party/
+!third_party/openpi/
+!third_party/openpi/**
+third_party/openpi/.git
+third_party/openpi/.venv
+third_party/openpi/**/__pycache__

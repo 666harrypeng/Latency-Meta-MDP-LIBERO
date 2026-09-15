@@ -1,0 +1,5 @@
+This archive contains modified model weights fine-tuned from the pi05_base checkpoint released by Physical Intelligence through https://github.com/Physical-Intelligence/openpi.
+
+Gemma is provided under and subject to the Gemma Terms of Use found at https://ai.google.dev/gemma/terms. Applicable use restrictions are incorporated by reference, including https://ai.google.dev/gemma/prohibited_use_policy. A copy of the Gemma Terms of Use is included in GEMMA_TERMS.txt.
+
+OpenPI is made available under the Apache License, Version 2.0; a copy is included in LICENSE. These notices do not replace or remove applicable upstream rights or restrictions.

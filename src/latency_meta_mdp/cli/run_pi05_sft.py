@@ -1,4 +1,7 @@
-"""Run one provenance-checked clean π0.5 SFT smoke or formal training run."""
+"""Historical 8D SFT entry; use train_structured_pi05 for current state16 data.
+
+The historical L2 dataset/model repositories have been retired.
+"""
 
 from __future__ import annotations
 
