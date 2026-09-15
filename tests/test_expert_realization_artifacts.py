@@ -19,13 +19,13 @@ def _sha(payload: bytes) -> str:
 
 
 def _implementation():
-    from latency_meta_mdp.expert_realization.artifacts import ImplementationIdentity
+    from latency_meta_mdp.data.collection.artifacts import ImplementationIdentity
 
     return ImplementationIdentity("1" * 40, SHA_E, False)
 
 
 def _execution_implementation():
-    from latency_meta_mdp.expert_realization.artifacts import ImplementationIdentity
+    from latency_meta_mdp.data.collection.artifacts import ImplementationIdentity
 
     return ImplementationIdentity("1" * 40, SHA_E, True)
 
@@ -42,8 +42,8 @@ def _task_payloads():
 
 
 def _task_manifest():
-    from latency_meta_mdp.expert_realization.artifacts import TaskInstanceManifest
-    from latency_meta_mdp.expert_realization.contracts import TaskInstanceId
+    from latency_meta_mdp.data.collection.artifacts import TaskInstanceManifest
+    from latency_meta_mdp.data.collection.contracts import TaskInstanceId
 
     payloads = _task_payloads()
     identity = TaskInstanceId(
@@ -93,12 +93,12 @@ def _plan_payloads():
 
 
 def _plan_manifest(*, task_manifest_sha: str, task_manifest_path: str):
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         ArtifactRef,
         FrozenPlanRow,
         FrozenPlanSetManifest,
     )
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
         build_realization_universe_identity,
     )
@@ -174,7 +174,7 @@ def _plan_manifest(*, task_manifest_sha: str, task_manifest_path: str):
 
 
 def _publish_ancestors(pilot_root: Path):
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         publish_frozen_plan_set,
         publish_task_instance,
     )
@@ -200,15 +200,15 @@ def _attempt_manifest(
     status_class: str,
     episode: bool,
 ):
-    from latency_meta_mdp.expert_realization.artifacts import ArtifactRef, AttemptManifest
-    from latency_meta_mdp.expert_realization.contracts import AttemptId, ExpertRealizationId
+    from latency_meta_mdp.data.collection.artifacts import ArtifactRef, AttemptManifest
+    from latency_meta_mdp.data.collection.contracts import AttemptId, ExpertRealizationId
 
     base = pilot_root / "task_instances/L1/seed-4000"
     task_ref_path = "task_instances/L1/seed-4000/task_instance/manifest.json"
     plan_ref_path = "task_instances/L1/seed-4000/plan_set/manifest.json"
     plan_sha = _sha((base / "plan_set/manifest.json").read_bytes())
     plan, verified_sha = __import__(
-        "latency_meta_mdp.expert_realization.artifacts", fromlist=["load_verified_frozen_plan"]
+        "latency_meta_mdp.data.collection.artifacts", fromlist=["load_verified_frozen_plan"]
     ).load_verified_frozen_plan(base / "plan_set", artifact_root=pilot_root)
     assert verified_sha == plan_sha
     key = plan.realizations[realization_index].expert_realization_key
@@ -245,7 +245,7 @@ def _attempt_manifest(
 def _episode_for_attempt(pilot: Path, plan_root: Path):
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.contracts import AttemptId, ExpertRealizationId
+    from latency_meta_mdp.data.collection.contracts import AttemptId, ExpertRealizationId
 
     episode = make_episode()
     task = _task_manifest()
@@ -298,7 +298,7 @@ def _episode_for_attempt(pilot: Path, plan_root: Path):
 
 def test_task_manifest_is_strictly_preplan_and_binds_raw_motion_and_state_hashes() -> None:
     """Break caught: pre-plan identity embeds later IDs or hashes the wrong raw inputs."""
-    from latency_meta_mdp.expert_realization.artifacts import TaskInstanceManifest
+    from latency_meta_mdp.data.collection.artifacts import TaskInstanceManifest
 
     manifest = _task_manifest()
     mapping = manifest.to_mapping()
@@ -316,8 +316,8 @@ def test_frozen_plan_contains_keys_only_and_raw_manifest_digest_finalizes_ids(
     tmp_path: Path,
 ) -> None:
     """Break caught: a circular finalized ID is serialized before the plan manifest hash exists."""
-    from latency_meta_mdp.expert_realization.artifacts import load_verified_frozen_plan
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationId
+    from latency_meta_mdp.data.collection.artifacts import load_verified_frozen_plan
+    from latency_meta_mdp.data.collection.contracts import ExpertRealizationId
 
     pilot = tmp_path / "pilot"
     _, plan_root = _publish_ancestors(pilot)
@@ -396,11 +396,11 @@ def test_attempt_publication_and_loader_verify_episode_and_ancestor_identity_joi
     """Break caught: a valid child is attached to the wrong task, plan digest, or realization."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         load_verified_attempt,
         publish_attempt,
     )
-    from latency_meta_mdp.expert_realization.recording_artifacts import write_structured_episode
+    from latency_meta_mdp.data.collection.recording_artifacts import write_structured_episode
 
     pilot = tmp_path / "pilot"
     _, plan_root = _publish_ancestors(pilot)
@@ -477,8 +477,8 @@ def test_attempt_publication_rejects_each_false_episode_provenance_fact(
     """Break caught: one syntactically valid false provenance field crosses publication."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.artifacts import publish_attempt
-    from latency_meta_mdp.expert_realization.recording_artifacts import write_structured_episode
+    from latency_meta_mdp.data.collection.artifacts import publish_attempt
+    from latency_meta_mdp.data.collection.recording_artifacts import write_structured_episode
 
     pilot = tmp_path / field
     _, plan_root = _publish_ancestors(pilot)
@@ -518,8 +518,8 @@ def test_attempt_publication_rejects_undeclared_legacy_child_and_external_symlin
     """Break caught: attempt ingestion recursively copies undeclared or external bytes."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.artifacts import publish_attempt
-    from latency_meta_mdp.expert_realization.recording_artifacts import write_structured_episode
+    from latency_meta_mdp.data.collection.artifacts import publish_attempt
+    from latency_meta_mdp.data.collection.recording_artifacts import write_structured_episode
 
     pilot = tmp_path / "pilot"
     _, plan_root = _publish_ancestors(pilot)
@@ -569,12 +569,12 @@ def test_explicit_episode_snapshot_survives_source_mutation_and_copied_attempt_r
     """Break caught: publication reopens mutable episode paths after verification."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         load_verified_attempt,
         load_verified_attempt_bundle,
         publish_attempt,
     )
-    from latency_meta_mdp.expert_realization.recording_artifacts import (
+    from latency_meta_mdp.data.collection.recording_artifacts import (
         load_verified_structured_episode_snapshot,
         write_structured_episode,
     )
@@ -617,7 +617,7 @@ def test_verified_plan_bundle_retains_immutable_child_bytes_after_filesystem_mut
     tmp_path: Path,
 ) -> None:
     """Break caught: a verified consumer must reopen mutable plan paths in its hot loop."""
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         load_verified_frozen_plan_bundle,
     )
 
@@ -637,7 +637,7 @@ def test_publish_failure_before_rename_leaves_no_final_or_loadable_artifact(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Break caught: an interrupted staging build becomes visible as a complete task instance."""
-    from latency_meta_mdp.expert_realization import artifacts as module
+    from latency_meta_mdp.data.collection import artifacts as module
 
     target = tmp_path / "task_instances/L1/seed-4000/task_instance"
     original = module._write_file_fsynced
@@ -661,7 +661,7 @@ def test_atomic_noreplace_winner_never_mutates_existing_targets_even_in_race(
     tmp_path: Path,
 ) -> None:
     """Break caught: a precheck race lets the second worker replace the first publication."""
-    from latency_meta_mdp.expert_realization.artifacts import publish_task_instance
+    from latency_meta_mdp.data.collection.artifacts import publish_task_instance
 
     target = tmp_path / "task_instances/L1/seed-4000/task_instance"
 
@@ -685,7 +685,7 @@ def test_publication_fsyncs_every_file_and_bottom_up_directories_around_rename(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Break caught: rename exposes bytes that were never made durable in filesystem order."""
-    from latency_meta_mdp.expert_realization import artifacts as module
+    from latency_meta_mdp.data.collection import artifacts as module
 
     pilot = tmp_path / "pilot"
     base = pilot / "task_instances/L1/seed-4000"
@@ -728,7 +728,7 @@ def test_publication_hashes_fsynced_children_before_writing_manifest(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Break caught: a manifest records input hashes before durable staged files exist."""
-    from latency_meta_mdp.expert_realization import artifacts as module
+    from latency_meta_mdp.data.collection import artifacts as module
 
     events: list[tuple[str, str]] = []
     real_write = module._write_file_fsynced
@@ -757,7 +757,7 @@ def test_verified_loaders_reject_path_traversal_mixed_legacy_and_raw_corruption(
     tmp_path: Path,
 ) -> None:
     """Break caught: a new parent trusts unsafe paths, historical children, or changed raw bytes."""
-    from latency_meta_mdp.expert_realization.artifacts import load_verified_frozen_plan
+    from latency_meta_mdp.data.collection.artifacts import load_verified_frozen_plan
 
     pilot = tmp_path / "pilot"
     _, plan_root = _publish_ancestors(pilot)
@@ -780,7 +780,7 @@ def test_verified_loaders_reject_path_traversal_mixed_legacy_and_raw_corruption(
     payloads["task_instance.json"] = _json_bytes({"format_id": "panda_ball_bulk_range_v1"})
     with pytest.raises(ValueError, match="legacy"):
         __import__(
-            "latency_meta_mdp.expert_realization.artifacts", fromlist=["publish_task_instance"]
+            "latency_meta_mdp.data.collection.artifacts", fromlist=["publish_task_instance"]
         ).publish_task_instance(
             _task_manifest(),
             pilot3 / "task_instances/L1/seed-4000/task_instance",
@@ -802,7 +802,7 @@ def test_new_plan_loader_rejects_every_locked_legacy_top_level_format(
     tmp_path: Path, legacy_id: str
 ) -> None:
     """Break caught: a flat bulk, pilot, corpus, or DINO source enters the new hierarchy."""
-    from latency_meta_mdp.expert_realization.artifacts import load_verified_frozen_plan
+    from latency_meta_mdp.data.collection.artifacts import load_verified_frozen_plan
 
     root = tmp_path / legacy_id
     root.mkdir()
@@ -813,7 +813,7 @@ def test_new_plan_loader_rejects_every_locked_legacy_top_level_format(
 
 def test_manifest_child_references_must_use_the_locked_hierarchical_layout() -> None:
     """Break caught: a valid hash is attached under an ambiguous or flat legacy-style path."""
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         AttemptManifest,
         FrozenPlanSetManifest,
     )
@@ -867,7 +867,7 @@ def test_manifest_schema_versions_reject_boolean_true() -> None:
     """Break caught: manifest constructors treat boolean true as schema integer one."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         ArtifactRef,
         AttemptManifest,
         StructuredPilotManifest,
@@ -938,7 +938,7 @@ def test_manifest_schema_versions_reject_boolean_true() -> None:
 
 def test_publishers_reject_noncanonical_target_aliases(tmp_path: Path) -> None:
     """Break caught: hashes are published under paths not derived from their bound identity."""
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         load_verified_task_instance,
         publish_task_instance,
     )
@@ -960,7 +960,7 @@ def test_canonical_publish_and_load_reject_intermediate_symlink_ancestry(
     tmp_path: Path,
 ) -> None:
     """Break caught: a lexical canonical path escapes through task_instances symlink."""
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         load_verified_task_instance,
         publish_task_instance,
     )
@@ -986,7 +986,7 @@ def test_plan_loader_rejects_symlinked_artifact_root_and_intermediate_child_dir(
     tmp_path: Path,
 ) -> None:
     """Break caught: verified plan refs cross a symlinked root or child directory."""
-    from latency_meta_mdp.expert_realization.artifacts import load_verified_frozen_plan
+    from latency_meta_mdp.data.collection.artifacts import load_verified_frozen_plan
 
     pilot = tmp_path / "pilot"
     _, plan_root = _publish_ancestors(pilot)
@@ -1007,7 +1007,7 @@ def test_plan_loader_rejects_symlinked_artifact_root_and_intermediate_child_dir(
 
 def test_publication_rejects_group_or_world_writable_parent(tmp_path: Path) -> None:
     """Break caught: cleanup runs beneath a publication parent outside the cooperative model."""
-    from latency_meta_mdp.expert_realization.artifacts import publish_task_instance
+    from latency_meta_mdp.data.collection.artifacts import publish_task_instance
 
     parent = tmp_path / "task_instances/L1/seed-4000"
     parent.mkdir(parents=True)
@@ -1024,7 +1024,7 @@ def test_fault_at_final_rename_cleans_only_owned_staging_and_leaves_no_final(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Break caught: a rename failure leaves a visible final or a stale owned build."""
-    from latency_meta_mdp.expert_realization import artifacts as module
+    from latency_meta_mdp.data.collection import artifacts as module
 
     target = tmp_path / "task_instances/L1/seed-4000/task_instance"
 
@@ -1042,7 +1042,7 @@ def test_cleanup_refuses_to_remove_replaced_or_symlinked_staging_path(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Break caught: failure cleanup recursively deletes a path that replaced its owned inode."""
-    from latency_meta_mdp.expert_realization import artifacts as module
+    from latency_meta_mdp.data.collection import artifacts as module
 
     victim = tmp_path / "victim"
     victim.mkdir()
@@ -1073,7 +1073,7 @@ def test_cleanup_refuses_to_remove_replaced_or_symlinked_staging_path(
 
 def test_pilot_manifest_is_strict_inventory_with_failures_and_all_training_flags_false() -> None:
     """Break caught: inventory loading drops failed attempts or silently authorizes training."""
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         ArtifactRef,
         StructuredPilotManifest,
     )

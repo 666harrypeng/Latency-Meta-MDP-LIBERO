@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import pytest
 
-from latency_meta_mdp.outcomes import (
+from latency_meta_mdp.envs.outcomes import (
     EpisodeOutcomeTracker,
     OutcomeCriteria,
     OutcomeStatus,

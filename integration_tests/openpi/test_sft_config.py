@@ -3,18 +3,19 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_worktree
-from latency_meta_mdp.openpi_sft import register_sft_configs
-from latency_meta_mdp.sft_profile import load_sft_profile
+from latency_meta_mdp.io.paths import repository_root
+from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_worktree
+from latency_meta_mdp.policy.openpi.training import register_sft_configs
+from latency_meta_mdp.policy.profile import load_sft_profile
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = repository_root()
 
 
 def test_register_sft_configs_builds_three_full_parameter_h50_profiles(
     tmp_path: Path,
 ) -> None:
     profile = load_sft_profile(
-        _PROJECT_ROOT / "configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"
+        _PROJECT_ROOT / "configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml"
     )
     with temporary_patched_openpi_worktree(
         openpi_root=_PROJECT_ROOT / "third_party/openpi",

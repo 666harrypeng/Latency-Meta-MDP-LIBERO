@@ -10,7 +10,7 @@ pytest.importorskip("flax")
 
 @pytest.fixture(scope="module")
 def patched_rtc():
-    from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
 
     patches = tuple(sorted(Path("patches/openpi").glob("000[1-7]-*.patch")))
     with temporary_patched_openpi_copy(
@@ -33,7 +33,7 @@ def test_real_pi0_sampler_zero_guidance_matches_native_and_preserves_padding(
     from openpi.shared.nnx_utils import module_jit
     from test_openpi_belief_prefix import _tiny_pi05
 
-    from latency_meta_mdp.openpi_rtc import build_rtc_weights
+    from latency_meta_mdp.policy.openpi.rtc import build_rtc_weights
 
     _, model, obs = _tiny_pi05(monkeypatch, prefix=False)
     sample = module_jit(model.sample_actions)
@@ -80,9 +80,12 @@ def test_policy_bridge_normalizes_previous_actions_exactly_once(patched_rtc):
     from openpi.policies.policy import Policy
     from openpi.shared.normalize import NormStats
 
-    from latency_meta_mdp.openpi_policy_data import StructuredPolicyInputs
-    from latency_meta_mdp.policy_execution import InProcessRtcOpenpiPolicy, PolicyObservation
-    from latency_meta_mdp.rtc_protocol import RtcInferenceContext
+    from latency_meta_mdp.policy.openpi.data import StructuredPolicyInputs
+    from latency_meta_mdp.runtime.policy_execution import (
+        InProcessRtcOpenpiPolicy,
+        PolicyObservation,
+    )
+    from latency_meta_mdp.runtime.rtc_protocol import RtcInferenceContext
 
     class NormalizedActionFixture(nnx.Module):
         # The model boundary adds one normalized unit. Actual normalization and
@@ -146,16 +149,24 @@ def test_policy_bridge_normalizes_previous_actions_exactly_once(patched_rtc):
     np.testing.assert_array_equal(inputs["actions"], previous)
     from dataclasses import replace
 
-    from latency_meta_mdp.planned_handoff_policy import PlannedHandoffPolicy
-    from latency_meta_mdp.policy_forecast import DecodedForecast
+    from latency_meta_mdp.data.forecast.samples import DecodedForecast
+    from latency_meta_mdp.runtime.planned_handoff_policy import PlannedHandoffPolicy
 
-    future_state = np.linspace(-.8, .8, 16, dtype=np.float32)
-    context = replace(context, forecast=DecodedForecast(
-        0, 4, 4, 0, np.full((2, 224, 224, 3), 128, np.uint8), future_state,
-    ))
+    future_state = np.linspace(-0.8, 0.8, 16, dtype=np.float32)
+    context = replace(
+        context,
+        forecast=DecodedForecast(
+            0,
+            4,
+            4,
+            0,
+            np.full((2, 224, 224, 3), 128, np.uint8),
+            future_state,
+        ),
+    )
     result = PlannedHandoffPolicy(bridge, mode="forecast")(obs, context)
     np.testing.assert_array_equal(result["actions"][:4], previous[:4])
-    np.testing.assert_allclose(result["actions"][4:25, :7], .3, atol=2e-6)
+    np.testing.assert_allclose(result["actions"][4:25, :7], 0.3, atol=2e-6)
     np.testing.assert_allclose(tokenized_states[-1][:16], future_state, atol=2e-6)
     assert result["handoff"]["policy_input_tick"] == 4
 
@@ -165,8 +176,8 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
 ):
     import json
 
-    from latency_meta_mdp.artifacts import sha256_file
-    from latency_meta_mdp.cli.evaluate_policy import main
+    from latency_meta_mdp.io.artifacts import sha256_file
+    from latency_meta_mdp.runtime.evaluate import main
 
     checkpoint = tmp_path / "6000"
     checkpoint.mkdir()
@@ -199,7 +210,7 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
         )
     )
     preparation = {
-        "profile_sha256": sha256_file(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")),
+        "profile_sha256": sha256_file(Path("configs/contracts/policy/pi05_state16_h50.yaml")),
         "level": 3,
         "patches": {
             p.name: sha256_file(p) for p in Path("patches/openpi").glob("000[1-3]-*.patch")
@@ -228,10 +239,10 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
     assert result["identity"]["protocol_id"] == "rtc_observation_time_h50_v1"
     assert "0007-inference-time-rtc.patch" in result["identity"]["runtime_patch_sha256"]
     assert prep_file.read_bytes() == before
-    from latency_meta_mdp.rtc_calibration import RtcDelayCalibration
+    from latency_meta_mdp.runtime.rtc_calibration import RtcDelayCalibration
 
     monkeypatch.setattr(
-        "latency_meta_mdp.cli.evaluate_policy.load_rtc_calibration",
+        "latency_meta_mdp.runtime.evaluate.load_rtc_calibration",
         lambda path, project_root: RtcDelayCalibration((4, 6), "source-sha", "calibration-sha"),
     )
     main(args + ["--rtc-calibration", str(tmp_path / "calibration.json")])
@@ -257,15 +268,26 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
     assert handoff["identity"]["plan_construction"] == "rtc_planned_handoff_h50_v1"
     assert handoff["identity"]["policy_observation_mode"] == "current"
     assets = tmp_path / "forecast-assets.json"
-    assets.write_text(json.dumps({"level": 3, "forecast_identity": {"predictor_sha256": "a"*64}}))
-    main(args + ["--planned-handoff", "forecast", "--forecast-assets", str(assets),
-                 "--bootstrap-checkpoint", str(checkpoint),
-                 "--bootstrap-verification", str(verification)])
+    assets.write_text(json.dumps({"level": 3, "forecast_identity": {"predictor_sha256": "a" * 64}}))
+    main(
+        args
+        + [
+            "--planned-handoff",
+            "forecast",
+            "--forecast-assets",
+            str(assets),
+            "--bootstrap-checkpoint",
+            str(checkpoint),
+            "--bootstrap-verification",
+            str(verification),
+        ]
+    )
     replacement = json.loads(capsys.readouterr().out)
     assert replacement["identity"]["policy_observation_mode"] == "forecast"
     assert replacement["identity"]["conditioning"] == "native_forecast_replacement_v1"
-    assert "0008-native-rtc-forecast-inputs.patch" not in (
-        replacement["identity"]["runtime_patch_sha256"]
+    assert (
+        "0008-native-rtc-forecast-inputs.patch"
+        not in (replacement["identity"]["runtime_patch_sha256"])
     )
     assert replacement["state_tokens"] and replacement["action_horizon"] == 50
     data = json.loads(verification.read_text())
@@ -276,9 +298,11 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
         "jepa_normalization_sha256": "c" * 64,
     }
     assets.write_text(json.dumps({"level": 3, "forecast_identity": forecast_identity}))
-    data.update(repo_id="local/p0-l3-rtc-forecast-directq20-state16-h50-v1",
-                conditioning="native_rtc_forecast_rgb_v1",
-                forecast_identity=forecast_identity)
+    data.update(
+        repo_id="local/p0-l3-rtc-forecast-directq20-state16-h50-v1",
+        conditioning="native_rtc_forecast_rgb_v1",
+        forecast_identity=forecast_identity,
+    )
     bootstrap_verification = tmp_path / "bootstrap.json"
     bootstrap_verification.write_bytes(verification.read_bytes())
     verification.write_text(json.dumps(data))
@@ -286,17 +310,35 @@ def test_rtc_cli_preflight_preserves_training_preparation_and_records_runtime_pa
 
     # A separate interpreter must import the four-image patch set, not this
     # fixture's already imported native seven-patch OpenPI modules.
-    shared = json.loads(subprocess.check_output([
-        sys.executable, "-m", "latency_meta_mdp.cli.evaluate_policy", *args,
-        "--forecast-assets", str(assets), "--bootstrap-checkpoint", str(checkpoint),
-        "--bootstrap-verification", str(bootstrap_verification),
-        "--prepare-forecast-before-decision", "--decision-interval-ticks", "4",
-        "--collect-meta-transitions", "--scheduler", "explore", "--discount-per-tick", ".999",
-    ], text=True))
+    shared = json.loads(
+        subprocess.check_output(
+            [
+                sys.executable,
+                "-m",
+                "latency_meta_mdp.runtime.evaluate",
+                *args,
+                "--forecast-assets",
+                str(assets),
+                "--bootstrap-checkpoint",
+                str(checkpoint),
+                "--bootstrap-verification",
+                str(bootstrap_verification),
+                "--prepare-forecast-before-decision",
+                "--decision-interval-ticks",
+                "4",
+                "--collect-meta-transitions",
+                "--scheduler",
+                "explore",
+                "--discount-per-tick",
+                ".999",
+            ],
+            text=True,
+        )
+    )
     assert shared["identity"]["prepare_forecast_before_decision"] is True
     assert shared["identity"]["decision_interval_ticks"] == 4
     assert shared["identity"]["meta_collection"] is True
-    assert shared["identity"]["discount_per_tick"] == .999
+    assert shared["identity"]["discount_per_tick"] == 0.999
     data = json.loads(verification.read_text())
     data["repo_id"] = "yypeng666/metamdp-pi05-l3-predicted-mixture-state16-h50-prefix-q4-2epochs-v1"
     verification.write_text(json.dumps(data))

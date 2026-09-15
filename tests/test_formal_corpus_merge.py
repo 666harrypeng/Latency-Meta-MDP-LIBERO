@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
+from latency_meta_mdp.io.artifacts import sha256_file
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -99,7 +99,7 @@ def _write_source(
 
 
 def test_formal_merge_hardlinks_exact_complete_seed_coverage(tmp_path: Path) -> None:
-    from latency_meta_mdp.formal_corpus import materialize_formal_corpus
+    from latency_meta_mdp.data.formal_corpus import materialize_formal_corpus
 
     first = _write_source(
         tmp_path,
@@ -140,7 +140,7 @@ def test_formal_merge_rejects_invalid_sources_without_partial_output(
     tmp_path: Path,
     mode: str,
 ) -> None:
-    from latency_meta_mdp.formal_corpus import materialize_formal_corpus
+    from latency_meta_mdp.data.formal_corpus import materialize_formal_corpus
 
     first = _write_source(
         tmp_path,
@@ -173,7 +173,7 @@ def test_formal_merge_rejects_invalid_sources_without_partial_output(
 
 
 def test_formal_corpus_cli_parses_two_sources_and_expected_coverage(tmp_path: Path) -> None:
-    from latency_meta_mdp.cli.materialize_formal_corpus import _parser
+    from latency_meta_mdp.data.collection.materialize_formal_corpus import _parser
 
     args = _parser().parse_args(
         [

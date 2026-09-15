@@ -6,10 +6,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
-from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.data.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.io.episode_artifacts import write_synchronized_episode_artifact
 
 
 def _source_manifest(tmp_path: Path) -> Path:
@@ -53,13 +53,13 @@ def _source_manifest(tmp_path: Path) -> Path:
 
 
 def test_belief_training_split_plan_is_episode_level_and_shared_across_levels() -> None:
-    from latency_meta_mdp.belief_training_artifact import (
+    from latency_meta_mdp.legacy.belief_training_artifact import (
         SplitName,
         load_belief_training_split_plan,
     )
 
     plan = load_belief_training_split_plan(
-        Path("configs/data/belief_training_split_v1.yaml")
+        Path("configs/legacy/data/belief_training_split_v1.yaml")
     )
 
     assert plan.formal_counts == (160, 20, 20)
@@ -76,7 +76,7 @@ def test_belief_training_split_plan_is_episode_level_and_shared_across_levels() 
 def test_belief_training_index_artifact_is_atomic_and_contains_no_images(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.belief_training_artifact import (
+    from latency_meta_mdp.legacy.belief_training_artifact import (
         write_belief_training_index_artifact,
     )
 
@@ -85,12 +85,10 @@ def test_belief_training_index_artifact_is_atomic_and_contains_no_images(
     manifest_path = write_belief_training_index_artifact(
         project_root=Path.cwd(),
         source_bulk_manifest=source,
-        split_config_path=Path("configs/data/belief_training_split_v1.yaml"),
-        bulk_plan_path=Path("configs/collection/panda_ball_bulk_v1.yaml"),
-        view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
-        latency_law_path=Path(
-            "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
-        ),
+        split_config_path=Path("configs/legacy/data/belief_training_split_v1.yaml"),
+        bulk_plan_path=Path("configs/data/collection/panda_ball_bulk_v1.yaml"),
+        view_config_path=Path("configs/legacy/data/belief_data_view_h50_v2.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
         output_dir=output,
     )
 
@@ -124,13 +122,9 @@ def test_belief_training_index_artifact_is_atomic_and_contains_no_images(
         write_belief_training_index_artifact(
             project_root=Path.cwd(),
             source_bulk_manifest=source,
-            split_config_path=Path(
-                "configs/data/belief_training_split_v1.yaml"
-            ),
-            bulk_plan_path=Path("configs/collection/panda_ball_bulk_v1.yaml"),
-            view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
-            latency_law_path=Path(
-                "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
-            ),
+            split_config_path=Path("configs/legacy/data/belief_training_split_v1.yaml"),
+            bulk_plan_path=Path("configs/data/collection/panda_ball_bulk_v1.yaml"),
+            view_config_path=Path("configs/legacy/data/belief_data_view_h50_v2.yaml"),
+            latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
             output_dir=output,
         )

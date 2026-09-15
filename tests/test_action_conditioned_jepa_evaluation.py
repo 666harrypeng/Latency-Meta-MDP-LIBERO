@@ -3,14 +3,14 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
-    FutureLatentRollout,
-    LaunchContextBatch,
-)
-from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+from latency_meta_mdp.belief.jepa.ar.temporal_view import (
     SharedJepaSampleIndex,
     TemporalJepaDeployedEvaluationBatch,
     TemporalJepaEvaluationBatch,
+)
+from latency_meta_mdp.belief.jepa.contracts import (
+    FutureLatentRollout,
+    LaunchContextBatch,
 )
 
 
@@ -60,7 +60,7 @@ def _evaluation_batch() -> TemporalJepaEvaluationBatch:
 def test_free_rollout_metrics_separate_model_error_from_persistence() -> None:
     """Catches selecting dense grids because nearby ground-truth latents are easier to copy."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.metrics import (
         evaluate_temporal_batch,
     )
 
@@ -88,7 +88,7 @@ def test_free_rollout_metrics_separate_model_error_from_persistence() -> None:
 def test_intrinsic_metrics_can_score_one_precomputed_rollout() -> None:
     """Catches requiring a second AR5 call when final qualification also computes J2/J3."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.metrics import (
         evaluate_temporal_rollout,
     )
 
@@ -106,7 +106,7 @@ def test_intrinsic_metrics_can_score_one_precomputed_rollout() -> None:
 def test_temporal_evaluation_summary_aggregates_sources_before_anchors() -> None:
     """Catches giving a denser temporal grid more aggregate statistical weight."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.metrics import (
         evaluate_temporal_batch,
         summarize_temporal_evaluation,
     )
@@ -128,7 +128,7 @@ def test_temporal_evaluation_summary_aggregates_sources_before_anchors() -> None
 def test_monitor_index_selection_balances_every_development_episode() -> None:
     """Catches monitoring long episodes more heavily than short episodes."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.metrics import (
         select_monitor_indices,
     )
 
@@ -154,7 +154,7 @@ def test_monitor_index_selection_balances_every_development_episode() -> None:
 def test_deployed_d20_metrics_separate_temporal_quantization_from_model_error() -> None:
     """Catches attributing nearest-anchor approximation error to the JEPA predictor."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.metrics import (
         evaluate_deployed_temporal_batch,
         summarize_deployed_temporal_evaluation,
     )

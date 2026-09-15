@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.belief.flow.rolling_config import (
+from latency_meta_mdp.legacy.belief.flow.rolling_config import (
     load_flow_belief_rolling_config,
 )
-from latency_meta_mdp.belief.flow.rolling_selection import (
+from latency_meta_mdp.legacy.belief.flow.rolling_selection import (
     select_rolling_source_ticks,
 )
 
-_CONFIG = Path("configs/analysis/flow_belief_rolling_inspection_v1.yaml")
+_CONFIG = Path("configs/legacy/analysis/flow_belief_rolling_inspection_v1.yaml")
 
 
 def test_rolling_config_locks_critical_window_contract() -> None:

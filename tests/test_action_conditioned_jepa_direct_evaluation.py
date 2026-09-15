@@ -7,24 +7,22 @@ import torch
 from test_action_conditioned_jepa_direct_prediction import _query
 from test_action_conditioned_jepa_rollout import _normalization
 
-from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+from latency_meta_mdp.belief.jepa.backbone import ActionConditionedJepaPredictor
+from latency_meta_mdp.belief.jepa.config import (
     load_action_conditioned_jepa_config,
 )
-from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentPrediction
-from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_data import (
+from latency_meta_mdp.belief.jepa.contracts import FutureLatentPrediction
+from latency_meta_mdp.belief.jepa.data import (
     DirectPredictionSample,
 )
-from latency_meta_mdp.belief.action_conditioned_jepa.rollout import ActionConditionedJepaPredictor
 
 
 @pytest.fixture(scope="module")
 def legacy_model():
     config = load_action_conditioned_jepa_config(
-        model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
-        level_path=Path("configs/belief/action_conditioned_jepa/l3.yaml"),
-        temporal_sampling_path=Path(
-            "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml"
-        ),
+        model_path=Path("configs/models/jepa/model.yaml"),
+        level_path=Path("configs/models/jepa/l3.yaml"),
+        temporal_sampling_path=Path("configs/models/jepa/stride4_80ms_history_160ms.yaml"),
     )
     return ActionConditionedJepaPredictor(
         config=config, proprio_normalization=_normalization(), project_root=Path.cwd()
@@ -33,7 +31,7 @@ def legacy_model():
 
 @pytest.mark.parametrize("q", [4, 8, 12, 16, 20])
 def test_legacy_endpoint_stops_after_requested_native_steps(legacy_model, monkeypatch, q):
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_evaluation import (
+    from latency_meta_mdp.belief.jepa.metrics import (
         predict_legacy_endpoint,
     )
 
@@ -65,7 +63,7 @@ def test_legacy_endpoint_stops_after_requested_native_steps(legacy_model, monkey
 
 
 def test_legacy_endpoint_rejects_non_native_queries(legacy_model):
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_evaluation import (
+    from latency_meta_mdp.belief.jepa.metrics import (
         predict_legacy_endpoint,
     )
 
@@ -74,7 +72,7 @@ def test_legacy_endpoint_rejects_non_native_queries(legacy_model):
 
 
 def test_metrics_are_coordinate_mse_and_require_paired_timestamps():
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_evaluation import (
+    from latency_meta_mdp.belief.jepa.metrics import (
         prediction_mse_by_example,
     )
 
@@ -96,7 +94,7 @@ def test_metrics_are_coordinate_mse_and_require_paired_timestamps():
 
 
 def test_copy_current_baseline_uses_correct_proprio_units():
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_evaluation import (
+    from latency_meta_mdp.belief.jepa.metrics import (
         copy_current_prediction,
     )
 

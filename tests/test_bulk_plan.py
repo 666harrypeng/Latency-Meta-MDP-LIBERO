@@ -7,15 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.bulk_coverage import write_bulk_motion_coverage
-from latency_meta_mdp.bulk_plan import load_bulk_collection_plan
-from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.data.bulk_coverage import write_bulk_motion_coverage
+from latency_meta_mdp.data.bulk_plan import load_bulk_collection_plan
+from latency_meta_mdp.data.recording import RecordProfile
 
 
 def test_bulk_plan_locks_level_specific_train_and_evaluation_seed_banks() -> None:
-    plan = load_bulk_collection_plan(
-        Path("configs/collection/panda_ball_bulk_v1.yaml")
-    )
+    plan = load_bulk_collection_plan(Path("configs/data/collection/panda_ball_bulk_v1.yaml"))
 
     assert plan.collection_id == "panda_ball_bulk_v1"
     assert plan.levels == (1, 2, 3)
@@ -35,22 +33,20 @@ def test_bulk_plan_locks_level_specific_train_and_evaluation_seed_banks() -> Non
 
 
 def test_bulk_plan_rejects_overlapping_seed_banks() -> None:
-    plan = load_bulk_collection_plan(
-        Path("configs/collection/panda_ball_bulk_v1.yaml")
-    )
+    plan = load_bulk_collection_plan(Path("configs/data/collection/panda_ball_bulk_v1.yaml"))
 
     with pytest.raises(ValueError, match="seed banks must be disjoint"):
         replace(plan, development=replace(plan.development, start=1_100))
 
 
 def test_bulk_coverage_cli_parses_explicit_paths(tmp_path: Path) -> None:
-    cli = importlib.import_module("latency_meta_mdp.cli.audit_bulk_motion")
+    cli = importlib.import_module("latency_meta_mdp.data.collection.audit_bulk_motion")
     args = cli._parser().parse_args(
         [
             "--project-root",
             str(Path.cwd()),
             "--plan",
-            "configs/collection/panda_ball_bulk_v1.yaml",
+            "configs/data/collection/panda_ball_bulk_v1.yaml",
             "--output-dir",
             str(tmp_path / "coverage"),
         ]
@@ -60,7 +56,7 @@ def test_bulk_coverage_cli_parses_explicit_paths(tmp_path: Path) -> None:
 
 
 def test_bulk_motion_coverage_passes_all_three_seed_banks(tmp_path: Path) -> None:
-    plan_path = Path("configs/collection/panda_ball_bulk_v1.yaml")
+    plan_path = Path("configs/data/collection/panda_ball_bulk_v1.yaml")
 
     output = tmp_path / "coverage"
     manifest = write_bulk_motion_coverage(

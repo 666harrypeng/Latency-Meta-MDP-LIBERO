@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.latency_parity import run_direct_zero_latency_parity
+from latency_meta_mdp.runtime.latency_parity import run_direct_zero_latency_parity
 
 
 def _module():
-    return importlib.import_module("latency_meta_mdp.latency_parity_artifact")
+    return importlib.import_module("latency_meta_mdp.runtime.latency_parity_artifact")
 
 
 def test_write_latency_parity_artifact_is_exact_pickle_free_and_no_overwrite(
@@ -48,9 +48,7 @@ def test_write_latency_parity_artifact_is_exact_pickle_free_and_no_overwrite(
     assert all(len(value) == 64 for value in manifest["config_sha256"].values())
     assert type(manifest["implementation_dirty"]) is bool
     assert manifest["eligible"] is (not manifest["implementation_dirty"])
-    assert manifest["blockers"] == (
-        [] if manifest["eligible"] else ["implementation_dirty"]
-    )
+    assert manifest["blockers"] == ([] if manifest["eligible"] else ["implementation_dirty"])
     assert set(manifest["artifacts"]) == {
         "direct_trace.npz",
         "zero_delay_trace.npz",

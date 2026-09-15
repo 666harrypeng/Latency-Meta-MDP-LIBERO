@@ -7,8 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.lerobot_conversion import write_lerobot_policy_dataset
-from latency_meta_mdp.policy_data import ACTION_DIM, ACTION_HORIZON, POLICY_STATE_DIM, PolicyEpisode
+from latency_meta_mdp.data.lerobot_conversion import write_lerobot_policy_dataset
+from latency_meta_mdp.data.policy import (
+    ACTION_DIM,
+    ACTION_HORIZON,
+    POLICY_STATE_DIM,
+    PolicyEpisode,
+)
 
 
 def _policy_episode(*, episode_id: str, level: int = 1, frame_count: int = 52) -> PolicyEpisode:

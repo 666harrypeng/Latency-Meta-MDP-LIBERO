@@ -1,0 +1,10 @@
+schema_version: 1
+level: 2
+training_config: configs/training/belief/direct.yaml
+source_root: outputs/source_corpus/panda-ball-structured-source-quota-formal-100x4-v1
+vision_cache_manifest: outputs/derived/vision_features/dinov3-vits16-structured-source-100x4-v1/manifest.json
+split_manifest: outputs/derived/source_splits/panda-ball-structured-source-quota-formal-100x4-v1/train80-validation20-seed20260903-v1.json
+normalization: outputs/training/action_conditioned_jepa/l2-final-admission/stride4_80ms_history_160ms/seed-27/proprio_normalization.json
+microbatch_size: 16
+num_workers: 2
+device: cuda:0

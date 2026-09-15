@@ -10,25 +10,25 @@ pytestmark = pytest.mark.integration
 
 def test_seed_3999_canonical_realization_reaches_physical_handoff_and_lift() -> None:
     """Gate: one planned smooth approach executes through the real OSC/contact stack."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
         StrategyFamily,
     )
-    from latency_meta_mdp.expert_realization.planner import generate_planner_candidates
-    from latency_meta_mdp.expert_realization.robot_bridge import build_panda_planning_bridge
-    from latency_meta_mdp.expert_realization.rollout import execute_structured_realization
-    from latency_meta_mdp.expert_realization.selector import select_task_instance_plan_set
-    from latency_meta_mdp.expert_realization.strategy import (
+    from latency_meta_mdp.data.collection.planner import generate_planner_candidates
+    from latency_meta_mdp.data.collection.robot_bridge import build_panda_planning_bridge
+    from latency_meta_mdp.data.collection.rollout import execute_structured_realization
+    from latency_meta_mdp.data.collection.selector import select_task_instance_plan_set
+    from latency_meta_mdp.data.collection.strategy import (
         StructuredStrategyConfig,
         sample_strategy,
     )
-    from latency_meta_mdp.expert_realization.task_instance import materialize_task_instance
-    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+    from latency_meta_mdp.data.collection.task_instance import materialize_task_instance
+    from latency_meta_mdp.data.collection.trajectory_intent import build_trajectory_intent
 
     root = Path.cwd()
     task = materialize_task_instance(project_root=root, level=1, task_instance_seed=3999)
     config = StructuredStrategyConfig.from_path(
-        root / "configs/expert_realization/panda_ball_structured.yaml"
+        root / "configs/data/expert_realization/panda_ball_structured.yaml"
     )
     key = ExpertRealizationKey(task.task_instance_id, 0, config.source_sha256)
     strategy = sample_strategy(

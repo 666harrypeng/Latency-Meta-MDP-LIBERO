@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import torch
 
-from latency_meta_mdp.belief.causal_return.contracts import (
+from latency_meta_mdp.legacy.belief.causal_return.contracts import (
     CurrentStateEstimate,
     InformationStateSample,
     load_information_state_config,
@@ -31,7 +31,7 @@ def _sample() -> InformationStateSample:
 
 def test_information_state_config_has_semantic_identity_and_k6_contract() -> None:
     config = load_information_state_config(
-        Path("configs/belief/causal_return/information_state.yaml")
+        Path("configs/legacy/belief/causal_return/information_state.yaml")
     )
 
     assert config.config_id == "causal_return_information_state"

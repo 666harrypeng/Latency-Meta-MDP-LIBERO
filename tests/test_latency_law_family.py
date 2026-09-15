@@ -5,18 +5,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.latency_law_family import load_episode_latency_law_family
+from latency_meta_mdp.runtime.latency_law_family import load_episode_latency_law_family
 
 
 def _family():
     return load_episode_latency_law_family(
-        Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml")
+        Path("configs/runtime/latency/truncated_beta_family_5_26_400ms_v1.yaml")
     )
 
 
 def _earlier_family():
     return load_episode_latency_law_family(
-        Path("configs/latency/truncated_beta_family_8_65_400ms_v1.yaml")
+        Path("configs/runtime/latency/truncated_beta_family_8_65_400ms_v1.yaml")
     )
 
 

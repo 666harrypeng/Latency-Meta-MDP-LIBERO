@@ -34,7 +34,7 @@ def test_final_qualification_requires_completed_epoch75_and_existing_formal_resu
 ) -> None:
     """Catches evaluating an intermediate checkpoint as the final L3 Belief."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.qualification_run import (
+    from latency_meta_mdp.belief.jepa.ar.qualify import (
         load_completed_l3_admission_run,
     )
 
@@ -60,7 +60,7 @@ def test_final_qualification_requires_completed_epoch75_and_existing_formal_resu
 def test_final_qualification_report_is_no_overwrite(tmp_path: Path) -> None:
     """Catches silently replacing the one-shot formal qualification result."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.qualification_run import (
+    from latency_meta_mdp.belief.jepa.ar.qualify import (
         write_l3_qualification_report,
     )
 
@@ -83,8 +83,8 @@ def test_final_qualification_cli_exposes_only_the_locked_stride4_run(
 ) -> None:
     """Catches reintroducing fold/config selection into the final qualification command."""
 
-    import latency_meta_mdp.belief.action_conditioned_jepa.qualification_run as run_module
-    from latency_meta_mdp.cli.qualify_action_conditioned_jepa_l3 import main
+    import latency_meta_mdp.belief.jepa.ar.qualify as run_module
+    from latency_meta_mdp.belief.jepa.diagnostics.qualify_action_conditioned_jepa_l3 import main
 
     output = tmp_path / "qualification.json"
     observed = {}

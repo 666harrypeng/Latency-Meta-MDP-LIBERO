@@ -5,7 +5,7 @@ import pytest
 
 
 def test_state_probe_metrics_preserve_physical_units_and_group_dimensions() -> None:
-    from latency_meta_mdp.vision_probe_metrics import state_regression_metrics
+    from latency_meta_mdp.legacy.vision_probe_metrics import state_regression_metrics
 
     target = np.stack((np.zeros(9), np.ones(9)), axis=0)
     prediction = target.copy()
@@ -27,7 +27,7 @@ def test_state_probe_metrics_preserve_physical_units_and_group_dimensions() -> N
 
 
 def test_train_mean_baseline_uses_only_training_targets() -> None:
-    from latency_meta_mdp.vision_probe_metrics import train_mean_baseline
+    from latency_meta_mdp.legacy.vision_probe_metrics import train_mean_baseline
 
     training = np.stack((np.zeros(9), np.full(9, 2.0)), axis=0)
 

@@ -5,7 +5,7 @@ import pytest
 
 def test_euler_and_heun_solve_constant_velocity_exactly() -> None:
     torch = pytest.importorskip("torch")
-    from latency_meta_mdp.belief.flow.sampler import integrate_flow_ode
+    from latency_meta_mdp.legacy.belief.flow.sampler import integrate_flow_ode
 
     initial = torch.zeros(2, 3, 22)
 
@@ -31,7 +31,7 @@ def test_euler_and_heun_solve_constant_velocity_exactly() -> None:
 
 def test_heun_beats_euler_on_linear_time_velocity() -> None:
     torch = pytest.importorskip("torch")
-    from latency_meta_mdp.belief.flow.sampler import integrate_flow_ode
+    from latency_meta_mdp.legacy.belief.flow.sampler import integrate_flow_ode
 
     initial = torch.zeros(1, 1, 22)
 
@@ -60,7 +60,7 @@ def test_conditional_sampler_preserves_delay_and_sample_axes_deterministically()
     torch = pytest.importorskip("torch")
     from torch import nn
 
-    from latency_meta_mdp.belief.flow.sampler import sample_flow_belief
+    from latency_meta_mdp.legacy.belief.flow.sampler import sample_flow_belief
 
     class ConstantField(nn.Module):
         def forward(self, *, noisy_state, flow_time, belief_tokens, delay_ticks):

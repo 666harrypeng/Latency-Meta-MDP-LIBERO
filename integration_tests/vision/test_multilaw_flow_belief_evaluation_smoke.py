@@ -20,10 +20,10 @@ def test_multilaw_evaluation_runs_all_law_regimes(tmp_path: Path) -> None:
     )
     if not source.is_file() or not cache.is_file() or not data_artifact.is_file():
         pytest.skip("multi-law Flow evaluation smoke requires formal local artifacts")
-    from latency_meta_mdp.belief.flow.multilaw_evaluation_run import (
+    from latency_meta_mdp.legacy.belief.flow.multilaw_evaluation_run import (
         evaluate_multilaw_flow_belief_run,
     )
-    from latency_meta_mdp.belief.flow.multilaw_run import (
+    from latency_meta_mdp.legacy.belief.flow.multilaw_run import (
         train_multilaw_flow_belief_run,
     )
 
@@ -31,13 +31,13 @@ def test_multilaw_evaluation_runs_all_law_regimes(tmp_path: Path) -> None:
         project_root=Path.cwd(),
         source_bulk_manifest=source,
         cache_run_manifest=cache,
-        vision_config_path=Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        nominal_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
-        family_config_path=Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
-        flow_config_path=Path("configs/belief/dinov3_flow_belief_v1.yaml"),
-        multilaw_config_path=Path("configs/belief/dinov3_flow_belief_multilaw_v2.yaml"),
-        split_config_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
+        vision_config_path=Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        nominal_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        family_config_path=Path("configs/runtime/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
+        flow_config_path=Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"),
+        multilaw_config_path=Path("configs/legacy/belief/dinov3_flow_belief_multilaw_v2.yaml"),
+        split_config_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
         levels=(1,),
         device="cuda",
     )
@@ -53,7 +53,7 @@ def test_multilaw_evaluation_runs_all_law_regimes(tmp_path: Path) -> None:
         **common,
         multilaw_run_manifest=training_manifest,
         evaluation_config_path=Path(
-            "configs/analysis/dinov3_flow_belief_multilaw_evaluation_v1.yaml"
+            "configs/legacy/analysis/dinov3_flow_belief_multilaw_evaluation_v1.yaml"
         ),
         output_dir=tmp_path / "evaluation",
         context_limit=4,

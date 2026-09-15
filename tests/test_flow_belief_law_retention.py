@@ -5,20 +5,20 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.belief.flow.law_retention import (
+from latency_meta_mdp.legacy.belief.flow.law_retention import (
     evaluate_law_reconstruction,
     fit_linear_law_readout,
     law_invariant_tokens,
     select_evenly_spaced_offsets,
 )
-from latency_meta_mdp.belief.flow.law_retention_config import (
+from latency_meta_mdp.legacy.belief.flow.law_retention_config import (
     load_law_retention_probe_config,
 )
 
 
 def test_law_retention_config_locks_lightweight_probe_contract() -> None:
     config = load_law_retention_probe_config(
-        Path("configs/analysis/dinov3_flow_belief_law_retention_probe_v1.yaml")
+        Path("configs/legacy/analysis/dinov3_flow_belief_law_retention_probe_v1.yaml")
     )
 
     assert config.probe_id == "dinov3_flow_belief_law_retention_probe_v1"
@@ -92,7 +92,7 @@ def test_linear_readout_recovers_explicit_law_signal_on_held_out_contexts() -> N
     validation_tokens, validation_targets = make(24)
     config = replace(
         load_law_retention_probe_config(
-            Path("configs/analysis/dinov3_flow_belief_law_retention_probe_v1.yaml")
+            Path("configs/legacy/analysis/dinov3_flow_belief_law_retention_probe_v1.yaml")
         ),
         readout_batch_size=64,
         readout_max_epochs=120,

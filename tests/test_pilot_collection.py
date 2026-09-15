@@ -6,15 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.data.recording import RecordProfile
 
 
 def test_load_pilot_run_spec_uses_the_approved_three_by_three_campaign() -> None:
-    pilot = importlib.import_module("latency_meta_mdp.pilot_collection")
+    pilot = importlib.import_module("latency_meta_mdp.data.pilot_collection")
 
-    spec = pilot.load_pilot_run_spec(
-        Path("configs/collection/panda_ball_pilot_v1.yaml")
-    )
+    spec = pilot.load_pilot_run_spec(Path("configs/data/collection/panda_ball_pilot_v1.yaml"))
 
     assert spec.levels == (1, 2, 3)
     assert spec.seeds == (10, 11, 12)
@@ -26,7 +24,7 @@ def test_load_pilot_run_spec_uses_the_approved_three_by_three_campaign() -> None
 def test_collect_expert_pilot_run_writes_three_level_artifacts_and_review_videos(
     tmp_path: Path,
 ) -> None:
-    pilot = importlib.import_module("latency_meta_mdp.pilot_collection")
+    pilot = importlib.import_module("latency_meta_mdp.data.pilot_collection")
     spec = pilot.PilotRunSpec(
         levels=(1, 2, 3),
         seeds=(10,),
@@ -78,7 +76,7 @@ def test_collect_expert_pilot_cli_runs_a_real_tiny_config(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    cli = importlib.import_module("latency_meta_mdp.cli.collect_expert_pilot")
+    cli = importlib.import_module("latency_meta_mdp.data.collection.collect_expert_pilot")
     config_path = tmp_path / "tiny.yaml"
     config_path.write_text(
         "\n".join(

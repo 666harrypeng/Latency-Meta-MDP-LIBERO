@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.sft_profile import SFTProfile, load_sft_profile
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.policy.profile import SFTProfile, load_sft_profile
 
 
 def test_structured_profile_requires_state_tokens_and_masked_tails() -> None:
-    profile = load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml"))
+    profile = load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml"))
     assert profile.state_dim == 16
     assert profile.discrete_state_input is True
     assert profile.masked_action_tails is True
@@ -27,7 +27,7 @@ def test_structured_profile_requires_state_tokens_and_masked_tails() -> None:
 
 
 def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() -> None:
-    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
+    profile = load_sft_profile(Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
 
     assert profile.profile_id == "pi05_panda_ball_full_sft_h50_v2"
     assert profile.full_parameter is True
@@ -64,14 +64,14 @@ def test_panda_ball_sft_profile_locks_three_level_specific_full_sft_configs() ->
 
 
 def test_sft_profile_rejects_a_tail_filter_that_does_not_match_horizon() -> None:
-    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
+    profile = load_sft_profile(Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
 
     with pytest.raises(ValueError, match="action_horizon - 1"):
         replace(profile, drop_n_last_frames=48)
 
 
 def test_sft_profile_rejects_cross_level_dataset_reuse() -> None:
-    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
+    profile = load_sft_profile(Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
     shared = profile.levels[1]
 
     with pytest.raises(ValueError, match="repo ids must be unique"):
@@ -88,7 +88,7 @@ def test_sft_profile_rejects_cross_level_dataset_reuse() -> None:
 
 
 def test_sft_profile_requires_milestones_to_partition_the_formal_run() -> None:
-    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
+    profile = load_sft_profile(Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
 
     with pytest.raises(ValueError, match="milestone"):
         replace(profile, keep_period=1_332)

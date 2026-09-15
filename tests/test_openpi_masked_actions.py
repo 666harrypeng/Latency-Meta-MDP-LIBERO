@@ -19,7 +19,7 @@ pytest.importorskip("flax")
 
 @pytest.fixture(scope="module", autouse=True)
 def patched_openpi():
-    from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
 
     with temporary_patched_openpi_copy(
         openpi_root=Path("third_party/openpi"),
@@ -136,11 +136,11 @@ def test_structured_transforms_keep_mask_and_encode_each_current_state_dimension
     from openpi import transforms
     from openpi.models.model import Observation, preprocess_observation
 
-    from latency_meta_mdp.openpi_sft import _build_config
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.policy.openpi.training import _build_config
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
     config = _build_config(
-        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+        load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml")), 3
     )
     assert config.model.discrete_state_input is True
     assert config.model.active_action_dim == 7
@@ -194,15 +194,15 @@ def test_lerobot_roundtrip_mask_matches_source_and_norm_stats_count_real_frames(
     from openpi.training import data_loader
     from test_structured_policy_data import _source
 
-    from latency_meta_mdp.lerobot_conversion import write_lerobot_policy_dataset
-    from latency_meta_mdp.openpi_sft import _build_config, compute_openpi_norm_stats
-    from latency_meta_mdp.policy_data import (
+    from latency_meta_mdp.data.lerobot_conversion import write_lerobot_policy_dataset
+    from latency_meta_mdp.data.policy import (
         load_structured_policy_episode,
         materialize_policy_action_target,
     )
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.policy.openpi.training import _build_config, compute_openpi_norm_stats
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
-    profile = load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml"))
+    profile = load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml"))
     repo_id = profile.levels[1].repo_id
     episode = load_structured_policy_episode(_source(tmp_path), episode_id="test-L1")
     other = dataclasses.replace(
@@ -259,14 +259,12 @@ def test_lerobot_roundtrip_mask_matches_source_and_norm_stats_count_real_frames(
     )
     observation, actions = next(iter(loader))
     assert observation.action_loss_mask.shape == actions.shape == (2, 50, 32)
-    from latency_meta_mdp.artifacts import sha256_file
+    from latency_meta_mdp.io.artifacts import sha256_file
 
     manifest = {
         "format_id": "metamdp_lerobot_structured_train_v1",
         "split": "train",
-        "sft_profile_sha256": sha256_file(
-            Path("configs/policy/pi05_structured_state16_h50_v1.yaml")
-        ),
+        "sft_profile_sha256": sha256_file(Path("configs/contracts/policy/pi05_state16_h50.yaml")),
         "source_manifest_sha256": "0" * 64,
         "split_manifest_sha256": "1" * 64,
         "train_master_task_indices": [42],
@@ -287,7 +285,7 @@ def test_lerobot_roundtrip_mask_matches_source_and_norm_stats_count_real_frames(
         [
             sys.executable,
             "-m",
-            "latency_meta_mdp.cli.prepare_structured_pi05_sft",
+            "latency_meta_mdp.data.prepare_policy",
             "--dataset-manifest",
             str(manifest_path),
             "--level",

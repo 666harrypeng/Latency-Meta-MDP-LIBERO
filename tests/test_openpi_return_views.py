@@ -13,7 +13,7 @@ pytest.importorskip("flax")
 
 @pytest.fixture(scope="module", autouse=True)
 def patched_openpi():
-    from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
 
     names = (
         "0001-filter-incomplete-action-chunks.patch",
@@ -76,8 +76,8 @@ def _stats():
 def test_post_terminal_return_target_is_zero_loss_but_native_source_still_rejects_it():
     from openpi.models.model import ModelType
 
-    from latency_meta_mdp.openpi_belief_data import ReturnBeliefInputs
-    from latency_meta_mdp.openpi_policy_data import StructuredPolicyInputs
+    from latency_meta_mdp.legacy.policy.openpi_belief_data import ReturnBeliefInputs
+    from latency_meta_mdp.policy.openpi.data import StructuredPolicyInputs
 
     raw = {
         **_raw(),
@@ -98,7 +98,10 @@ def test_post_terminal_return_target_is_zero_loss_but_native_source_still_reject
 def test_exact_delay_oracle_has_an_explicit_separate_input_route():
     from openpi.models.model import ModelType
 
-    from latency_meta_mdp.openpi_belief_data import KnownDelayOracleInputs, ReturnBeliefInputs
+    from latency_meta_mdp.legacy.policy.openpi_belief_data import (
+        KnownDelayOracleInputs,
+        ReturnBeliefInputs,
+    )
 
     raw = {
         **_raw(),
@@ -118,7 +121,7 @@ def test_exact_delay_oracle_has_an_explicit_separate_input_route():
 def test_in_process_policy_bridge_packs_current16_and_uses_explicit_noise_stream():
     from openpi.policies.policy import Policy
 
-    from latency_meta_mdp.policy_execution import InProcessOpenpiPolicy, PolicyObservation
+    from latency_meta_mdp.runtime.policy_execution import InProcessOpenpiPolicy, PolicyObservation
 
     class LocalPolicy(Policy):
         def __init__(self):
@@ -151,15 +154,16 @@ def test_in_process_policy_bridge_packs_current16_and_uses_explicit_noise_stream
 def test_return_control_configs_freeze_native_weights_and_keep_clean_assets():
     import flax.nnx as nnx
 
-    from latency_meta_mdp.openpi_belief_data import (
+    from latency_meta_mdp.legacy.policy.configs import build_return_policy_train_config
+    from latency_meta_mdp.legacy.policy.openpi_belief_data import (
         KnownDelayOracleDataConfig,
         NoFutureControlDataConfig,
     )
-    from latency_meta_mdp.openpi_sft import _build_config, build_return_policy_train_config
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.policy.openpi.training import _build_config
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
     clean = _build_config(
-        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+        load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml")), 3
     )
     config = build_return_policy_train_config(
         clean_config=clean,
@@ -198,7 +202,7 @@ def test_return_control_configs_freeze_native_weights_and_keep_clean_assets():
 def test_no_future_control_erases_future_content_but_keeps_time_and_mass():
     from openpi.models.model import ModelType
 
-    from latency_meta_mdp.openpi_belief_data import NoFutureControlInputs
+    from latency_meta_mdp.legacy.policy.openpi_belief_data import NoFutureControlInputs
 
     raw = {
         **_raw(),

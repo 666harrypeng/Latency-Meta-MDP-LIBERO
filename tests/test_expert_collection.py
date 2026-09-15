@@ -7,20 +7,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.outcomes import OutcomeStatus
-from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.envs.outcomes import OutcomeStatus
 
 
 def test_run_expert_episode_attempt_preserves_a_terminal_task_failure(monkeypatch) -> None:
     from dataclasses import replace
 
-    from latency_meta_mdp.expert import ExpertDecision, ExpertPhase
-    from latency_meta_mdp.expert_collection import (
+    from latency_meta_mdp.data.expert_collection import (
         ExpertEpisodeSpec,
         build_expert_episode_runtime,
         run_expert_episode_attempt,
     )
-    from latency_meta_mdp.outcomes import OutcomeStatus, TerminalReason
+    from latency_meta_mdp.envs.expert import ExpertDecision, ExpertPhase
+    from latency_meta_mdp.envs.outcomes import OutcomeStatus, TerminalReason
 
     class HoldOpenExpert:
         def __init__(self, action) -> None:
@@ -51,7 +51,7 @@ def test_run_expert_episode_attempt_preserves_a_terminal_task_failure(monkeypatc
         return replace(runtime, expert=HoldOpenExpert(action))
 
     monkeypatch.setattr(
-        "latency_meta_mdp.expert_collection.build_expert_episode_runtime",
+        "latency_meta_mdp.data.expert_collection.build_expert_episode_runtime",
         build_failure_runtime,
     )
     episode = run_expert_episode_attempt(
@@ -75,7 +75,7 @@ def test_run_expert_episode_attempt_preserves_a_terminal_task_failure(monkeypatc
 
 
 def test_collect_expert_episode_builds_one_complete_synchronized_pilot() -> None:
-    collection = importlib.import_module("latency_meta_mdp.expert_collection")
+    collection = importlib.import_module("latency_meta_mdp.data.expert_collection")
     spec = collection.ExpertEpisodeSpec(
         episode_id="l1-seed-000010-attempt-000",
         level=1,
@@ -120,8 +120,7 @@ def test_collect_expert_episode_builds_one_complete_synchronized_pilot() -> None
     assert initial.control_debug.eef_orientation_error_rotvec is None
     assert set(initial.deployment.images) == {"agentview", "robot0_eye_in_hand"}
     assert all(
-        camera.rgb.shape == (32, 32, 3)
-        and camera.source_time_us == boundary.time_us
+        camera.rgb.shape == (32, 32, 3) and camera.source_time_us == boundary.time_us
         for boundary in episode.boundaries
         for camera in boundary.deployment.images.values()
     )
@@ -168,8 +167,8 @@ def test_collect_expert_episode_builds_one_complete_synchronized_pilot() -> None
 def test_write_synchronized_episode_artifact_is_lossless_and_no_overwrite(
     tmp_path: Path,
 ) -> None:
-    collection = importlib.import_module("latency_meta_mdp.expert_collection")
-    artifact_io = importlib.import_module("latency_meta_mdp.episode_artifacts")
+    collection = importlib.import_module("latency_meta_mdp.data.expert_collection")
+    artifact_io = importlib.import_module("latency_meta_mdp.io.episode_artifacts")
     episode = collection.collect_expert_episode(
         project_root=Path.cwd(),
         spec=collection.ExpertEpisodeSpec(
@@ -221,21 +220,15 @@ def test_write_synchronized_episode_artifact_is_lossless_and_no_overwrite(
         )
         np.testing.assert_array_equal(
             arrays["gripper_qpos"],
-            np.stack(
-                [boundary.deployment.gripper_qpos for boundary in episode.boundaries]
-            ),
+            np.stack([boundary.deployment.gripper_qpos for boundary in episode.boundaries]),
         )
         np.testing.assert_array_equal(
             arrays["gripper_qvel"],
-            np.stack(
-                [boundary.deployment.gripper_qvel for boundary in episode.boundaries]
-            ),
+            np.stack([boundary.deployment.gripper_qvel for boundary in episode.boundaries]),
         )
         np.testing.assert_array_equal(
             arrays["eef_position_world"],
-            np.stack(
-                [boundary.deployment.eef_position_world for boundary in episode.boundaries]
-            ),
+            np.stack([boundary.deployment.eef_position_world for boundary in episode.boundaries]),
         )
         np.testing.assert_array_equal(
             arrays["eef_orientation_matrix_world"],

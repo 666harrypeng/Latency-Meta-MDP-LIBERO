@@ -1,6 +1,0 @@
-schema_version: 2
-view_id: belief_data_view_h50_v2
-temporal_contract: ../temporal/h50_e25_d20_k6_v1.yaml
-buffer_protocol_status: sharp_teacher_buffer_bound
-target_representation_status: model_neutral_raw
-action_chunk_alignment_status: return_time

@@ -7,24 +7,20 @@ import pytest
 
 
 def _gate():
-    from latency_meta_mdp.expert_realization.config import load_pilot_gate_config
+    from latency_meta_mdp.data.collection.config import load_pilot_gate_config
 
-    return load_pilot_gate_config(
-        Path("configs/analysis/panda_ball_structured_pilot_gate.yaml")
-    )
+    return load_pilot_gate_config(Path("configs/analysis/panda_ball_structured_pilot_gate.yaml"))
 
 
 def _report():
-    from latency_meta_mdp.expert_realization.safety import ActualRolloutSafetyReport
+    from latency_meta_mdp.data.collection.safety import ActualRolloutSafetyReport
 
     gate = _gate()
     return ActualRolloutSafetyReport(
         terminal_success=True,
         physical_handoff=True,
         phase_order_valid=True,
-        minimum_non_contact_environment_clearance_m=(
-            gate.non_contact_environment_clearance_m
-        ),
+        minimum_non_contact_environment_clearance_m=(gate.non_contact_environment_clearance_m),
         maximum_intentional_contact_penetration_m=gate.intentional_contact_penetration_m,
         maximum_pad_ball_impulse_ns=gate.peak_pad_ball_impulse_per_physics_contact_event_ns,
         unintended_pregrasp_ball_contacts=gate.unintended_pregrasp_ball_contacts,
@@ -36,9 +32,7 @@ def _report():
         maximum_eef_speed_mps=gate.eef_speed_mps,
         maximum_eef_acceleration_mps2=gate.eef_acceleration_mps2,
         maximum_eef_jerk_mps3=gate.eef_jerk_mps3,
-        maximum_reference_tracking_error_m=(
-            gate.reference_to_achieved_eef_error_outside_contact_m
-        ),
+        maximum_reference_tracking_error_m=(gate.reference_to_achieved_eef_error_outside_contact_m),
         maximum_pregrasp_translation_error_m=gate.pregrasp_tracking_translation_m,
         maximum_pregrasp_rotation_error_degrees=gate.pregrasp_tracking_rotation_degrees,
         minimum_osc_action=-1.0,
@@ -49,7 +43,7 @@ def _report():
 
 def test_exact_gate_edges_are_admitted() -> None:
     """Break caught: a mathematically equal threshold is rejected by inconsistent inequalities."""
-    from latency_meta_mdp.expert_realization.qualification import qualify_actual_rollout
+    from latency_meta_mdp.data.collection.qualification import qualify_actual_rollout
 
     decision = qualify_actual_rollout(_report(), gate=_gate())
     assert decision.eligible is True
@@ -83,7 +77,7 @@ def test_each_rollout_gate_rejects_just_beyond_threshold(
     failure: str,
 ) -> None:
     """Break caught: a recorded safety metric is omitted from actual-rollout admission."""
-    from latency_meta_mdp.expert_realization.qualification import qualify_actual_rollout
+    from latency_meta_mdp.data.collection.qualification import qualify_actual_rollout
 
     decision = qualify_actual_rollout(replace(_report(), **{field: bad_value}), gate=_gate())
     assert decision.eligible is False
@@ -92,7 +86,7 @@ def test_each_rollout_gate_rejects_just_beyond_threshold(
 
 def test_model_sensitive_quantities_are_diagnostic_not_admission_proxies() -> None:
     """Break caught: soft-contact or finite-difference diagnostics override direct safety."""
-    from latency_meta_mdp.expert_realization.qualification import qualify_actual_rollout
+    from latency_meta_mdp.data.collection.qualification import qualify_actual_rollout
 
     decision = qualify_actual_rollout(
         replace(

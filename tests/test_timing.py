@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.runtime.timing import ClockLedger
 
 
 def test_five_hundred_steps_are_one_second_and_fifty_formal_ticks() -> None:

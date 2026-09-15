@@ -16,8 +16,8 @@ _task_instance = make_detached_task_instance
 
 
 def _sample(instance, key, config):
-    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
-    from latency_meta_mdp.expert_realization.strategy import sample_strategy
+    from latency_meta_mdp.data.collection.contracts import StrategyFamily
+    from latency_meta_mdp.data.collection.strategy import sample_strategy
 
     families = tuple(family for family in StrategyFamily for _ in range(2))
     return sample_strategy(
@@ -30,7 +30,7 @@ def _sample(instance, key, config):
 
 @pytest.fixture(autouse=True)
 def _validated_task_instance(monkeypatch: pytest.MonkeyPatch) -> None:
-    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+    from latency_meta_mdp.data.collection.task_instance import MaterializedTaskInstance
 
     monkeypatch.setattr(
         MaterializedTaskInstance,
@@ -41,14 +41,13 @@ def _validated_task_instance(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_intent_is_one_curve_followed_by_one_canonical_funnel() -> None:
     """Break caught: semantic approach regions become executable stop-and-go segments."""
-    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+    from latency_meta_mdp.data.collection.trajectory_intent import build_trajectory_intent
 
     instance = _task_instance(level=3)
     anchor = _anchor()
     config, keys = _config_and_keys(instance)
     intents = tuple(
-        build_trajectory_intent(instance, anchor, _sample(instance, key, config))
-        for key in keys
+        build_trajectory_intent(instance, anchor, _sample(instance, key, config)) for key in keys
     )
 
     assert [intent.family.value for intent in intents] == [
@@ -109,7 +108,7 @@ def test_intent_is_one_curve_followed_by_one_canonical_funnel() -> None:
 
 def test_all_families_share_identical_task_specific_funnel_geometry() -> None:
     """Break caught: diversity leaks into close/lift instead of staying in approach."""
-    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+    from latency_meta_mdp.data.collection.trajectory_intent import build_trajectory_intent
 
     instance = _task_instance(level=2)
     anchor = _anchor()
@@ -147,8 +146,8 @@ def test_trajectory_intent_rejects_an_anchor_from_another_task() -> None:
     """Break caught: a smooth plan is built from a valid but different K6 source state."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.task_instance import TaskInstanceReplayMismatch
-    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+    from latency_meta_mdp.data.collection.task_instance import TaskInstanceReplayMismatch
+    from latency_meta_mdp.data.collection.trajectory_intent import build_trajectory_intent
 
     instance = _task_instance()
     config, keys = _config_and_keys(instance)
@@ -169,7 +168,7 @@ def test_prediction_lead_cannot_set_funnel_entry_timing() -> None:
     """Break caught: the causal prediction horizon is reused as a phase clock."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+    from latency_meta_mdp.data.collection.trajectory_intent import build_trajectory_intent
 
     instance = _task_instance()
     anchor = _anchor()

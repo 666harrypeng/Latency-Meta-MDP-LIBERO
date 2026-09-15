@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.outcomes import OutcomeStatus
+from latency_meta_mdp.envs.outcomes import OutcomeStatus
 
 
 def _module():
-    return importlib.import_module("latency_meta_mdp.action_chunk_parity")
+    return importlib.import_module("latency_meta_mdp.runtime.action_chunk_parity")
 
 
 def test_real_l1_replay_chunks_exactly_match_direct_expert_trace() -> None:
@@ -42,18 +42,12 @@ def test_chunk_parity_records_sharp_zero_delay_install_and_index_zero_execution(
         camera_height=8,
     )
 
-    installs = [
-        event
-        for event in result.chunk_events
-        if event.kind.value == "chunk_install"
-    ]
+    installs = [event for event in result.chunk_events if event.kind.value == "chunk_install"]
     assert [event.formal_tick for event in installs[:3]] == [25, 50, 75]
     assert all(event.installed_chunk_index == 0 for event in installs)
     assert all(event.discarded_action_count == 25 for event in installs)
     executed = [
-        event
-        for event in result.chunk_events
-        if event.kind.value == "chunk_action_execute"
+        event for event in result.chunk_events if event.kind.value == "chunk_action_execute"
     ]
     assert executed[25].formal_tick == 25
     assert executed[25].executed_chunk_index == 0

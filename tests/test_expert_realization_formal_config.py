@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-FORMAL_CONFIG = Path("configs/collection/panda_ball_structured_formal.yaml")
+FORMAL_CONFIG = Path("configs/data/collection/panda_ball_structured_formal.yaml")
 
 
 def _valid_mapping() -> dict[str, object]:
@@ -37,7 +37,7 @@ def _write(tmp_path: Path, mapping: dict[str, object]) -> Path:
 
 def test_default_formal_config_expands_to_400_per_level_and_1200_total() -> None:
     """Break caught: pilot cardinality leaks into the scalable formal request."""
-    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+    from latency_meta_mdp.data.collection.config import load_formal_corpus_config
 
     config = load_formal_corpus_config(FORMAL_CONFIG)
 
@@ -52,7 +52,7 @@ def test_formal_scale_dimensions_are_independent_and_zero_reserve_is_valid(
     tmp_path: Path,
 ) -> None:
     """Break caught: task count changes realization count or requires a reserve pool."""
-    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+    from latency_meta_mdp.data.collection.config import load_formal_corpus_config
 
     mapping = _valid_mapping()
     mapping.update(
@@ -71,7 +71,7 @@ def test_formal_scale_dimensions_are_independent_and_zero_reserve_is_valid(
 
 def test_three_realizations_per_task_is_a_valid_general_request(tmp_path: Path) -> None:
     """Break caught: collection cardinality is incorrectly tied to strategy-family count."""
-    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+    from latency_meta_mdp.data.collection.config import load_formal_corpus_config
 
     mapping = _valid_mapping()
     mapping.update(task_instance_count=3, realizations_per_task=3, reserve_task_instance_count=0)
@@ -119,7 +119,7 @@ def test_formal_config_rejects_semantic_and_scalar_drift(
     message: str,
 ) -> None:
     """Break caught: malformed scale settings silently redefine the formal corpus."""
-    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
+    from latency_meta_mdp.data.collection.config import load_formal_corpus_config
 
     mapping = _valid_mapping()
     mutation(mapping)

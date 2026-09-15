@@ -9,12 +9,12 @@ import pytest
 import torch
 from torch import nn
 
-from latency_meta_mdp.belief.causal_return.motion_aware_contracts import (
+from latency_meta_mdp.legacy.belief.causal_return.motion_aware_contracts import (
     MotionAwareHistoryEstimate,
     MotionAwareHistorySample,
     load_motion_aware_history_config,
 )
-from latency_meta_mdp.belief.causal_return.motion_aware_training import (
+from latency_meta_mdp.legacy.belief.causal_return.motion_aware_training import (
     MotionAwareDataset,
     MotionAwareTrainingProvenance,
     _rename_directory_no_replace,
@@ -24,7 +24,7 @@ from latency_meta_mdp.belief.causal_return.motion_aware_training import (
     motion_aware_huber_terms,
     train_level_motion_aware_history,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 class _StateValueCorpus:
@@ -56,9 +56,7 @@ class _StateValueCorpus:
         return self.values[(split, offset)]
 
 
-def _sample(
-    *, episode_id: str, seed: int, exact: bool, level: int = 1
-) -> MotionAwareHistorySample:
+def _sample(*, episode_id: str, seed: int, exact: bool, level: int = 1) -> MotionAwareHistorySample:
     return MotionAwareHistorySample(
         episode_id=episode_id,
         level=level,
@@ -187,9 +185,7 @@ def test_masked_huber_ignores_only_exact_transition_velocity() -> None:
         predicted_position=predicted_position,
         predicted_velocity=predicted_velocity,
         target_position=target_position,
-        target_velocity=torch.tensor(
-            [[1.0, 1.0, 1.0], [10_000.0, 10_000.0, 10_000.0]]
-        ),
+        target_velocity=torch.tensor([[1.0, 1.0, 1.0], [10_000.0, 10_000.0, 10_000.0]]),
         exact_transition_mask=exact,
         delta=1.0,
     )
@@ -297,7 +293,7 @@ def test_dataset_and_collate_preserve_normalized_inputs_and_exact_mask() -> None
 
 def test_training_publishes_atomic_checkpoint_and_refuses_overwrite(tmp_path: Path) -> None:
     config = load_motion_aware_history_config(
-        Path("configs/belief/causal_return/motion_aware_history.yaml")
+        Path("configs/legacy/belief/causal_return/motion_aware_history.yaml")
     )
     config = replace(
         config,

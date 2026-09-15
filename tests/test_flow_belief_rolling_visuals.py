@@ -5,12 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.flow.ghost_config import load_flow_belief_ghost_config
-from latency_meta_mdp.belief.flow.ghost_visuals import (
+from latency_meta_mdp.legacy.belief.flow.ghost_config import load_flow_belief_ghost_config
+from latency_meta_mdp.legacy.belief.flow.ghost_visuals import (
     render_joint_band_plot,
     render_state_cloud_plot,
 )
-from latency_meta_mdp.belief.flow.rolling_visuals import (
+from latency_meta_mdp.legacy.belief.flow.rolling_visuals import (
     derive_rolling_joint_limits,
     derive_rolling_plot_limits,
     render_rolling_metric_heatmaps,
@@ -49,7 +49,7 @@ def test_shared_state_and_joint_limits_render_fixed_shapes() -> None:
     state_limits = derive_rolling_plot_limits(state_samples, state_targets)
     joint_limits = derive_rolling_joint_limits(joint_samples, joint_targets)
     config = load_flow_belief_ghost_config(
-        Path("configs/analysis/flow_belief_agentview_ghost_v1.yaml")
+        Path("configs/legacy/analysis/flow_belief_agentview_ghost_v1.yaml")
     )
 
     cloud = render_state_cloud_plot(

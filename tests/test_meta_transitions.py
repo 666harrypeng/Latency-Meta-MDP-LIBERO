@@ -2,7 +2,7 @@ import pytest
 
 
 def test_wait_and_launch_use_actual_holding_times_and_discounted_tick_rewards():
-    from latency_meta_mdp.meta_transitions import DecisionStageAccumulator
+    from latency_meta_mdp.meta.transitions import DecisionStageAccumulator
 
     collector = DecisionStageAccumulator(gamma=0.9)
     collector.begin(formal_tick=10, state="a", action="wait")
@@ -23,7 +23,7 @@ def test_wait_and_launch_use_actual_holding_times_and_discounted_tick_rewards():
 
 
 def test_terminal_inside_pending_interval_truncates_duration_and_zeroes_bootstrap():
-    from latency_meta_mdp.meta_transitions import DecisionStageAccumulator
+    from latency_meta_mdp.meta.transitions import DecisionStageAccumulator
 
     collector = DecisionStageAccumulator(gamma=0.99)
     collector.begin(
@@ -38,7 +38,7 @@ def test_terminal_inside_pending_interval_truncates_duration_and_zeroes_bootstra
 
 
 def test_accumulator_rejects_missing_physical_ticks_and_overlapping_decisions():
-    from latency_meta_mdp.meta_transitions import DecisionStageAccumulator
+    from latency_meta_mdp.meta.transitions import DecisionStageAccumulator
 
     collector = DecisionStageAccumulator(gamma=1)
     collector.begin(formal_tick=3, state="a", action="wait")

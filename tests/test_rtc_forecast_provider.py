@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 import torch
 
-from latency_meta_mdp.policy_execution import PolicyObservation
-from latency_meta_mdp.rtc_protocol import RtcInferenceContext
+from latency_meta_mdp.runtime.policy_execution import PolicyObservation
+from latency_meta_mdp.runtime.rtc_protocol import RtcInferenceContext
 
 
 def _obs(tick):
@@ -27,8 +27,8 @@ def _context(tick, q=7):
 def test_provider_encodes_only_requested_real_history_and_shares_batch_engine():
     from test_action_conditioned_jepa_rollout import _normalization
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentPrediction
-    from latency_meta_mdp.belief.action_conditioned_jepa.forecast_provider import (
+    from latency_meta_mdp.belief.jepa.contracts import FutureLatentPrediction
+    from latency_meta_mdp.belief.jepa.forecast_provider import (
         DirectForecastProvider,
         FrozenForecastEngine,
     )
@@ -81,14 +81,20 @@ def test_provider_encodes_only_requested_real_history_and_shares_batch_engine():
     assert forecast.rgb.shape == (2, 224, 224, 3)
     assert forecast.rgb.dtype == np.uint8 and not forecast.rgb.flags.writeable
     assert not model.parameter.requires_grad
-    from latency_meta_mdp.rtc_protocol import RtcForecastContext
+    from latency_meta_mdp.runtime.rtc_protocol import RtcForecastContext
 
     c = _context(10)
     before = engine.decoder.calls
-    packet = provider.prepare(RtcForecastContext(
-        c.origin_tick, c.observation, c.buffer_version, c.previous_actions,
-        c.previous_action_mask, c.estimated_delay_ticks,
-    ))
+    packet = provider.prepare(
+        RtcForecastContext(
+            c.origin_tick,
+            c.observation,
+            c.buffer_version,
+            c.previous_actions,
+            c.previous_action_mask,
+            c.estimated_delay_ticks,
+        )
+    )
     assert engine.decoder.calls == before
     assert packet.current_visual_latents.shape == (2, 196, 384)
     assert packet.future_visual_latents.shape == (2, 196, 384)
@@ -99,8 +105,10 @@ def test_provider_encodes_only_requested_real_history_and_shares_batch_engine():
     np.testing.assert_array_equal(decoded.rgb, forecast.rgb)
     np.testing.assert_array_equal(decoded.proprio, forecast.proprio)
     assert packet.decode(c) is decoded and engine.decoder.calls == before + 1
-    for changed in (dataclasses.replace(c, buffer_version=1),
-                    dataclasses.replace(c, previous_actions=np.ones((50, 7)))):
+    for changed in (
+        dataclasses.replace(c, buffer_version=1),
+        dataclasses.replace(c, previous_actions=np.ones((50, 7))),
+    ):
         with pytest.raises(ValueError, match="snapshot"):
             packet.decode(changed)
     with pytest.raises(ValueError, match="source"):
@@ -119,7 +127,7 @@ def test_provider_encodes_only_requested_real_history_and_shares_batch_engine():
 
 
 def test_forecast_packet_cannot_be_attached_to_another_request_context():
-    from latency_meta_mdp.policy_forecast import DecodedForecast
+    from latency_meta_mdp.data.forecast.samples import DecodedForecast
 
     packet = DecodedForecast(10, 17, 7, 0, None, None)
     context = dataclasses.replace(_context(10), forecast=packet)
@@ -130,14 +138,14 @@ def test_forecast_packet_cannot_be_attached_to_another_request_context():
 
 
 def test_logical_forecast_uses_completed_estimate_and_records_stage_order():
-    from latency_meta_mdp.control import load_action_contract
-    from latency_meta_mdp.policy_execution import (
+    from latency_meta_mdp.data.forecast.samples import DecodedForecast
+    from latency_meta_mdp.envs.control import load_action_contract
+    from latency_meta_mdp.runtime.policy_execution import (
         FixedCursorScheduler,
         LogicalPolicyRuntime,
         PhysicalStepResult,
     )
-    from latency_meta_mdp.policy_forecast import DecodedForecast
-    from latency_meta_mdp.rtc_protocol import load_rtc_client_config
+    from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
     seen, observations = [], []
     clock = SimpleNamespace(tick=0)
@@ -163,9 +171,11 @@ def test_logical_forecast_uses_completed_estimate_and_records_stage_order():
         return np.zeros((50, 7))
 
     runtime = LogicalPolicyRuntime(
-        action_contract=load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml")),
+        action_contract=load_action_contract(
+            Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+        ),
         client_config=dataclasses.replace(
-            load_rtc_client_config(Path("configs/client/rtc_observation_time_h50_v1.yaml")),
+            load_rtc_client_config(Path("configs/runtime/client/rtc_observation_time_h50_v1.yaml")),
             initial_delay_ticks=(4,),
         ),
         simulation_time_reader=lambda: clock.tick * 20000,

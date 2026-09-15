@@ -9,7 +9,7 @@ import pytest
 def test_j4_summary_separates_robot_onset_and_object_coupling_regimes() -> None:
     """Catches mixing pre-handoff invariance with post-handoff coupled dynamics."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.action_effect_evaluation import (
+    from latency_meta_mdp.belief.jepa.diagnostics.action_effect_evaluation import (
         summarize_j4_effects,
     )
 
@@ -81,8 +81,10 @@ def test_j4_evaluation_cli_runs_all_final_seeds_on_one_fixed_bank(
 ) -> None:
     """Catches per-seed branch recollection or arbitrary evaluation configuration."""
 
-    import latency_meta_mdp.belief.action_conditioned_jepa.action_effect_evaluation_run as module
-    from latency_meta_mdp.cli.evaluate_action_conditioned_jepa_l3_action_effect import main
+    import latency_meta_mdp.belief.jepa.diagnostics.action_effect_evaluation_run as module
+    from latency_meta_mdp.belief.jepa.diagnostics.evaluate_action_effect import (
+        main,
+    )
 
     output = tmp_path / "report.json"
     observed = {}

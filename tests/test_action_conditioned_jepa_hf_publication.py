@@ -7,7 +7,7 @@ from pathlib import Path
 def test_hf_bundle_is_inference_only_with_empty_readme(tmp_path: Path) -> None:
     """Catches optimizer, training provenance, or descriptive README leaking to a public repo."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.hf_publication import (
+    from latency_meta_mdp.belief.jepa.hf_publication import (
         build_hf_inference_bundle,
         load_hf_publication_config,
     )
@@ -36,7 +36,7 @@ def test_hf_bundle_is_inference_only_with_empty_readme(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     config = load_hf_publication_config(
-        Path("configs/publication/action_conditioned_jepa/hf_inference.yaml")
+        Path("configs/legacy/publication/action_conditioned_jepa/hf_inference.yaml")
     )
     output = tmp_path / "bundle"
     bundle = build_hf_inference_bundle(
@@ -106,13 +106,13 @@ def test_hf_bundle_is_inference_only_with_empty_readme(tmp_path: Path) -> None:
 def test_hf_commands_are_public_manual_gated_and_never_embed_token() -> None:
     """Catches a private repo, ungated public weights, or token passed on the command line."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.hf_publication import (
+    from latency_meta_mdp.belief.jepa.hf_publication import (
         build_hf_publication_commands,
         load_hf_publication_config,
     )
 
     config = load_hf_publication_config(
-        Path("configs/publication/action_conditioned_jepa/hf_inference.yaml")
+        Path("configs/legacy/publication/action_conditioned_jepa/hf_inference.yaml")
     )
     commands = build_hf_publication_commands(
         config=config,
@@ -133,8 +133,7 @@ def test_hf_commands_are_public_manual_gated_and_never_embed_token() -> None:
     )
     assert "--gated manual" in rendered
     assert (
-        "hf upload yypeng666/metamdp-jepa-return-l2-s4-h160ms-t400ms-final-v1 "
-        "/tmp/inference-bundle"
+        "hf upload yypeng666/metamdp-jepa-return-l2-s4-h160ms-t400ms-final-v1 /tmp/inference-bundle"
     ) in rendered
     assert "--private" not in rendered
     assert "token" not in rendered.lower()

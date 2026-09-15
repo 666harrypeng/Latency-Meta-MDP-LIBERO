@@ -1,26 +1,17 @@
 # Latency Meta-MDP
 
-Research code for latency-aware asynchronous robot policy inference.
-
-This repository is under active development.
-
-## Installation
-
-Python 3.10 and [uv](https://docs.astral.sh/uv/) are required.
+Research code for latency-aware robot policy learning and execution.
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init third_party/openpi third_party/jepa-wms
 uv sync --group dev
-uv run python -m latency_meta_mdp.cli.check_runtime --help
+export PYTHONPATH=src
 ```
 
-## Clean policy SFT
+- [Environment setup](docker/README.md)
+- [Training and publishing commands](docs/usage/training.md)
+- [Experiment configurations](configs/experiments)
 
-Use the [Docker training instructions](docker/SFT.md) and the
-[L2 job config](configs/training/pi05/l2_clean.yaml) for structured state16 data.
-This training environment is separate from the simulation environment above.
-
-## Direct predictor training
-
-See the [configuration and commands](configs/training/action_conditioned_jepa/README.md)
-for training and reviewing a level-specific Direct-query predictor.
+Implementations live in `src/latency_meta_mdp`; executable entrypoints are in
+`scripts`. Historical implementations and configurations are isolated under
+`legacy` and are not used by the current training entrypoints.

@@ -8,7 +8,7 @@ import pytest
 
 
 def _key(draw_index: int = 0):
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey, TaskInstanceId
+    from latency_meta_mdp.data.collection.contracts import ExpertRealizationKey, TaskInstanceId
 
     return ExpertRealizationKey(
         TaskInstanceId(1, 4000, "a" * 64, "b" * 64),
@@ -18,7 +18,7 @@ def _key(draw_index: int = 0):
 
 
 def _candidate(*, draw_index: int = 0, offset: float = 0.0, success: bool = True):
-    from latency_meta_mdp.expert_realization.planner import (
+    from latency_meta_mdp.data.collection.planner import (
         PlannerCandidate,
         PlannerCandidateStatus,
         planner_candidate_seed,
@@ -37,10 +37,13 @@ def _candidate(*, draw_index: int = 0, offset: float = 0.0, success: bool = True
             planning_time_seconds=1.0,
         )
     qpos = np.tile(np.arange(7, dtype=np.float64), (3, 1)) + offset
-    eef = np.array(
-        [[0.0, 0.0, 1.0], [0.05, 0.0, 1.0], [0.10, 0.0, 1.0]],
-        dtype=np.float64,
-    ) + offset
+    eef = (
+        np.array(
+            [[0.0, 0.0, 1.0], [0.05, 0.0, 1.0], [0.10, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+        + offset
+    )
     return PlannerCandidate(
         expert_realization_key=key,
         candidate_index=0,
@@ -69,17 +72,17 @@ def _intent():
 
 
 def _execution():
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_execution_config,
     )
 
     return load_source_execution_config(
-        "configs/source_corpus/panda_ball_formal_source_execution.yaml"
+        "configs/data/source_corpus/panda_ball_formal_source_execution.yaml"
     )
 
 
 def test_one_semantic_draw_requests_only_candidate_zero() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         generate_single_draw_plan,
     )
 
@@ -98,7 +101,7 @@ def test_one_semantic_draw_requests_only_candidate_zero() -> None:
 
 
 def test_planner_semantic_failure_rejects_draw_without_candidate_one() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         PlanningAttemptsExhausted,
         generate_single_draw_plan,
     )
@@ -117,7 +120,7 @@ def test_planner_semantic_failure_rejects_draw_without_candidate_one() -> None:
 
 
 def test_infrastructure_retry_repeats_candidate_zero_for_same_draw() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         PlannerInfrastructureError,
         generate_single_draw_plan,
     )
@@ -142,8 +145,8 @@ def test_infrastructure_retry_repeats_candidate_zero_for_same_draw() -> None:
 
 
 def test_draw_diversity_is_checked_against_already_admitted_paths() -> None:
-    from latency_meta_mdp.expert_realization.selector import DiversitySelectionError
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.collection.selector import DiversitySelectionError
+    from latency_meta_mdp.data.source.formal_collection import (
         qualify_draw_diversity,
     )
 
@@ -162,7 +165,7 @@ def test_draw_diversity_is_checked_against_already_admitted_paths() -> None:
 
 
 def test_level_canary_ignores_wall_time_but_requires_exact_trajectory() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         PlannerDeterminismError,
         generate_single_draw_plan,
         verify_level_planner_canary,

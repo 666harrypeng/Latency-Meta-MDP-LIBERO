@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.motion import (
+from latency_meta_mdp.envs.motion import (
     CubicPolynomialProfile,
     PiecewisePolynomialProfile,
     build_motion_profile,
@@ -12,7 +12,7 @@ from latency_meta_mdp.motion import (
     sample_shared_geometry,
 )
 
-_CONFIG_ROOT = Path("configs/motion")
+_CONFIG_ROOT = Path("configs/tasks/moving_ball/motion")
 
 
 def _config(level: int):
@@ -122,18 +122,16 @@ def test_level2_is_one_four_waypoint_degree_three_polynomial() -> None:
     assert abs(signed_waypoint_offsets[1]) >= config.l2_waypoint_deviation_range_m[0]
     assert abs(signed_waypoint_offsets[2]) >= config.l2_waypoint_deviation_range_m[0]
 
-    samples = [
-        profile.sample(time_us) for time_us in range(0, config.anchor_time_us + 1, 2_000)
-    ]
+    samples = [profile.sample(time_us) for time_us in range(0, config.anchor_time_us + 1, 2_000)]
     positions = np.stack([sample.position[:2] for sample in samples])
     speeds = np.array([np.linalg.norm(sample.velocity[:2]) for sample in samples])
     accelerations = np.array([np.linalg.norm(sample.acceleration[:2]) for sample in samples])
     path_length = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
     chord = positions[-1] - positions[0]
     relative = positions - positions[0]
-    deviation = np.abs(
-        chord[0] * relative[:, 1] - chord[1] * relative[:, 0]
-    ) / np.linalg.norm(chord)
+    deviation = np.abs(chord[0] * relative[:, 1] - chord[1] * relative[:, 0]) / np.linalg.norm(
+        chord
+    )
 
     assert config.min_path_length_m <= path_length <= config.max_path_length_m
     assert deviation.max() >= config.l2_waypoint_deviation_range_m[0]
@@ -153,8 +151,10 @@ def test_level2_is_one_four_waypoint_degree_three_polynomial() -> None:
     sign_changes = np.flatnonzero(signs[1:] != signs[:-1])
     assert len(sign_changes) == 1
     change_time_us = int(meaningful[sign_changes[0] + 1] * 2_000)
-    assert config.l2_curvature_change_time_us_range[0] <= change_time_us <= (
-        config.l2_curvature_change_time_us_range[1]
+    assert (
+        config.l2_curvature_change_time_us_range[0]
+        <= change_time_us
+        <= (config.l2_curvature_change_time_us_range[1])
     )
 
 
@@ -168,9 +168,9 @@ def test_level2_train_bank_has_balanced_obvious_curve_directions() -> None:
         end = profile.waypoint_positions_xy[-1]
         chord = end - start
         relative = profile.waypoint_positions_xy - start
-        signed_offsets = (
-            chord[0] * relative[:, 1] - chord[1] * relative[:, 0]
-        ) / np.linalg.norm(chord)
+        signed_offsets = (chord[0] * relative[:, 1] - chord[1] * relative[:, 0]) / np.linalg.norm(
+            chord
+        )
         signs.append(int(np.sign(signed_offsets[1])))
         deviations.extend(abs(signed_offsets[index]) for index in (1, 2))
 
@@ -211,23 +211,21 @@ def test_level3_has_early_position_continuous_bounded_turns() -> None:
         )
         angle_degrees = float(np.degrees(np.arccos(cosine)))
         jump = float(np.linalg.norm(right_velocity - left_velocity))
-        assert config.turn_angle_degrees_range[0] <= angle_degrees <= (
-            config.turn_angle_degrees_range[1]
+        assert (
+            config.turn_angle_degrees_range[0]
+            <= angle_degrees
+            <= (config.turn_angle_degrees_range[1])
         )
         assert config.velocity_jump_range_mps[0] <= jump <= config.velocity_jump_range_mps[1]
 
-    samples = [
-        profile.sample(time_us) for time_us in range(0, config.anchor_time_us + 1, 2_000)
-    ]
+    samples = [profile.sample(time_us) for time_us in range(0, config.anchor_time_us + 1, 2_000)]
     positions = np.stack([sample.position[:2] for sample in samples])
     path_length = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
     chord = positions[-1] - positions[0]
     relative = positions - positions[0]
     deviations = np.abs(chord[0] * relative[:, 1] - chord[1] * relative[:, 0])
     assert config.min_path_length_m <= path_length <= config.max_path_length_m
-    assert deviations.max() / np.linalg.norm(chord) >= (
-        config.l3_waypoint_deviation_range_m[0]
-    )
+    assert deviations.max() / np.linalg.norm(chord) >= (config.l3_waypoint_deviation_range_m[0])
     assert all(config.contains(position) for position in positions)
 
 

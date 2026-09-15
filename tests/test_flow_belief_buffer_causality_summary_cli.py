@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from latency_meta_mdp.cli.summarize_flow_belief_buffer_causality import build_parser
+from latency_meta_mdp.legacy.cli.summarize_flow_belief_buffer_causality import build_parser
 
 
 def test_summary_cli_requires_three_level_manifests() -> None:

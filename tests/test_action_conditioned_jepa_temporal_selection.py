@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import SharedJepaSampleIndex
+from latency_meta_mdp.belief.jepa.ar.temporal_view import SharedJepaSampleIndex
 
 
 def _indices() -> tuple[SharedJepaSampleIndex, ...]:
@@ -25,16 +25,14 @@ def _indices() -> tuple[SharedJepaSampleIndex, ...]:
 
 def _episode_masters() -> dict[str, int]:
     return {
-        f"episode-{master}-{realization}": master
-        for master in range(8)
-        for realization in range(2)
+        f"episode-{master}-{realization}": master for master in range(8) for realization in range(2)
     }
 
 
 def test_grouped_four_folds_are_deterministic_complete_and_disjoint() -> None:
     """Catches fold assignment that leaks one master across fit and development."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_selection import (
+    from latency_meta_mdp.belief.jepa.ar.selection_config import (
         build_grouped_master_folds,
     )
 
@@ -54,18 +52,17 @@ def test_grouped_four_folds_are_deterministic_complete_and_disjoint() -> None:
     assert all(len(fold.development_master_indices) == 2 for fold in first)
     assert all(len(fold.fit_master_indices) == 6 for fold in first)
     assert all(
-        set(fold.fit_master_indices).isdisjoint(fold.development_master_indices)
-        for fold in first
+        set(fold.fit_master_indices).isdisjoint(fold.development_master_indices) for fold in first
     )
-    assert sorted(
-        master for fold in first for master in fold.development_master_indices
-    ) == list(range(8))
+    assert sorted(master for fold in first for master in fold.development_master_indices) == list(
+        range(8)
+    )
 
 
 def test_temporal_selection_artifact_round_trips_one_shared_index(tmp_path: Path) -> None:
     """Catches writing one duplicated launch-index inventory per temporal candidate."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_selection import (
+    from latency_meta_mdp.belief.jepa.ar.selection_config import (
         load_temporal_selection_artifact,
         write_temporal_selection_artifact,
     )
@@ -124,7 +121,7 @@ def test_temporal_selection_artifact_round_trips_one_shared_index(tmp_path: Path
 def test_temporal_selection_loader_rejects_tampered_indices(tmp_path: Path) -> None:
     """Catches trusting a manifest after its shared launch index was modified."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_selection import (
+    from latency_meta_mdp.belief.jepa.ar.selection_config import (
         load_temporal_selection_artifact,
         write_temporal_selection_artifact,
     )

@@ -7,17 +7,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_contracts import (
     BranchCorpusConfig,
 )
-from latency_meta_mdp.belief.conditional_return_flow.source_corpus import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.source_corpus import (
     load_one_verified_source,
     load_verified_source_episodes,
     select_source_contexts,
     source_observation_sha256,
 )
-from latency_meta_mdp.temporal_contract import TemporalContract
+from latency_meta_mdp.runtime.temporal_contract import TemporalContract
 
 
 @dataclass(frozen=True)
@@ -37,10 +37,11 @@ def _write_json(path: Path, value: object) -> None:
 def _config_paths(project_root: Path, *, level: int) -> dict[str, Path]:
     return {
         "runtime": project_root / "configs/runtime/robosuite_v1.yaml",
-        "task": project_root / "configs/task/dynamic_grasp_lift_l0.yaml",
-        "motion": project_root / f"configs/motion/dynamic_grasp_lift_l{level}.yaml",
-        "control": project_root / "configs/control/panda_osc_pose_delta_v1.yaml",
-        "expert": project_root / "configs/expert/panda_ball_feedback_v1.yaml",
+        "task": project_root / "configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml",
+        "motion": project_root
+        / f"configs/tasks/moving_ball/motion/dynamic_grasp_lift_l{level}.yaml",
+        "control": project_root / "configs/runtime/control/panda_osc_pose_delta_v1.yaml",
+        "expert": project_root / "configs/data/expert/panda_ball_feedback_v1.yaml",
     }
 
 
@@ -51,7 +52,7 @@ def _formal_fixture(tmp_path: Path) -> FormalFixture:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"fixture: {name}\n", encoding="utf-8")
 
-    split_config = project_root / "configs/data/formal_belief_train_val_v1.yaml"
+    split_config = project_root / "configs/legacy/data/formal_belief_train_val_v1.yaml"
     split_config.parent.mkdir(parents=True, exist_ok=True)
     split_config.write_text(
         """schema_version: 1
@@ -307,9 +308,7 @@ def test_source_selection_keeps_split_and_uses_central_eligible_phase_tick(
         prefix_hold_ticks=(5, 10),
     )
 
-    selection = select_source_contexts(
-        episodes=_load(fixture), config=config, temporal=_temporal()
-    )
+    selection = select_source_contexts(episodes=_load(fixture), config=config, temporal=_temporal())
     selected = selection.contexts
 
     assert selected
@@ -329,9 +328,7 @@ def test_source_selection_accounts_for_phase_without_eligible_tick(tmp_path: Pat
         prefix_hold_ticks=(5, 10),
     )
 
-    selection = select_source_contexts(
-        episodes=_load(fixture), config=config, temporal=_temporal()
-    )
+    selection = select_source_contexts(episodes=_load(fixture), config=config, temporal=_temporal())
 
     assert selection.expected_slot_count == 4
     assert len(selection.contexts) == 2

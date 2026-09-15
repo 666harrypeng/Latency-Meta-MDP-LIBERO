@@ -8,14 +8,14 @@ def test_lazy_online_history_uses_real_stride4_frames_and_actual_controls(tmp_pa
     import torch
     from test_action_conditioned_jepa_data import _normalization, _record
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import load_jepa_temporal_sampling
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentRollout
-    from latency_meta_mdp.policy_belief_runtime import FrozenJepaBelief
-    from latency_meta_mdp.policy_execution import PolicyObservation
+    from latency_meta_mdp.belief.jepa.config import load_jepa_temporal_sampling
+    from latency_meta_mdp.belief.jepa.contracts import FutureLatentRollout
+    from latency_meta_mdp.runtime.policy_belief_runtime import FrozenJepaBelief
+    from latency_meta_mdp.runtime.policy_execution import PolicyObservation
 
     record = _record(tmp_path, terminal_tick=30)
     sampling = load_jepa_temporal_sampling(
-        Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+        Path("configs/models/jepa/stride4_80ms_history_160ms.yaml")
     )
 
     class Encoder:
@@ -69,7 +69,7 @@ def test_lazy_online_history_uses_real_stride4_frames_and_actual_controls(tmp_pa
 
 
 def test_privileged_provider_requires_explicit_runtime_lane():
-    from latency_meta_mdp.policy_execution import LogicalPolicyRuntime
+    from latency_meta_mdp.runtime.policy_execution import LogicalPolicyRuntime
 
     with pytest.raises(ValueError, match="privileged"):
         LogicalPolicyRuntime(
@@ -85,7 +85,7 @@ def test_privileged_provider_requires_explicit_runtime_lane():
 
 
 def test_oracle_peek_and_harness_consume_share_exactly_one_delay_draw():
-    from latency_meta_mdp.policy_belief_runtime import PrivilegedDelayCoupler
+    from latency_meta_mdp.runtime.policy_belief_runtime import PrivilegedDelayCoupler
 
     values = iter([2, 7])
     coupled = PrivilegedDelayCoupler(lambda: next(values))
@@ -95,7 +95,10 @@ def test_oracle_peek_and_harness_consume_share_exactly_one_delay_draw():
 
 
 def test_prefix_provider_preserves_full_forecast_and_nests_only_privileged_delay():
-    from latency_meta_mdp.policy_belief_runtime import PrefixBeliefProvider, PrivilegedDelayCoupler
+    from latency_meta_mdp.runtime.policy_belief_runtime import (
+        PrefixBeliefProvider,
+        PrivilegedDelayCoupler,
+    )
 
     packet = {
         "visual": np.zeros((5, 2, 196, 384), np.float16),
@@ -147,9 +150,9 @@ def test_gt_replay_uses_actual_future_controls_and_exact_oracle_delay():
     from pathlib import Path
     from types import SimpleNamespace
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import load_jepa_temporal_sampling
-    from latency_meta_mdp.policy_belief_runtime import ReplayGroundTruthBelief
-    from latency_meta_mdp.policy_execution import policy_observation_from_snapshot
+    from latency_meta_mdp.belief.jepa.config import load_jepa_temporal_sampling
+    from latency_meta_mdp.runtime.policy_belief_runtime import ReplayGroundTruthBelief
+    from latency_meta_mdp.runtime.policy_execution import policy_observation_from_snapshot
 
     class Runtime:
         def __init__(self):
@@ -195,7 +198,7 @@ def test_gt_replay_uses_actual_future_controls_and_exact_oracle_delay():
     action = np.array([0.1, 0, 0, 0, 0, 0, -1])
     s1 = live.step_formal(action)
     sampling = load_jepa_temporal_sampling(
-        Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+        Path("configs/models/jepa/stride4_80ms_history_160ms.yaml")
     )
     gt = ReplayGroundTruthBelief(
         runtime_factory=Runtime,

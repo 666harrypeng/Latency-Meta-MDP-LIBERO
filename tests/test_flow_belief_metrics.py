@@ -5,7 +5,7 @@ import pytest
 
 
 def test_energy_score_is_zero_for_perfect_deterministic_samples() -> None:
-    from latency_meta_mdp.belief.flow.metrics import energy_score
+    from latency_meta_mdp.legacy.belief.flow.metrics import energy_score
 
     target = np.ones((2, 3, 22), dtype=np.float64)
     samples = np.repeat(target[:, :, None, :], 4, axis=2)
@@ -15,7 +15,7 @@ def test_energy_score_is_zero_for_perfect_deterministic_samples() -> None:
 
 
 def test_energy_score_matches_two_sample_hand_calculation() -> None:
-    from latency_meta_mdp.belief.flow.metrics import energy_score
+    from latency_meta_mdp.legacy.belief.flow.metrics import energy_score
 
     target = np.zeros((1, 1, 22), dtype=np.float64)
     target[..., 0] = 1.0
@@ -27,7 +27,7 @@ def test_energy_score_matches_two_sample_hand_calculation() -> None:
 
 
 def test_sample_distribution_metrics_detect_coverage_and_collapse() -> None:
-    from latency_meta_mdp.belief.flow.metrics import sample_distribution_metrics
+    from latency_meta_mdp.legacy.belief.flow.metrics import sample_distribution_metrics
 
     target = np.zeros((1, 1, 22), dtype=np.float64)
     diverse = np.linspace(-2.0, 2.0, 101, dtype=np.float64)
@@ -52,7 +52,7 @@ def test_sample_distribution_metrics_detect_coverage_and_collapse() -> None:
 
 
 def test_sample_mean_physical_metrics_report_object_error_in_millimeters() -> None:
-    from latency_meta_mdp.belief.flow.metrics import sample_mean_physical_metrics
+    from latency_meta_mdp.legacy.belief.flow.metrics import sample_mean_physical_metrics
 
     target = np.zeros((1, 1, 22), dtype=np.float64)
     samples = np.zeros((1, 1, 4, 22), dtype=np.float64)

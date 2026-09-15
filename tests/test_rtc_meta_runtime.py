@@ -5,14 +5,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.policy_execution import (
+from latency_meta_mdp.data.forecast.samples import DecodedForecast
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.runtime.policy_execution import (
     LogicalPolicyRuntime,
     PhysicalStepResult,
     PolicyObservation,
 )
-from latency_meta_mdp.policy_forecast import DecodedForecast
-from latency_meta_mdp.rtc_protocol import load_rtc_client_config
+from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
 
 def obs(tick):
@@ -71,9 +71,11 @@ def test_meta_prepares_on_wait_and_reuses_one_packet_on_launch(conditioned, cuto
         return np.zeros((50, 7))
 
     engine = LogicalPolicyRuntime(
-        action_contract=load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml")),
+        action_contract=load_action_contract(
+            Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+        ),
         client_config=replace(
-            load_rtc_client_config(Path("configs/client/rtc_observation_time_h50_v1.yaml")),
+            load_rtc_client_config(Path("configs/runtime/client/rtc_observation_time_h50_v1.yaml")),
             initial_delay_ticks=(4,),
         ),
         simulation_time_reader=lambda: tick[0] * 20000,

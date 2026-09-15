@@ -10,7 +10,7 @@ from test_expert_source_loader import _publish
 
 
 def _index_corpus(tmp_path: Path):
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         SourceCorpusManifest,
         VerifiedSourceCorpus,
     )
@@ -50,7 +50,7 @@ def test_review_selection_uses_dataset_level_and_canonical_episode_range(
     tmp_path: Path,
 ) -> None:
     """Break caught: review order follows Parquet rows instead of task/realization identity."""
-    from latency_meta_mdp.expert_realization.source_corpus.review_video import (
+    from latency_meta_mdp.data.source.review_video import (
         select_review_episodes,
     )
 
@@ -75,7 +75,7 @@ def test_review_selection_uses_dataset_level_and_canonical_episode_range(
 
 def test_review_selection_rejects_ambiguous_or_out_of_bounds_ranges(tmp_path: Path) -> None:
     """Break caught: one range is silently applied to every level or clips out of bounds."""
-    from latency_meta_mdp.expert_realization.source_corpus.review_video import (
+    from latency_meta_mdp.data.source.review_video import (
         select_review_episodes,
     )
 
@@ -102,7 +102,7 @@ def test_speed_stride_always_retains_terminal_frame(
     frame_count: int, speed: int, expected: tuple[int, ...]
 ) -> None:
     """Break caught: fast review drops the successful terminal boundary."""
-    from latency_meta_mdp.expert_realization.source_corpus.review_video import (
+    from latency_meta_mdp.data.source.review_video import (
         review_frame_indices,
     )
 
@@ -113,7 +113,7 @@ def test_review_cli_dry_run_selects_without_creating_output(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Break caught: dry-run decodes images, calls FFmpeg, or creates review paths."""
-    from latency_meta_mdp.cli.render_structured_source_video import main
+    from latency_meta_mdp.data.source.render import main
 
     corpus = _index_corpus(tmp_path)
     output = tmp_path / "review"
@@ -156,7 +156,7 @@ def test_real_review_video_is_h264_50fps_and_manifest_bound(
     tmp_path: Path,
 ) -> None:
     """Break caught: the renderer emits an unplayable video or loses source provenance."""
-    from latency_meta_mdp.expert_realization.source_corpus.review_video import (
+    from latency_meta_mdp.data.source.review_video import (
         render_source_review_videos,
     )
 

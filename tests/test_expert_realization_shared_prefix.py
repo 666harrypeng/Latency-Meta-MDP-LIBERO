@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.snapshots import BoundarySnapshot, CameraSample
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.envs.snapshots import BoundarySnapshot, CameraSample
+from latency_meta_mdp.runtime.timing import ClockLedger
 
 
 def _camera(name: str, tick: int) -> CameraSample:
@@ -100,13 +100,15 @@ def _runtime() -> SimpleNamespace:
 
 
 def _anchor():
-    from latency_meta_mdp.control import load_action_contract
-    from latency_meta_mdp.expert_realization.shared_prefix import (
+    from latency_meta_mdp.data.collection.shared_prefix import (
         _build_shared_prefix_anchor,
         _prefix_actions,
     )
+    from latency_meta_mdp.envs.control import load_action_contract
 
-    contract = load_action_contract(Path.cwd() / "configs/control/panda_osc_pose_delta_v1.yaml")
+    contract = load_action_contract(
+        Path.cwd() / "configs/runtime/control/panda_osc_pose_delta_v1.yaml"
+    )
     actions = _prefix_actions(contract, decision_source_tick=5)
     return _build_shared_prefix_anchor(
         runtime=_runtime(),
@@ -119,10 +121,12 @@ def _anchor():
 
 def test_prefix_is_exactly_five_open_gripper_zero_delta_actions() -> None:
     """Break caught: zero gripper, six actions, or a family action leaks before boundary 5."""
-    from latency_meta_mdp.control import load_action_contract
-    from latency_meta_mdp.expert_realization.shared_prefix import _prefix_actions
+    from latency_meta_mdp.data.collection.shared_prefix import _prefix_actions
+    from latency_meta_mdp.envs.control import load_action_contract
 
-    contract = load_action_contract(Path.cwd() / "configs/control/panda_osc_pose_delta_v1.yaml")
+    contract = load_action_contract(
+        Path.cwd() / "configs/runtime/control/panda_osc_pose_delta_v1.yaml"
+    )
     actions = _prefix_actions(contract, decision_source_tick=5)
 
     assert actions.shape == (5, 7)
@@ -180,14 +184,16 @@ def test_k6_rejects_each_camera_source_clock_mismatch(
     camera_name: str, field: str, bad_value: object
 ) -> None:
     """Break caught: stale image bytes cannot masquerade as a synchronized K6 camera sample."""
-    from latency_meta_mdp.control import load_action_contract
-    from latency_meta_mdp.expert_realization.shared_prefix import (
+    from latency_meta_mdp.data.collection.shared_prefix import (
         _build_shared_prefix_anchor,
         _prefix_actions,
     )
-    from latency_meta_mdp.expert_realization.task_instance import TaskInstanceReplayMismatch
+    from latency_meta_mdp.data.collection.task_instance import TaskInstanceReplayMismatch
+    from latency_meta_mdp.envs.control import load_action_contract
 
-    contract = load_action_contract(Path.cwd() / "configs/control/panda_osc_pose_delta_v1.yaml")
+    contract = load_action_contract(
+        Path.cwd() / "configs/runtime/control/panda_osc_pose_delta_v1.yaml"
+    )
     boundaries = tuple(
         _boundary_with_camera_clock_change(
             tick,
@@ -214,7 +220,7 @@ def test_k6_rejects_each_camera_source_clock_mismatch(
 
 def test_boundary_zero_rejects_camera_source_clock_mismatch() -> None:
     """Break caught: the TaskInstanceId cannot bind a mislabeled boundary-zero image."""
-    from latency_meta_mdp.expert_realization.task_instance import (
+    from latency_meta_mdp.data.collection.task_instance import (
         TaskInstanceReplayMismatch,
         _initial_state_from_runtime,
     )
@@ -239,8 +245,8 @@ def test_boundary_zero_rejects_camera_source_clock_mismatch() -> None:
 
 def test_anchor_mismatch_names_first_camera_tick_and_blocks_return() -> None:
     """Break caught: bitwise K6 corruption is reduced to a tolerance or generic hash error."""
-    from latency_meta_mdp.expert_realization.shared_prefix import _compare_shared_prefix_anchors
-    from latency_meta_mdp.expert_realization.task_instance import TaskInstanceReplayMismatch
+    from latency_meta_mdp.data.collection.shared_prefix import _compare_shared_prefix_anchors
+    from latency_meta_mdp.data.collection.task_instance import TaskInstanceReplayMismatch
 
     expected = _anchor()
     changed = np.array(expected.k6_agentview_rgb, copy=True)
@@ -264,8 +270,8 @@ def test_anchor_mismatch_reports_each_top_level_category(
     field: str, replacement: object, expected_name: str
 ) -> None:
     """Break caught: a top-level replay category can change without a precise blocking field."""
-    from latency_meta_mdp.expert_realization.shared_prefix import _compare_shared_prefix_anchors
-    from latency_meta_mdp.expert_realization.task_instance import TaskInstanceReplayMismatch
+    from latency_meta_mdp.data.collection.shared_prefix import _compare_shared_prefix_anchors
+    from latency_meta_mdp.data.collection.task_instance import TaskInstanceReplayMismatch
 
     expected = _anchor()
     actual = dataclasses.replace(expected, **{field: replacement})
@@ -276,8 +282,8 @@ def test_anchor_mismatch_reports_each_top_level_category(
 
 def test_handoff_mismatch_reports_exact_json_path() -> None:
     """Break caught: a handoff-state divergence is localized to its causal JSON field."""
-    from latency_meta_mdp.expert_realization.shared_prefix import _compare_shared_prefix_anchors
-    from latency_meta_mdp.expert_realization.task_instance import TaskInstanceReplayMismatch
+    from latency_meta_mdp.data.collection.shared_prefix import _compare_shared_prefix_anchors
+    from latency_meta_mdp.data.collection.task_instance import TaskInstanceReplayMismatch
 
     expected = _anchor()
     payload = json.loads(expected.handoff_state_json_utf8)
@@ -295,8 +301,8 @@ def test_handoff_mismatch_reports_exact_json_path() -> None:
 
 def test_nested_outcome_mismatch_reports_exact_json_path() -> None:
     """Break caught: a nested causal-state divergence is not hidden behind a generic label."""
-    from latency_meta_mdp.expert_realization.shared_prefix import _compare_shared_prefix_anchors
-    from latency_meta_mdp.expert_realization.task_instance import TaskInstanceReplayMismatch
+    from latency_meta_mdp.data.collection.shared_prefix import _compare_shared_prefix_anchors
+    from latency_meta_mdp.data.collection.task_instance import TaskInstanceReplayMismatch
 
     expected = _anchor()
     payload = json.loads(expected.outcome_state_json_utf8)
@@ -314,7 +320,7 @@ def test_nested_outcome_mismatch_reports_exact_json_path() -> None:
 
 def test_runtime_close_is_idempotent_and_closes_environment_once() -> None:
     """Break caught: success/failure cleanup double-closes or leaks a fresh renderer runtime."""
-    from latency_meta_mdp.expert_realization.task_instance import _TaskInstanceRuntime
+    from latency_meta_mdp.data.collection.task_instance import _TaskInstanceRuntime
 
     class Env:
         def __init__(self) -> None:
@@ -347,7 +353,7 @@ def test_invalid_decision_tick_rejected_before_runtime_construction(
     monkeypatch: pytest.MonkeyPatch, tick: int
 ) -> None:
     """Break caught: an invalid decision tick creates or advances a renderer before rejection."""
-    from latency_meta_mdp.expert_realization import shared_prefix
+    from latency_meta_mdp.data.collection import shared_prefix
 
     called = False
 

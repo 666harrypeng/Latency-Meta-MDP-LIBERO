@@ -9,15 +9,13 @@ import pytest
 
 
 def _spec():
-    from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
+    from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
 
-    return load_vision_encoder_spec(
-        Path("configs/vision/dinov2_vits14_lvd142m_196_v1.yaml")
-    )
+    return load_vision_encoder_spec(Path("configs/models/vision/dinov2_vits14_lvd142m_196_v1.yaml"))
 
 
 def test_rgb_preprocessing_is_chw_float32_and_uses_declared_normalization() -> None:
-    from latency_meta_mdp.hf_dino_encoder import prepare_rgb_batch
+    from latency_meta_mdp.data.vision.dino import prepare_rgb_batch
 
     black = np.zeros((4, 4, 3), dtype=np.uint8)
     white = np.full((4, 4, 3), 255, dtype=np.uint8)
@@ -52,14 +50,14 @@ def test_rgb_preprocessing_is_chw_float32_and_uses_declared_normalization() -> N
     ),
 )
 def test_rgb_preprocessing_rejects_non_contract_images(images: np.ndarray) -> None:
-    from latency_meta_mdp.hf_dino_encoder import prepare_rgb_batch
+    from latency_meta_mdp.data.vision.dino import prepare_rgb_batch
 
     with pytest.raises(ValueError, match="uint8 RGB"):
         prepare_rgb_batch(images, spec=_spec())
 
 
 def test_freeze_for_inference_disables_gradients_and_training_mode() -> None:
-    from latency_meta_mdp.hf_dino_encoder import freeze_for_inference
+    from latency_meta_mdp.data.vision.dino import freeze_for_inference
 
     class Parameter:
         def __init__(self) -> None:
@@ -93,7 +91,7 @@ def test_freeze_for_inference_disables_gradients_and_training_mode() -> None:
 def test_model_snapshot_verification_binds_the_actual_weight_bytes(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.hf_dino_encoder import verify_model_snapshot
+    from latency_meta_mdp.data.vision.dino import verify_model_snapshot
 
     weight_bytes = b"pinned model weights"
     weight_path = tmp_path / "model.safetensors"

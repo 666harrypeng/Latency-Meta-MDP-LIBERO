@@ -4,7 +4,7 @@ import numpy as np
 
 
 def _sample():
-    from latency_meta_mdp.belief_feature_data import FeatureBeliefSample
+    from latency_meta_mdp.legacy.belief_feature_data import FeatureBeliefSample
 
     probabilities = np.arange(1, 21, dtype=np.float64)
     probabilities /= probabilities.sum()
@@ -40,7 +40,7 @@ def test_feature_belief_sample_exposes_only_causal_encoder_inputs() -> None:
 
 
 def test_sampled_decoder_queries_are_seeded_weighted_and_target_aligned() -> None:
-    from latency_meta_mdp.belief_feature_data import sample_feature_delay_queries
+    from latency_meta_mdp.legacy.belief_feature_data import sample_feature_delay_queries
 
     sample = _sample()
     left = sample_feature_delay_queries(
@@ -66,7 +66,7 @@ def test_sampled_decoder_queries_are_seeded_weighted_and_target_aligned() -> Non
 
 
 def test_exhaustive_decoder_queries_preserve_all_twenty_delay_branches() -> None:
-    from latency_meta_mdp.belief_feature_data import exhaustive_feature_delay_queries
+    from latency_meta_mdp.legacy.belief_feature_data import exhaustive_feature_delay_queries
 
     sample = _sample()
     queries = exhaustive_feature_delay_queries(sample)

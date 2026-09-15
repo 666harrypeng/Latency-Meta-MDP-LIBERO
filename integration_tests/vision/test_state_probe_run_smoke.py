@@ -11,19 +11,16 @@ def test_state_probe_run_keeps_level_outputs_separate(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("state probe run smoke requires CUDA")
-    source = Path(
-        "outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json")
     cache = Path(
-        "outputs/derived/vision_features/"
-        "dinov3-vits16-first-tranche-54b9562/manifest.json"
+        "outputs/derived/vision_features/dinov3-vits16-first-tranche-54b9562/manifest.json"
     )
     if not source.is_file() or not cache.is_file():
         pytest.skip("state probe run smoke requires the local first tranche")
-    from latency_meta_mdp.vision_probe_run import train_vision_state_probe_run
+    from latency_meta_mdp.legacy.vision_probe_run import train_vision_state_probe_run
 
     config = yaml.safe_load(
-        Path("configs/analysis/dinov3_temporal_state_probe_v1.yaml").read_text(
+        Path("configs/legacy/analysis/dinov3_temporal_state_probe_v1.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -36,9 +33,7 @@ def test_state_probe_run_keeps_level_outputs_separate(tmp_path: Path) -> None:
         project_root=Path.cwd(),
         source_bulk_manifest=source,
         cache_run_manifest=cache,
-        vision_config_path=Path(
-            "configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml"
-        ),
+        vision_config_path=Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
         probe_config_path=smoke_config,
         output_dir=tmp_path / "run",
         levels=(1,),

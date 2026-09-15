@@ -6,15 +6,13 @@ import numpy as np
 from test_expert_source_loader import _publish
 
 
-def test_k6_d20_h50_and_visual_frames_derive_without_simulator(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_k6_d20_h50_and_visual_frames_derive_without_simulator(tmp_path: Path, monkeypatch) -> None:
     """Break caught: a model-data change needs simulator state that source storage omitted."""
-    from latency_meta_mdp.expert_realization import task_instance
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.collection import task_instance
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.parquet import decode_png
+    from latency_meta_mdp.data.source.parquet import decode_png
 
     def forbidden(*args, **kwargs):
         raise AssertionError("offline derivation called the simulator")
@@ -46,7 +44,7 @@ def test_k6_d20_h50_and_visual_frames_derive_without_simulator(
 
 def test_terminal_state_supports_offline_absorbing_tail_materialization(tmp_path: Path) -> None:
     """Break caught: late H50 targets require restarting the simulator after collection."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
 

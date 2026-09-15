@@ -4,15 +4,15 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.action_chunk_client import load_action_chunk_client_config
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.policy_execution import PolicyObservation
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.runtime.action_chunk_client import load_action_chunk_client_config
+from latency_meta_mdp.runtime.policy_execution import PolicyObservation
 
 
 class Runtime:
     def __init__(self, succeed_at=None):
         self.action_contract = load_action_contract(
-            Path("configs/control/panda_osc_pose_delta_v1.yaml")
+            Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
         )
         self.executor = self
         self.ledger = SimpleNamespace(time_us=0)
@@ -50,7 +50,7 @@ def observe(snapshot):
 
 
 def test_evaluation_executes_closed_loop_until_task_success(monkeypatch):
-    from latency_meta_mdp import policy_evaluation as evaluation
+    from latency_meta_mdp.runtime import policy_evaluation as evaluation
 
     monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
     runtime = Runtime(succeed_at=60)
@@ -65,7 +65,7 @@ def test_evaluation_executes_closed_loop_until_task_success(monkeypatch):
         runtime=runtime,
         policy=policy,
         client_config=load_action_chunk_client_config(
-            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+            Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
         ),
         delay_sampler=lambda: 4,
         maximum_steps=100,
@@ -80,7 +80,7 @@ def test_evaluation_executes_closed_loop_until_task_success(monkeypatch):
 
 
 def test_evaluation_time_limit_is_not_success(monkeypatch):
-    from latency_meta_mdp import policy_evaluation as evaluation
+    from latency_meta_mdp.runtime import policy_evaluation as evaluation
 
     monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
     runtime = Runtime()
@@ -88,7 +88,7 @@ def test_evaluation_time_limit_is_not_success(monkeypatch):
         runtime=runtime,
         policy=lambda observation, belief: np.zeros((50, 7)),
         client_config=load_action_chunk_client_config(
-            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+            Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
         ),
         delay_sampler=lambda: 0,
         maximum_steps=5,
@@ -103,7 +103,7 @@ def test_evaluation_time_limit_is_not_success(monkeypatch):
 def test_declared_task_deadline_is_terminal_and_preserves_final_tick_success(
     monkeypatch, succeed_at, expected
 ):
-    from latency_meta_mdp import policy_evaluation as evaluation
+    from latency_meta_mdp.runtime import policy_evaluation as evaluation
 
     monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
     transitions = []
@@ -111,7 +111,7 @@ def test_declared_task_deadline_is_terminal_and_preserves_final_tick_success(
         runtime=Runtime(succeed_at=succeed_at),
         policy=lambda observation, belief: np.zeros((50, 7)),
         client_config=load_action_chunk_client_config(
-            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+            Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
         ),
         delay_sampler=lambda: 10,
         maximum_steps=30,
@@ -126,7 +126,7 @@ def test_declared_task_deadline_is_terminal_and_preserves_final_tick_success(
 
 
 def test_evaluation_closes_simulator_on_invalid_policy_output(monkeypatch):
-    from latency_meta_mdp import policy_evaluation as evaluation
+    from latency_meta_mdp.runtime import policy_evaluation as evaluation
 
     monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
     runtime = Runtime()
@@ -135,7 +135,7 @@ def test_evaluation_closes_simulator_on_invalid_policy_output(monkeypatch):
             runtime=runtime,
             policy=lambda observation, belief: np.zeros((49, 7)),
             client_config=load_action_chunk_client_config(
-                Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+                Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
             ),
             delay_sampler=lambda: 0,
             maximum_steps=5,
@@ -144,7 +144,7 @@ def test_evaluation_closes_simulator_on_invalid_policy_output(monkeypatch):
 
 
 def test_recording_has_both_initial_and_terminal_formal_boundaries(monkeypatch):
-    from latency_meta_mdp import policy_evaluation as evaluation
+    from latency_meta_mdp.runtime import policy_evaluation as evaluation
 
     monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
     recorded = []
@@ -152,7 +152,7 @@ def test_recording_has_both_initial_and_terminal_formal_boundaries(monkeypatch):
         runtime=Runtime(succeed_at=3),
         policy=lambda observation, belief: np.zeros((50, 7)),
         client_config=load_action_chunk_client_config(
-            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+            Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
         ),
         delay_sampler=lambda: 0,
         record_observation=lambda observation: recorded.append(observation.formal_tick),
@@ -163,7 +163,7 @@ def test_recording_has_both_initial_and_terminal_formal_boundaries(monkeypatch):
 
 
 def test_conditioned_episode_uses_native_bootstrap_and_actual_buffer(monkeypatch):
-    from latency_meta_mdp import policy_evaluation as evaluation
+    from latency_meta_mdp.runtime import policy_evaluation as evaluation
 
     monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
     observed, queried, native = [], [], []
@@ -191,7 +191,7 @@ def test_conditioned_episode_uses_native_bootstrap_and_actual_buffer(monkeypatch
         bootstrap_policy=bootstrap,
         belief_provider_factory=lambda runtime, snapshot: Belief(),
         client_config=load_action_chunk_client_config(
-            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+            Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
         ),
         delay_sampler=lambda: 4,
     )
@@ -201,9 +201,9 @@ def test_conditioned_episode_uses_native_bootstrap_and_actual_buffer(monkeypatch
 
 
 def test_forecast_evaluation_records_real_history_and_request_context(monkeypatch):
-    from latency_meta_mdp import policy_evaluation as evaluation
-    from latency_meta_mdp.policy_forecast import DecodedForecast
-    from latency_meta_mdp.rtc_protocol import load_rtc_client_config
+    from latency_meta_mdp.data.forecast.samples import DecodedForecast
+    from latency_meta_mdp.runtime import policy_evaluation as evaluation
+    from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
     monkeypatch.setattr(evaluation, "policy_observation_from_snapshot", observe)
     runtime = Runtime(succeed_at=70)
@@ -222,8 +222,12 @@ def test_forecast_evaluation_records_real_history_and_request_context(monkeypatc
             assert self.ticks[-1] == context.origin_tick
             self.queries.append(context.origin_tick)
             return DecodedForecast(
-                context.origin_tick, context.origin_tick + context.estimated_delay_ticks,
-                context.estimated_delay_ticks, context.buffer_version, None, None,
+                context.origin_tick,
+                context.origin_tick + context.estimated_delay_ticks,
+                context.estimated_delay_ticks,
+                context.buffer_version,
+                None,
+                None,
             )
 
     provider = Provider()
@@ -233,11 +237,16 @@ def test_forecast_evaluation_records_real_history_and_request_context(monkeypatc
         return {"actions": np.zeros((50, 7))}
 
     result = evaluation.run_native_policy_episode(
-        runtime=runtime, policy=policy,
+        runtime=runtime,
+        policy=policy,
         bootstrap_policy=lambda observation: {"actions": np.zeros((50, 7))},
         forecast_provider=provider,
-        client_config=load_rtc_client_config(Path("configs/client/rtc_observation_time_h50_v1.yaml")),
-        delay_sampler=lambda: 4, maximum_steps=100, policy_alignment="observation_time",
+        client_config=load_rtc_client_config(
+            Path("configs/runtime/client/rtc_observation_time_h50_v1.yaml")
+        ),
+        delay_sampler=lambda: 4,
+        maximum_steps=100,
+        policy_alignment="observation_time",
     )
     assert result["success"] and runtime.closed
     assert result["forecast_calls"] == len(provider.queries) > 0
@@ -245,7 +254,7 @@ def test_forecast_evaluation_records_real_history_and_request_context(monkeypatc
 
 
 def test_rtc_native_bridge_can_bootstrap_with_one_observation():
-    from latency_meta_mdp.policy_execution import InProcessRtcOpenpiPolicy
+    from latency_meta_mdp.runtime.policy_execution import InProcessRtcOpenpiPolicy
 
     bridge = InProcessRtcOpenpiPolicy.__new__(InProcessRtcOpenpiPolicy)
     bridge.uses_forecast = False

@@ -5,22 +5,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 def _corpus_and_config():
-    from latency_meta_mdp.belief.common.feature_corpus import (
+    from latency_meta_mdp.legacy.belief.common.feature_corpus import (
         load_level_feature_belief_corpus,
     )
-    from latency_meta_mdp.belief.flow.config import load_flow_belief_config
+    from latency_meta_mdp.legacy.belief.flow.config import load_flow_belief_config
 
-    source = Path(
-        "outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json")
     cache = Path(
-        "outputs/derived/vision_features/"
-        "dinov3-vits16-first-tranche-54b9562/manifest.json"
+        "outputs/derived/vision_features/dinov3-vits16-first-tranche-54b9562/manifest.json"
     )
     if not source.is_file() or not cache.is_file():
         pytest.skip("Flow Belief dataset requires the local first tranche")
@@ -29,20 +26,18 @@ def _corpus_and_config():
         source_bulk_manifest=source,
         cache_run_manifest=cache,
         expected_spec=load_vision_encoder_spec(
-            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+            Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
         ),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
         level=1,
     )
-    config = load_flow_belief_config(
-        Path("configs/belief/dinov3_flow_belief_v1.yaml")
-    )
+    config = load_flow_belief_config(Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"))
     return corpus, config
 
 
 def test_flow_training_dataset_owns_deterministic_epoch_noise_and_time() -> None:
-    from latency_meta_mdp.belief.flow.training_data import (
+    from latency_meta_mdp.legacy.belief.flow.training_data import (
         FlowBeliefDataset,
         build_flow_belief_normalization,
     )
@@ -71,11 +66,11 @@ def test_flow_training_dataset_owns_deterministic_epoch_noise_and_time() -> None
     assert not np.array_equal(first.noise, next_epoch.noise)
     assert not np.array_equal(first.flow_time, next_epoch.flow_time)
     assert not hasattr(first, "realized_delay_tick")
-    assert first.__class__.__module__ == "latency_meta_mdp.belief.flow.training_data"
+    assert first.__class__.__module__ == "latency_meta_mdp.legacy.belief.flow.training_data"
 
 
 def test_flow_validation_dataset_enumerates_twenty_delays_with_fixed_draws() -> None:
-    from latency_meta_mdp.belief.flow.training_data import (
+    from latency_meta_mdp.legacy.belief.flow.training_data import (
         FlowBeliefDataset,
         build_flow_belief_normalization,
     )
@@ -103,22 +98,18 @@ def test_flow_validation_dataset_enumerates_twenty_delays_with_fixed_draws() -> 
 
 
 def test_formal_flow_dataset_uses_explicit_180_20_split() -> None:
-    from latency_meta_mdp.belief.common.feature_corpus import (
+    from latency_meta_mdp.legacy.belief.common.feature_corpus import (
         load_level_feature_belief_corpus,
     )
-    from latency_meta_mdp.belief.flow.config import load_flow_belief_config
-    from latency_meta_mdp.belief.flow.training_data import (
+    from latency_meta_mdp.legacy.belief.flow.config import load_flow_belief_config
+    from latency_meta_mdp.legacy.belief.flow.training_data import (
         FlowBeliefDataset,
         build_flow_belief_normalization,
     )
 
-    source = Path(
-        "outputs/bulk/expert/"
-        "panda-ball-formal-train-1000-1199-7571a4c/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json")
     cache = Path(
-        "outputs/derived/vision_features/"
-        "dinov3-vits16-formal-1000-1199-408dbe3/manifest.json"
+        "outputs/derived/vision_features/dinov3-vits16-formal-1000-1199-408dbe3/manifest.json"
     )
     if not source.is_file() or not cache.is_file():
         pytest.skip("formal Flow dataset requires local artifacts")
@@ -127,16 +118,14 @@ def test_formal_flow_dataset_uses_explicit_180_20_split() -> None:
         source_bulk_manifest=source,
         cache_run_manifest=cache,
         expected_spec=load_vision_encoder_spec(
-            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+            Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
         ),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
-        split_plan_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        split_plan_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
         level=1,
     )
-    config = load_flow_belief_config(
-        Path("configs/belief/dinov3_flow_belief_v1.yaml")
-    )
+    config = load_flow_belief_config(Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"))
 
     assert corpus.episode_counts == {
         ProbeSplit.TRAIN: 180,

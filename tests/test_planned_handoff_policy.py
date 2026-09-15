@@ -5,13 +5,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.policy_execution import (
+from latency_meta_mdp.data.forecast.samples import DecodedForecast
+from latency_meta_mdp.runtime.policy_execution import (
     LogicalPolicyRuntime,
     PhysicalStepResult,
     PolicyObservation,
 )
-from latency_meta_mdp.policy_forecast import DecodedForecast
-from latency_meta_mdp.rtc_protocol import RtcInferenceContext, load_rtc_client_config
+from latency_meta_mdp.runtime.rtc_protocol import RtcInferenceContext, load_rtc_client_config
 
 
 def actions(base):
@@ -56,7 +56,7 @@ class Native:
 
 @pytest.mark.parametrize("q", [0, 4, 8, 20])
 def test_future_observation_and_guidance_share_future_origin(q):
-    from latency_meta_mdp.planned_handoff_policy import PlannedHandoffPolicy
+    from latency_meta_mdp.runtime.planned_handoff_policy import PlannedHandoffPolicy
 
     c = context(q)
     native = Native()
@@ -79,7 +79,7 @@ def test_future_observation_and_guidance_share_future_origin(q):
 
 @pytest.mark.parametrize("mode,available", [("current", True), ("forecast", False)])
 def test_current_control_and_missing_forecast_keep_source_time_suffix(mode, available):
-    from latency_meta_mdp.planned_handoff_policy import PlannedHandoffPolicy
+    from latency_meta_mdp.runtime.planned_handoff_policy import PlannedHandoffPolicy
 
     c = context(8, available=available)
     if mode == "current":
@@ -95,7 +95,7 @@ def test_current_control_and_missing_forecast_keep_source_time_suffix(mode, avai
 
 
 def test_bootstrap_remains_native_and_invalid_context_never_calls_policy():
-    from latency_meta_mdp.planned_handoff_policy import PlannedHandoffPolicy
+    from latency_meta_mdp.runtime.planned_handoff_policy import PlannedHandoffPolicy
 
     native = Native()
     policy = PlannedHandoffPolicy(native, mode="forecast")
@@ -112,7 +112,7 @@ def test_bootstrap_remains_native_and_invalid_context_never_calls_policy():
 
 
 def test_no_overlap_after_handoff_uses_native_sampling_without_fake_guidance():
-    from latency_meta_mdp.planned_handoff_policy import PlannedHandoffPolicy
+    from latency_meta_mdp.runtime.planned_handoff_policy import PlannedHandoffPolicy
 
     c = replace(context(20), previous_action_mask=np.arange(50) < 20)
     native = Native()
@@ -125,8 +125,8 @@ def test_no_overlap_after_handoff_uses_native_sampling_without_fake_guidance():
 
 @pytest.mark.parametrize("delay", [0, 4, 8, 12, 20])
 def test_real_client_preserves_prefix_until_handoff_and_skips_only_late_future_actions(delay):
-    from latency_meta_mdp.control import load_action_contract
-    from latency_meta_mdp.planned_handoff_policy import PlannedHandoffPolicy
+    from latency_meta_mdp.envs.control import load_action_contract
+    from latency_meta_mdp.runtime.planned_handoff_policy import PlannedHandoffPolicy
 
     class Provider:
         def observe(self, obs, previous):
@@ -138,9 +138,11 @@ def test_real_client_preserves_prefix_until_handoff_and_skips_only_late_future_a
     ticks = [0]
     native = Native()
     engine = LogicalPolicyRuntime(
-        action_contract=load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml")),
+        action_contract=load_action_contract(
+            Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+        ),
         client_config=replace(
-            load_rtc_client_config(Path("configs/client/rtc_observation_time_h50_v1.yaml")),
+            load_rtc_client_config(Path("configs/runtime/client/rtc_observation_time_h50_v1.yaml")),
             initial_delay_ticks=(8,),
         ),
         simulation_time_reader=lambda: ticks[0] * 20000,

@@ -9,7 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image
 
-from latency_meta_mdp.expert_realization.source_corpus.loader import VerifiedSourceCorpus
+from latency_meta_mdp.data.source.loader import VerifiedSourceCorpus
 
 
 def _source(tmp_path: Path) -> VerifiedSourceCorpus:
@@ -52,7 +52,7 @@ def _source(tmp_path: Path) -> VerifiedSourceCorpus:
 
 
 def test_structured_policy_reader_preserves_final_sources_and_proprio(tmp_path):
-    from latency_meta_mdp.policy_data import load_structured_policy_episode
+    from latency_meta_mdp.data.policy import load_structured_policy_episode
 
     episode = load_structured_policy_episode(_source(tmp_path), episode_id="test-L1")
     assert episode.state.shape == (3, 16)
@@ -66,7 +66,7 @@ def test_structured_policy_reader_preserves_final_sources_and_proprio(tmp_path):
 
 
 def test_final_action_target_uses_explicit_loss_mask(tmp_path):
-    from latency_meta_mdp.policy_data import (
+    from latency_meta_mdp.data.policy import (
         load_structured_policy_episode,
         materialize_policy_action_target,
     )
@@ -85,8 +85,8 @@ def test_structured_export_uses_only_train_episode_ids(tmp_path, monkeypatch):
 
     from test_lerobot_conversion import _FakeDatasetFactory
 
-    from latency_meta_mdp import policy_dataset_run as run
-    from latency_meta_mdp.expert_realization.source_corpus import loader, split_view
+    from latency_meta_mdp.data import policy_export as run
+    from latency_meta_mdp.data.source import loader, split_view
 
     source = _source(tmp_path)
     source.manifest.schema_version = 3
@@ -105,7 +105,7 @@ def test_structured_export_uses_only_train_episode_ids(tmp_path, monkeypatch):
     manifest_path = run.convert_structured_source_to_lerobot(
         source_root=tmp_path,
         split_manifest=split_path,
-        profile_path=Path("configs/policy/pi05_structured_state16_h50_v1.yaml"),
+        profile_path=Path("configs/contracts/policy/pi05_state16_h50.yaml"),
         output_dir=tmp_path / "exported",
         levels=(1,),
         dataset_factory=_FakeDatasetFactory(),

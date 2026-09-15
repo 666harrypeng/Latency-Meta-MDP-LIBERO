@@ -6,16 +6,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
-from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.policy_data import (
+from latency_meta_mdp.data.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.data.policy import (
     ACTION_DIM,
     ACTION_HORIZON,
     POLICY_STATE_DIM,
     load_policy_episode,
     rotation_matrix_to_rotvec,
 )
-from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.io.episode_artifacts import write_synchronized_episode_artifact
 
 
 def _rotation_z(angle: float) -> np.ndarray:

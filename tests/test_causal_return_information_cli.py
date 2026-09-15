@@ -1,16 +1,16 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from latency_meta_mdp.belief.causal_return.information_run import (
+from latency_meta_mdp.legacy.belief.causal_return.information_run import (
     limit_information_state_corpus,
 )
-from latency_meta_mdp.cli.evaluate_causal_return_information_state import (
+from latency_meta_mdp.legacy.cli.evaluate_causal_return_information_state import (
     build_parser as build_evaluation_parser,
 )
-from latency_meta_mdp.cli.train_causal_return_information_state import (
+from latency_meta_mdp.legacy.cli.train_causal_return_information_state import (
     build_parser as build_training_parser,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 @dataclass(frozen=True)
@@ -32,10 +32,10 @@ def test_training_cli_uses_semantic_defaults_and_all_levels() -> None:
 
     assert args.levels == (1, 2, 3)
     assert args.information_config == Path(
-        "configs/belief/causal_return/information_state.yaml"
+        "configs/legacy/belief/causal_return/information_state.yaml"
     )
-    assert args.temporal_config == Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
-    assert args.split_config == Path("configs/data/formal_belief_train_val_v1.yaml")
+    assert args.temporal_config == Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml")
+    assert args.split_config == Path("configs/legacy/data/formal_belief_train_val_v1.yaml")
     assert args.max_epochs is None
     assert args.training_context_limit is None
     assert args.validation_context_limit is None

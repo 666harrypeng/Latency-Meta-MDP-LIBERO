@@ -8,25 +8,23 @@ import numpy as np
 import pytest
 import torch
 
-from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+from latency_meta_mdp.belief.jepa.config import (
     load_action_conditioned_jepa_config,
 )
-from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
-from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+from latency_meta_mdp.belief.jepa.contracts import LaunchContextBatch
+from latency_meta_mdp.belief.jepa.corpus import (
     JepaProprioNormalization,
 )
-from latency_meta_mdp.belief.action_conditioned_jepa.upstream_adapter import (
+from latency_meta_mdp.belief.jepa.upstream_adapter import (
     load_upstream_primitives,
 )
 
 
 def _config():
     return load_action_conditioned_jepa_config(
-        model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
-        level_path=Path("configs/belief/action_conditioned_jepa/l3.yaml"),
-        temporal_sampling_path=Path(
-            "configs/belief/action_conditioned_jepa/dense_20ms_history_100ms.yaml"
-        ),
+        model_path=Path("configs/models/jepa/model.yaml"),
+        level_path=Path("configs/models/jepa/l3.yaml"),
+        temporal_sampling_path=Path("configs/models/jepa/dense_20ms_history_100ms.yaml"),
     )
 
 
@@ -45,11 +43,7 @@ def _normalization() -> JepaProprioNormalization:
 
 
 def _context(*, device: str = "cpu") -> LaunchContextBatch:
-    controls = (
-        torch.linspace(-0.5, 0.5, 20, device=device)
-        .view(1, 20, 1, 1)
-        .repeat(1, 1, 1, 7)
-    )
+    controls = torch.linspace(-0.5, 0.5, 20, device=device).view(1, 20, 1, 1).repeat(1, 1, 1, 7)
     return LaunchContextBatch(
         vision_history=torch.zeros(1, 6, 2, 196, 384, dtype=torch.float16, device=device),
         proprio_history=torch.zeros(1, 6, 16, dtype=torch.float32, device=device),
@@ -66,7 +60,7 @@ def _primitives():
 
 
 def test_dual_view_coordinates_keep_all_patches_and_one_proprio_token() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         build_spatiotemporal_coordinates,
     )
 
@@ -84,7 +78,7 @@ def test_dual_view_coordinates_keep_all_patches_and_one_proprio_token() -> None:
 
 
 def test_block_causal_mask_allows_same_and_past_times_only() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         build_temporal_block_causal_mask,
     )
 
@@ -101,11 +95,11 @@ def test_block_causal_mask_allows_same_and_past_times_only() -> None:
 
 
 def test_dual_view_block_matches_upstream_for_single_regular_grid() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         build_spatiotemporal_coordinates,
         build_temporal_block_causal_mask,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.upstream_adapter import (
+    from latency_meta_mdp.belief.jepa.upstream_adapter import (
         adapt_upstream_block_for_coordinates,
         build_dual_view_upstream_types,
     )
@@ -175,7 +169,7 @@ def test_dual_view_block_matches_upstream_for_single_regular_grid() -> None:
 
 
 def test_full_model_token_topology_has_no_additive_time_or_space() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         ActionConditionedJepaPredictor,
     )
 
@@ -199,7 +193,7 @@ def test_full_model_token_topology_has_no_additive_time_or_space() -> None:
 
 
 def test_ar20_rollout_cannot_read_unexecuted_control_suffix(monkeypatch) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         ActionConditionedJepaPredictor,
     )
 
@@ -262,7 +256,7 @@ def test_ar20_rollout_cannot_read_unexecuted_control_suffix(monkeypatch) -> None
 @pytest.mark.integration
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA for exact K6 model smoke")
 def test_exact_predictor_cuda_forward_gradient_and_ar20() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         ActionConditionedJepaPredictor,
     )
 
@@ -303,7 +297,7 @@ def test_exact_predictor_cuda_forward_gradient_and_ar20() -> None:
 def test_complete_single_view_predictor_matches_upstream() -> None:
     from functools import partial
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         ActionConditionedJepaPredictor,
     )
 
@@ -373,16 +367,14 @@ def test_complete_single_view_predictor_matches_upstream() -> None:
 def test_stride4_predictor_uses_one_shared_model_path_and_macro_action_width() -> None:
     """Catches a separate coarse predictor or an action encoder that sees only one micro-control."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         ActionConditionedJepaPredictor,
     )
 
     config = load_action_conditioned_jepa_config(
-        model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
-        level_path=Path("configs/belief/action_conditioned_jepa/l3.yaml"),
-        temporal_sampling_path=Path(
-            "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml"
-        ),
+        model_path=Path("configs/models/jepa/model.yaml"),
+        level_path=Path("configs/models/jepa/l3.yaml"),
+        temporal_sampling_path=Path("configs/models/jepa/stride4_80ms_history_160ms.yaml"),
     )
     model = ActionConditionedJepaPredictor(
         config=config,
@@ -400,20 +392,18 @@ def test_stride4_predictor_uses_one_shared_model_path_and_macro_action_width() -
 def test_macro_rollout_cannot_read_later_control_blocks(monkeypatch) -> None:
     """Catches a native anchor depending on controls after its physical-time endpoint."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_action_conditioned_jepa_config,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
-    from latency_meta_mdp.belief.action_conditioned_jepa.rollout import (
+    from latency_meta_mdp.belief.jepa.backbone import (
         ActionConditionedJepaPredictor,
     )
+    from latency_meta_mdp.belief.jepa.config import (
+        load_action_conditioned_jepa_config,
+    )
+    from latency_meta_mdp.belief.jepa.contracts import LaunchContextBatch
 
     config = load_action_conditioned_jepa_config(
-        model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
-        level_path=Path("configs/belief/action_conditioned_jepa/l3.yaml"),
-        temporal_sampling_path=Path(
-            "configs/belief/action_conditioned_jepa/stride2_40ms_history_120ms.yaml"
-        ),
+        model_path=Path("configs/models/jepa/model.yaml"),
+        level_path=Path("configs/models/jepa/l3.yaml"),
+        temporal_sampling_path=Path("configs/models/jepa/stride2_40ms_history_120ms.yaml"),
     )
     model = ActionConditionedJepaPredictor(
         config=config,

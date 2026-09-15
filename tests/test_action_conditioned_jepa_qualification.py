@@ -31,12 +31,12 @@ class _CountingRollout(_FixedProprioRollout):
 def test_stride4_qualification_reuses_one_rollout_for_j2_and_j3(tmp_path: Path) -> None:
     """Catches running the AR5 predictor independently for each qualification metric."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
-        ObjectStateNormalization,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.qualification import (
+    from latency_meta_mdp.belief.jepa.ar.qualification import (
         evaluate_stride4_qualification_batch,
         summarize_stride4_qualification,
+    )
+    from latency_meta_mdp.belief.jepa.diagnostics.readout import (
+        ObjectStateNormalization,
     )
 
     target = _constant_velocity_target()
@@ -72,11 +72,11 @@ def test_stride4_qualification_reuses_one_rollout_for_j2_and_j3(tmp_path: Path) 
 def test_j5_changes_only_mixture_weights_on_one_fixed_stride4_rollout() -> None:
     """Catches recomputing futures or losing D20 probability mass between latency laws."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.qualification import (
+    from latency_meta_mdp.belief.jepa.ar.qualification import (
         evaluate_latency_mixture_invariants,
+    )
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
     )
 
     target = _constant_velocity_target()
@@ -90,7 +90,7 @@ def test_j5_changes_only_mixture_weights_on_one_fixed_stride4_rollout() -> None:
         rollout=rollout,
         probabilities_by_law=laws,
         sampling=load_jepa_temporal_sampling(
-            Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+            Path("configs/models/jepa/stride4_80ms_history_160ms.yaml")
         ),
     )
 
@@ -106,7 +106,7 @@ def test_metric_aggregation_balances_contexts_then_episodes_then_masters(
 ) -> None:
     """Catches long episodes or four realizations receiving extra statistical weight."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.qualification import (
+    from latency_meta_mdp.belief.jepa.ar.qualification import (
         aggregate_metric_by_master,
     )
 

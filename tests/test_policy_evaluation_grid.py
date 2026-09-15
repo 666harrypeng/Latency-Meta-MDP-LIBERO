@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.cli.evaluate_policy import evaluation_jobs
+from latency_meta_mdp.runtime.evaluate import evaluation_jobs
 
 
 def test_fixed_grid_keeps_cases_and_conditioning_but_separates_realized_delay():

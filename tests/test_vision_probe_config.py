@@ -4,10 +4,10 @@ from pathlib import Path
 
 
 def test_temporal_state_probe_config_is_lightweight_and_k6() -> None:
-    from latency_meta_mdp.vision_probe_config import load_vision_probe_config
+    from latency_meta_mdp.legacy.vision_probe_config import load_vision_probe_config
 
     config = load_vision_probe_config(
-        Path("configs/analysis/dinov3_temporal_state_probe_v1.yaml")
+        Path("configs/legacy/analysis/dinov3_temporal_state_probe_v1.yaml")
     )
 
     assert config.probe_id == "dinov3_temporal_state_probe_v1"

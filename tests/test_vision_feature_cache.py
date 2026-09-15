@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
+from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+from latency_meta_mdp.io.artifacts import sha256_file
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class _RuntimeInfo:
 class _DeterministicEncoder:
     def __init__(self, *, fail_on_call: int | None = None) -> None:
         self.spec = load_vision_encoder_spec(
-            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+            Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
         )
         self.runtime_info = _RuntimeInfo()
         self.fail_on_call = fail_on_call
@@ -62,7 +62,7 @@ def _episode(boundary_count: int = 3):
 
 
 def test_episode_cache_preserves_boundary_and_camera_order(tmp_path: Path) -> None:
-    from latency_meta_mdp.vision_feature_cache import (
+    from latency_meta_mdp.data.vision.cache import (
         load_episode_vision_feature_cache,
         write_episode_vision_feature_cache,
     )
@@ -111,7 +111,7 @@ def test_episode_cache_preserves_boundary_and_camera_order(tmp_path: Path) -> No
 
 
 def test_episode_cache_is_no_overwrite(tmp_path: Path) -> None:
-    from latency_meta_mdp.vision_feature_cache import write_episode_vision_feature_cache
+    from latency_meta_mdp.data.vision.cache import write_episode_vision_feature_cache
 
     output = tmp_path / "cache"
     encoder = _DeterministicEncoder()
@@ -136,7 +136,7 @@ def test_episode_cache_is_no_overwrite(tmp_path: Path) -> None:
 
 
 def test_episode_cache_failure_leaves_no_partial_output(tmp_path: Path) -> None:
-    from latency_meta_mdp.vision_feature_cache import write_episode_vision_feature_cache
+    from latency_meta_mdp.data.vision.cache import write_episode_vision_feature_cache
 
     output = tmp_path / "cache"
 
@@ -155,7 +155,7 @@ def test_episode_cache_failure_leaves_no_partial_output(tmp_path: Path) -> None:
 
 
 def test_episode_cache_loader_rejects_wrong_encoder(tmp_path: Path) -> None:
-    from latency_meta_mdp.vision_feature_cache import (
+    from latency_meta_mdp.data.vision.cache import (
         load_episode_vision_feature_cache,
         write_episode_vision_feature_cache,
     )
@@ -170,14 +170,16 @@ def test_episode_cache_loader_rejects_wrong_encoder(tmp_path: Path) -> None:
         output_dir=output,
         boundary_batch_size=2,
     )
-    wrong = load_vision_encoder_spec(Path("configs/vision/dinov2_vits14_lvd142m_196_v1.yaml"))
+    wrong = load_vision_encoder_spec(
+        Path("configs/models/vision/dinov2_vits14_lvd142m_196_v1.yaml")
+    )
 
     with pytest.raises(ValueError, match="encoder fingerprint"):
         load_episode_vision_feature_cache(output, expected_spec=wrong)
 
 
 def test_metadata_validation_skips_payload_hash_but_rejects_truncation(tmp_path, monkeypatch):
-    import latency_meta_mdp.vision_feature_cache as cache_module
+    import latency_meta_mdp.data.vision.cache as cache_module
 
     output = tmp_path / "cache"
     cache_module.write_episode_vision_feature_cache(

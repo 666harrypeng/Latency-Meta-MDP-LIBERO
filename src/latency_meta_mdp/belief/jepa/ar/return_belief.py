@@ -1,0 +1,297 @@
+"""Pure latency-mixture assembly and lossless Return Latent Belief artifacts."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import torch
+from safetensors.torch import load as load_safetensors
+from safetensors.torch import save as save_safetensors
+
+from latency_meta_mdp.belief.jepa.config import JepaTemporalSampling
+from latency_meta_mdp.belief.jepa.contracts import (
+    FutureLatentRollout,
+    ReturnLatentBeliefBatch,
+)
+from latency_meta_mdp.data.collection.artifacts import (
+    _fsync_directory,
+    _hash_file,
+    _rename_noreplace,
+    _write_file_fsynced,
+)
+
+_FORMAT_ID = "action_conditioned_jepa_return_latent_belief_v1"
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_MANIFEST_FIELDS = {
+    "schema_version",
+    "format_id",
+    "latency_law_sha256",
+    "batch_size",
+    "delay_count",
+    "visual_shape",
+    "proprio_shape",
+    "artifacts",
+}
+
+
+def upper_tie_nearest_anchor_indices(
+    *,
+    dense_delay_ticks: torch.Tensor,
+    native_delay_ticks: torch.Tensor,
+) -> torch.Tensor:
+    """Map each dense delay to its nearest native anchor, choosing the upper tie."""
+
+    if (
+        not isinstance(dense_delay_ticks, torch.Tensor)
+        or not isinstance(native_delay_ticks, torch.Tensor)
+        or dense_delay_ticks.ndim != 1
+        or native_delay_ticks.ndim != 1
+        or dense_delay_ticks.dtype != torch.int64
+        or native_delay_ticks.dtype != torch.int64
+        or dense_delay_ticks.numel() == 0
+        or native_delay_ticks.numel() == 0
+        or dense_delay_ticks.device != native_delay_ticks.device
+        or not bool(torch.all(dense_delay_ticks[1:] > dense_delay_ticks[:-1]))
+        or not bool(torch.all(native_delay_ticks[1:] > native_delay_ticks[:-1]))
+    ):
+        raise ValueError("delay grids must be non-empty increasing int64 tensors on one device")
+    distances = torch.abs(dense_delay_ticks[:, None] - native_delay_ticks[None, :])
+    reverse_assignment = torch.argmin(torch.flip(distances, dims=(1,)), dim=1)
+    return native_delay_ticks.numel() - 1 - reverse_assignment
+
+
+def quantize_d20_probabilities(
+    *,
+    probabilities: torch.Tensor,
+    sampling: JepaTemporalSampling,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Aggregate an authoritative D20 PMF onto model-native anchors without dropping mass."""
+
+    if not isinstance(probabilities, torch.Tensor):
+        raise TypeError("probabilities must be a torch.Tensor")
+    if not isinstance(sampling, JepaTemporalSampling):
+        raise TypeError("sampling must be a JepaTemporalSampling")
+    if probabilities.ndim != 2 or probabilities.shape[1] != sampling.maximum_delay_ticks:
+        raise ValueError("probabilities must have shape [B,20]")
+    if probabilities.dtype != torch.float32:
+        raise ValueError("probabilities must use float32")
+    valid = (
+        probabilities.shape[0] > 0
+        and bool(torch.isfinite(probabilities).all())
+        and bool((probabilities >= 0).all())
+        and bool(
+            torch.allclose(
+                probabilities.sum(dim=1),
+                torch.ones(
+                    probabilities.shape[0],
+                    dtype=torch.float32,
+                    device=probabilities.device,
+                ),
+                atol=1e-6,
+                rtol=0.0,
+            )
+        )
+    )
+    if not valid:
+        raise ValueError("probabilities must be finite, nonnegative, and sum to one")
+
+    anchors = torch.tensor(
+        sampling.native_future_offsets,
+        dtype=torch.int64,
+        device=probabilities.device,
+    )
+    if sampling.model_stride_ticks == 1:
+        return anchors, probabilities
+    delays = torch.arange(
+        1,
+        sampling.maximum_delay_ticks + 1,
+        dtype=torch.int64,
+        device=probabilities.device,
+    )
+    assignment = upper_tie_nearest_anchor_indices(
+        dense_delay_ticks=delays,
+        native_delay_ticks=anchors,
+    )
+    macro = torch.zeros(
+        probabilities.shape[0],
+        anchors.numel(),
+        dtype=torch.float32,
+        device=probabilities.device,
+    )
+    macro.scatter_add_(1, assignment[None].expand(probabilities.shape[0], -1), probabilities)
+    return anchors, macro
+
+
+def _require_sha256(value: str, *, name: str) -> str:
+    if type(value) is not str or _SHA256.fullmatch(value) is None:
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+    return value
+
+
+def assemble_return_latent_belief(
+    rollout: FutureLatentRollout,
+    probabilities: torch.Tensor,
+    *,
+    sampling: JepaTemporalSampling,
+) -> ReturnLatentBeliefBatch:
+    """Attach a quantized D20 PMF without recomputing or copying native futures."""
+
+    if not isinstance(rollout, FutureLatentRollout):
+        raise TypeError("rollout must be a FutureLatentRollout")
+    if not isinstance(probabilities, torch.Tensor):
+        raise TypeError("probabilities must be a torch.Tensor")
+    delay_ticks, macro_probabilities = quantize_d20_probabilities(
+        probabilities=probabilities,
+        sampling=sampling,
+    )
+    if not torch.equal(delay_ticks, rollout.native_delay_ticks):
+        raise ValueError("rollout native delays disagree with temporal sampling")
+    return ReturnLatentBeliefBatch(
+        delay_ticks=delay_ticks,
+        delay_probabilities=macro_probabilities,
+        future_visual_latents=rollout.future_visual_latents,
+        future_proprio=rollout.future_proprio,
+    )
+
+
+def weighted_future_proprio(belief: ReturnLatentBeliefBatch) -> torch.Tensor:
+    if not isinstance(belief, ReturnLatentBeliefBatch):
+        raise TypeError("belief must be a ReturnLatentBeliefBatch")
+    return torch.sum(
+        belief.delay_probabilities[..., None] * belief.future_proprio,
+        dim=1,
+    )
+
+
+def weighted_future_visual_latents(belief: ReturnLatentBeliefBatch) -> torch.Tensor:
+    if not isinstance(belief, ReturnLatentBeliefBatch):
+        raise TypeError("belief must be a ReturnLatentBeliefBatch")
+    return torch.sum(
+        belief.delay_probabilities[..., None, None, None] * belief.future_visual_latents,
+        dim=1,
+    )
+
+
+@dataclass(frozen=True)
+class LoadedReturnLatentBelief:
+    belief: ReturnLatentBeliefBatch
+    latency_law_sha256: str
+    manifest: dict[str, Any]
+
+
+def write_return_latent_belief(
+    output_dir: Path,
+    belief: ReturnLatentBeliefBatch,
+    *,
+    latency_law_sha256: str,
+) -> Path:
+    """Publish one no-overwrite, consumer-independent Belief artifact."""
+
+    if not isinstance(belief, ReturnLatentBeliefBatch):
+        raise TypeError("belief must be a ReturnLatentBeliefBatch")
+    law_sha = _require_sha256(latency_law_sha256, name="latency_law_sha256")
+    target = Path(output_dir).absolute()
+    if target.exists():
+        raise FileExistsError(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    building = target.parent / f".{target.name}.building-{os.getpid()}-{uuid.uuid4().hex}"
+    building.mkdir()
+    try:
+        tensor_payload = save_safetensors(
+            {
+                "delay_ticks": belief.delay_ticks.detach().cpu().contiguous(),
+                "delay_probabilities": belief.delay_probabilities.detach().cpu().contiguous(),
+                "future_visual_latents": belief.future_visual_latents.detach().cpu().contiguous(),
+                "future_proprio": belief.future_proprio.detach().cpu().contiguous(),
+            }
+        )
+        tensor_path = building / "belief.safetensors"
+        _write_file_fsynced(tensor_path, tensor_payload)
+        manifest = {
+            "schema_version": 1,
+            "format_id": _FORMAT_ID,
+            "latency_law_sha256": law_sha,
+            "batch_size": belief.batch_size,
+            "delay_count": belief.native_delay_count,
+            "visual_shape": list(belief.future_visual_latents.shape),
+            "proprio_shape": list(belief.future_proprio.shape),
+            "artifacts": {
+                "belief.safetensors": {
+                    "bytes": tensor_path.stat().st_size,
+                    "sha256": _hash_file(tensor_path),
+                }
+            },
+        }
+        payload = (json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
+        _write_file_fsynced(building / "manifest.json", payload)
+        _fsync_directory(building)
+        _rename_noreplace(building, target)
+        _fsync_directory(target.parent)
+    except BaseException:
+        shutil.rmtree(building, ignore_errors=True)
+        raise
+    return target / "manifest.json"
+
+
+def load_return_latent_belief(output_dir: Path) -> LoadedReturnLatentBelief:
+    root = Path(output_dir).resolve()
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    if (
+        type(manifest) is not dict
+        or set(manifest) != _MANIFEST_FIELDS
+        or manifest["schema_version"] != 1
+        or manifest["format_id"] != _FORMAT_ID
+    ):
+        raise ValueError("Return Latent Belief manifest fields are invalid")
+    law_sha = _require_sha256(
+        manifest["latency_law_sha256"],
+        name="latency_law_sha256",
+    )
+    artifacts = manifest["artifacts"]
+    tensor_path = root / "belief.safetensors"
+    if type(artifacts) is not dict or set(artifacts) != {"belief.safetensors"}:
+        raise ValueError("Return Latent Belief artifact inventory is invalid")
+    metadata = artifacts["belief.safetensors"]
+    if (
+        type(metadata) is not dict
+        or set(metadata) != {"bytes", "sha256"}
+        or type(metadata["bytes"]) is not int
+        or type(metadata["sha256"]) is not str
+        or not tensor_path.is_file()
+        or tensor_path.stat().st_size != metadata["bytes"]
+        or _hash_file(tensor_path) != metadata["sha256"]
+    ):
+        raise ValueError("Return Latent Belief artifact verification failed")
+    tensors = load_safetensors(tensor_path.read_bytes())
+    if set(tensors) != {
+        "delay_ticks",
+        "delay_probabilities",
+        "future_visual_latents",
+        "future_proprio",
+    }:
+        raise ValueError("Return Latent Belief tensor inventory is invalid")
+    belief = ReturnLatentBeliefBatch(
+        delay_ticks=tensors["delay_ticks"],
+        delay_probabilities=tensors["delay_probabilities"],
+        future_visual_latents=tensors["future_visual_latents"],
+        future_proprio=tensors["future_proprio"],
+    )
+    if (
+        manifest["batch_size"] != belief.batch_size
+        or manifest["delay_count"] != belief.native_delay_count
+        or manifest["visual_shape"] != list(belief.future_visual_latents.shape)
+        or manifest["proprio_shape"] != list(belief.future_proprio.shape)
+    ):
+        raise ValueError("Return Latent Belief tensor shapes disagree with manifest")
+    return LoadedReturnLatentBelief(
+        belief=belief,
+        latency_law_sha256=law_sha,
+        manifest=manifest,
+    )

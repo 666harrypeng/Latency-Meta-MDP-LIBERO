@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from latency_meta_mdp.config import RuntimeConfig, load_runtime_config
+from latency_meta_mdp.envs.config import RuntimeConfig, load_runtime_config
 
 
 class RuntimeConfigTest(unittest.TestCase):

@@ -4,14 +4,14 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.belief_data import load_belief_episode
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
-from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.latency_law import load_latency_law
-from latency_meta_mdp.recording import RecordProfile
-from latency_meta_mdp.temporal_contract import load_temporal_contract
-from latency_meta_mdp.terminal_absorbing_tail import build_terminal_absorbing_tail
+from latency_meta_mdp.data.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.io.episode_artifacts import write_synchronized_episode_artifact
+from latency_meta_mdp.legacy.belief_data import load_belief_episode
+from latency_meta_mdp.legacy.terminal_absorbing_tail import build_terminal_absorbing_tail
+from latency_meta_mdp.runtime.latency_law import load_latency_law
+from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
 
 def _tail(tmp_path: Path):
@@ -31,28 +31,24 @@ def _tail(tmp_path: Path):
     output = tmp_path / "episode"
     write_synchronized_episode_artifact(episode=complete, output_dir=output)
     episode = load_belief_episode(output)
-    contract = load_temporal_contract(
-        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
-    )
+    contract = load_temporal_contract(Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"))
     return (
         build_terminal_absorbing_tail(
             episode=episode,
             temporal_contract=contract,
             action_contract=load_action_contract(
-                Path("configs/control/panda_osc_pose_delta_v1.yaml")
+                Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
             ),
         ),
         contract,
-        load_latency_law(
-            Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml")
-        ),
+        load_latency_law(Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml")),
     )
 
 
 def test_belief_training_context_materializes_one_context_with_target_table(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.belief_training_data import (
+    from latency_meta_mdp.legacy.belief_training_data import (
         InteractionMode,
         build_belief_training_indices,
         materialize_belief_training_context,
@@ -106,7 +102,7 @@ def test_belief_training_context_materializes_one_context_with_target_table(
 def test_delay_query_sampling_is_seeded_weighted_and_target_aligned(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.belief_training_data import (
+    from latency_meta_mdp.legacy.belief_training_data import (
         build_belief_training_indices,
         materialize_belief_training_context,
         sample_delay_queries,
@@ -142,6 +138,4 @@ def test_delay_query_sampling_is_seeded_weighted_and_target_aligned(
     assert left.absorbing.shape == (4,)
     for row, delay_tick in enumerate(left.delay_ticks):
         target_index = int(delay_tick) - 1
-        np.testing.assert_array_equal(
-            left.target_states[row], context.target_states[target_index]
-        )
+        np.testing.assert_array_equal(left.target_states[row], context.target_states[target_index])

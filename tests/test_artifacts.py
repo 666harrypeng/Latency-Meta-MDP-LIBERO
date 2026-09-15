@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from latency_meta_mdp.artifacts import preflight_gate_output, publish_gate_report, sha256_file
+from latency_meta_mdp.io.artifacts import preflight_gate_output, publish_gate_report, sha256_file
 
 
 def write_g0_prerequisite(root: Path) -> dict[str, str]:
@@ -58,9 +58,7 @@ def test_publish_g1_preserves_g0_and_indexes_manifest_hash() -> None:
 
         index = json.loads((root / "artifact_index.json").read_text())
         assert index["gates"]["g0"] == g0_reference
-        assert index["gates"]["g1"]["manifest"] == (
-            "certification/g1/timing_run/manifest.json"
-        )
+        assert index["gates"]["g1"]["manifest"] == ("certification/g1/timing_run/manifest.json")
         assert index["gates"]["g1"]["sha256"] == sha256_file(manifest_path)
         manifest = json.loads(manifest_path.read_text())
         report_path = manifest_path.parent / "timing_report.json"
@@ -73,9 +71,7 @@ def test_existing_gate_is_rejected_before_new_run_directory() -> None:
         (root / "artifact_index.json").write_text(
             json.dumps(
                 {
-                    "gates": {
-                        "g1": {"manifest": "existing/manifest.json", "sha256": "0" * 64}
-                    },
+                    "gates": {"g1": {"manifest": "existing/manifest.json", "sha256": "0" * 64}},
                     "schema_version": 1,
                 }
             )
@@ -99,9 +95,7 @@ def test_preflight_rejects_existing_gate_without_creating_directories() -> None:
         (root / "artifact_index.json").write_text(
             json.dumps(
                 {
-                    "gates": {
-                        "g1": {"manifest": "existing/manifest.json", "sha256": "0" * 64}
-                    },
+                    "gates": {"g1": {"manifest": "existing/manifest.json", "sha256": "0" * 64}},
                     "schema_version": 1,
                 }
             )
@@ -118,7 +112,7 @@ def test_report_write_failure_removes_partial_directory() -> None:
         root = Path(directory)
         g0_reference = write_g0_prerequisite(root)
         with (
-            patch("latency_meta_mdp.artifacts._write_json", side_effect=OSError("disk failure")),
+            patch("latency_meta_mdp.io.artifacts._write_json", side_effect=OSError("disk failure")),
             pytest.raises(OSError, match="disk failure"),
         ):
             publish_gate_report(

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.flow.buffer_causality import BufferCausalityCandidate
-from latency_meta_mdp.belief.flow.buffer_causality_sim import (
+from latency_meta_mdp.legacy.belief.flow.buffer_causality import BufferCausalityCandidate
+from latency_meta_mdp.legacy.belief.flow.buffer_causality_sim import (
     BufferCounterfactualSimulation,
     phase_candidates_from_episode_arrays,
     recorded_return_state,
@@ -70,9 +70,7 @@ def test_replay_source_parity_checks_every_physical_field() -> None:
 
 
 def test_phase_candidates_use_real_midpoints_with_complete_buffers() -> None:
-    phases = np.asarray(
-        ["pregrasp"] * 40 + ["approach"] * 30 + ["close"] * 20 + ["lift"] * 50
-    )
+    phases = np.asarray(["pregrasp"] * 40 + ["approach"] * 30 + ["close"] * 20 + ["lift"] * 50)
 
     rows = phase_candidates_from_episode_arrays(
         episode_id="l2-seed-001180-attempt-000",

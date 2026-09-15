@@ -7,13 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.belief.conditional_return_flow.branch_artifacts import (
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_artifacts import (
     ControlBranchCorpus,
     load_verified_control_branch_corpus,
     write_control_branch_corpus,
 )
-from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_contracts import (
     BranchRollout,
     ControlContinuationSpec,
     ExecutablePrefix,

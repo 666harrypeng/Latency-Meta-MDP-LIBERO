@@ -10,13 +10,13 @@ import pytest
 
 pytest.importorskip("torch")
 
-from latency_meta_mdp.belief.flow.context_sampling import (
+from latency_meta_mdp.legacy.belief.flow.context_sampling import (
     FlowValidationContextSamples,
 )
-from latency_meta_mdp.belief.flow.rolling_samples import (
+from latency_meta_mdp.legacy.belief.flow.rolling_samples import (
     build_rolling_level_sample_bundle,
 )
-from latency_meta_mdp.belief.flow.rolling_selection import (
+from latency_meta_mdp.legacy.belief.flow.rolling_selection import (
     RollingSeedSelection,
     RollingWindowIdentity,
 )

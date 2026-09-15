@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 import torch
 
-from latency_meta_mdp.belief.causal_return.motion_aware_contracts import (
+from latency_meta_mdp.legacy.belief.causal_return.motion_aware_contracts import (
     load_motion_aware_history_config,
 )
-from latency_meta_mdp.belief.causal_return.spatiotemporal_history import (
+from latency_meta_mdp.legacy.belief.causal_return.spatiotemporal_history import (
     FactorizedSpatiotemporalBlock,
     MotionAwareHistoryEncoder,
 )
@@ -17,7 +17,7 @@ from latency_meta_mdp.belief.causal_return.spatiotemporal_history import (
 
 def _config():
     return load_motion_aware_history_config(
-        Path("configs/belief/causal_return/motion_aware_history.yaml")
+        Path("configs/legacy/belief/causal_return/motion_aware_history.yaml")
     )
 
 
@@ -112,8 +112,7 @@ def test_motion_aware_encoder_source_and_state_dict_preserve_isolation() -> None
     encoder = MotionAwareHistoryEncoder(_config())
     forbidden = ("buffer", "latency", "delay", "v2")
     assert all(
-        all(token not in name.lower() for token in forbidden)
-        for name in encoder.state_dict()
+        all(token not in name.lower() for token in forbidden) for name in encoder.state_dict()
     )
     source = Path(inspect.getfile(MotionAwareHistoryEncoder)).read_text(encoding="utf-8")
     assert "information_state" not in source

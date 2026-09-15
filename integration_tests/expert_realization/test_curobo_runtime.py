@@ -7,7 +7,7 @@ pytestmark = pytest.mark.integration
 
 def test_real_curobo_worker_runs_official_franka_fk_and_motiongen() -> None:
     """A CuRobo install that only imports must not qualify the expert runtime."""
-    from latency_meta_mdp.expert_realization.curobo_runtime import run_worker_qualification
+    from latency_meta_mdp.data.collection.curobo_runtime import run_worker_qualification
 
     qualification = run_worker_qualification()
 

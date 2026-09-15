@@ -7,9 +7,11 @@ import numpy as np
 import pytest
 from test_action_conditioned_jepa_data import _record
 
+from latency_meta_mdp.io.paths import repository_root
+
 
 def _signal_episode(tmp_path: Path):
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
+    from latency_meta_mdp.belief.jepa.diagnostics.history_signal import (
         TemporalSignalEpisode,
     )
 
@@ -38,11 +40,11 @@ def _signal_episode(tmp_path: Path):
 
 
 def _samplings():
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_jepa_temporal_sampling,
     )
 
-    root = Path("configs/belief/action_conditioned_jepa")
+    root = Path("configs/models/jepa")
     return tuple(
         load_jepa_temporal_sampling(root / name)
         for name in (
@@ -59,7 +61,7 @@ def test_temporal_signal_audit_uses_shared_contexts_and_native_physical_time(
 ) -> None:
     """Catches comparing candidates on different launch contexts or wrong stride endpoints."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
+    from latency_meta_mdp.belief.jepa.diagnostics.history_signal import (
         summarize_temporal_signals,
     )
 
@@ -96,7 +98,7 @@ def test_temporal_signal_audit_uses_shared_contexts_and_native_physical_time(
 def test_temporal_signal_audit_reports_absorption_and_event_aliasing(tmp_path: Path) -> None:
     """Catches accepting a coarse stride without exposing terminal/contact crossings."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
+    from latency_meta_mdp.belief.jepa.diagnostics.history_signal import (
         summarize_temporal_signals,
     )
 
@@ -116,7 +118,7 @@ def test_temporal_signal_audit_reports_absorption_and_event_aliasing(tmp_path: P
 def test_temporal_signal_report_is_provenance_bound_and_no_overwrite(tmp_path: Path) -> None:
     """Catches publishing an analysis report detached from source/cache/split identity."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
+    from latency_meta_mdp.belief.jepa.diagnostics.history_signal import (
         summarize_temporal_signals,
         write_temporal_signal_report,
     )
@@ -156,18 +158,18 @@ def test_temporal_signal_report_is_provenance_bound_and_no_overwrite(tmp_path: P
 def test_formal_temporal_signal_episode_loads_from_verified_source_and_cache() -> None:
     """Catches auditing physical rows that are not joined to the verified DINO episode."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         load_verified_jepa_inputs,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
+    from latency_meta_mdp.belief.jepa.diagnostics.history_signal import (
         load_temporal_signal_episodes,
         summarize_temporal_signals,
     )
 
-    root = Path(__file__).resolve().parents[1]
+    root = repository_root()
     source_root = root / "outputs/source_corpus/panda-ball-structured-source-quota-formal-100x4-v1"
     cache_manifest = (
         root
@@ -181,11 +183,9 @@ def test_formal_temporal_signal_episode_loads_from_verified_source_and_cache() -
     if not all(path.exists() for path in (source_root, cache_manifest, split_manifest)):
         pytest.skip("formal source/cache/split artifacts are absent")
     config = load_action_conditioned_jepa_config(
-        model_path=root / "configs/belief/action_conditioned_jepa/model.yaml",
-        level_path=root / "configs/belief/action_conditioned_jepa/l3.yaml",
-        temporal_sampling_path=(
-            root / "configs/belief/action_conditioned_jepa/dense_20ms_history_100ms.yaml"
-        ),
+        model_path=root / "configs/models/jepa/model.yaml",
+        level_path=root / "configs/models/jepa/l3.yaml",
+        temporal_sampling_path=(root / "configs/models/jepa/dense_20ms_history_100ms.yaml"),
     )
     inputs = load_verified_jepa_inputs(
         source_root=source_root,

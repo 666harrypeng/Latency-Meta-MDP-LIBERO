@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.outcomes import OutcomeStatus
+from latency_meta_mdp.envs.outcomes import OutcomeStatus
 
 
 def _module():
-    return importlib.import_module("latency_meta_mdp.latency_parity")
+    return importlib.import_module("latency_meta_mdp.runtime.latency_parity")
 
 
 def test_real_l1_direct_and_zero_delay_harness_are_exactly_identical() -> None:

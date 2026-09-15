@@ -16,7 +16,7 @@ pytest.importorskip("flax")
 
 @pytest.fixture(scope="module", autouse=True)
 def patched_openpi():
-    from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
 
     with temporary_patched_openpi_copy(
         openpi_root=Path("third_party/openpi"),
@@ -29,11 +29,11 @@ def patched_openpi():
 
 
 def _config(tmp_path, devices=4, batch=128):
-    from latency_meta_mdp.openpi_sft import build_level_train_config
-    from latency_meta_mdp.sft_launch import SFTLaunchRequest
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.policy.openpi.training import build_level_train_config
+    from latency_meta_mdp.policy.profile import load_sft_profile
+    from latency_meta_mdp.policy.schedule import SFTLaunchRequest
 
-    profile = load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml"))
+    profile = load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml"))
     return build_level_train_config(
         profile=profile,
         request=SFTLaunchRequest(3, "ddp-check", "formal", False, devices, batch),
@@ -63,7 +63,7 @@ def test_training_rejects_unexpected_devices_and_model_sharding(
 ):
     import jax
 
-    from latency_meta_mdp.openpi_sft import run_openpi_training
+    from latency_meta_mdp.policy.openpi.training import run_openpi_training
 
     config = _config(tmp_path)
     with pytest.raises(ValueError, match="replicated"):
@@ -85,7 +85,7 @@ def test_pinned_training_step_matches_single_device_and_replicates_optimizer(
     from openpi.training import sharding
     from openpi.training.weight_loaders import NoOpWeightLoader
 
-    from latency_meta_mdp.openpi_sft import _load_train_script
+    from latency_meta_mdp.policy.openpi.training import _load_train_script
 
     if jax.default_backend() != "cpu" or jax.device_count() != 4:
         pytest.skip("requires four logical CPU devices; this is not a GPU throughput benchmark")

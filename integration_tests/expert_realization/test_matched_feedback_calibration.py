@@ -11,7 +11,7 @@ pytestmark = pytest.mark.integration
 
 def test_matched_k6_feedback_worker_succeeds_on_all_three_levels(tmp_path: Path) -> None:
     """Gate: exact shared-prefix feedback execution yields complete physical timing rows."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         TimingCalibrationAttemptRequest,
         load_timing_calibration_attempt_result,
         run_timing_calibration_attempt_process,
@@ -20,10 +20,10 @@ def test_matched_k6_feedback_worker_succeeds_on_all_three_levels(tmp_path: Path)
 
     root = Path.cwd()
     config_paths = {
-        "task_config_sha256": root / "configs/task/dynamic_grasp_lift_l0.yaml",
+        "task_config_sha256": root / "configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml",
         "runtime_config_sha256": root / "configs/runtime/robosuite_v1.yaml",
-        "controller_config_sha256": root / "configs/control/panda_osc_pose_delta_v1.yaml",
-        "expert_config_sha256": root / "configs/expert/panda_ball_feedback_v1.yaml",
+        "controller_config_sha256": root / "configs/runtime/control/panda_osc_pose_delta_v1.yaml",
+        "expert_config_sha256": root / "configs/data/expert/panda_ball_feedback_v1.yaml",
     }
     for level in (1, 2, 3):
         request = TimingCalibrationAttemptRequest(
@@ -32,7 +32,9 @@ def test_matched_k6_feedback_worker_succeeds_on_all_three_levels(tmp_path: Path)
             level=level,
             master_task_seed=12985087823104956951,
             motion_config_sha256=hashlib.sha256(
-                (root / f"configs/motion/dynamic_grasp_lift_l{level}.yaml").read_bytes()
+                (
+                    root / f"configs/tasks/moving_ball/motion/dynamic_grasp_lift_l{level}.yaml"
+                ).read_bytes()
             ).hexdigest(),
             **{
                 name: hashlib.sha256(path.read_bytes()).hexdigest()

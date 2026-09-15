@@ -4,11 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.control_calibration import run_control_calibration
+from latency_meta_mdp.envs.control_calibration import run_control_calibration
 
-_CONTROL_CONFIG = Path("configs/control/panda_osc_pose_delta_v1.yaml")
-_CALIBRATION_CONFIG = Path("configs/control/panda_control_calibration_v1.yaml")
-_TASK_CONFIG = Path("configs/task/dynamic_grasp_lift_l0.yaml")
+_CONTROL_CONFIG = Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+_CALIBRATION_CONFIG = Path("configs/runtime/control/panda_control_calibration_v1.yaml")
+_TASK_CONFIG = Path("configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml")
 
 
 def test_control_calibration_certifies_clock_tracking_gripper_and_safety() -> None:
@@ -28,12 +28,13 @@ def test_control_calibration_certifies_clock_tracking_gripper_and_safety() -> No
     assert report["final_time_us"] == 4_200_000
     assert report["hold_eef_drift_m"] < 1e-8
     assert report["hold_joint_drift_rad"] < 1e-8
-    assert report["hold_eef_drift_m"] == report["phase_reports"]["hold_open"][
-        "max_eef_displacement_m"
-    ]
-    assert report["hold_joint_drift_rad"] == report["phase_reports"]["hold_open"][
-        "max_joint_displacement_rad"
-    ]
+    assert (
+        report["hold_eef_drift_m"] == report["phase_reports"]["hold_open"]["max_eef_displacement_m"]
+    )
+    assert (
+        report["hold_joint_drift_rad"]
+        == report["phase_reports"]["hold_open"]["max_joint_displacement_rad"]
+    )
     assert report["positive_x_average_velocity_mps"] > 0.20
     assert report["negative_x_average_velocity_mps"] < -0.20
     assert report["arm_saturated_physics_step_fraction"] < 0.01

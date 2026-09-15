@@ -7,7 +7,7 @@ from test_action_conditioned_jepa_data import _normalization, _record
 
 
 def test_direct_pair_keeps_native_actions_and_only_real_endpoint(tmp_path):
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_data import (
+    from latency_meta_mdp.belief.jepa.data import (
         materialize_direct_sample,
     )
 
@@ -32,7 +32,7 @@ def test_direct_pair_keeps_native_actions_and_only_real_endpoint(tmp_path):
 
 
 def test_future_observations_cannot_leak_into_query(tmp_path):
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_data import (
+    from latency_meta_mdp.belief.jepa.data import (
         materialize_direct_sample,
     )
 
@@ -58,7 +58,7 @@ def test_future_observations_cannot_leak_into_query(tmp_path):
 
 
 def test_pair_inventory_balances_all_twenty_horizons_without_dropping_late_sources(tmp_path):
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_data import (
+    from latency_meta_mdp.belief.jepa.data import (
         BalancedQuerySampler,
         DirectPredictionDataset,
         collate_direct_samples,
@@ -85,7 +85,7 @@ def test_pair_inventory_balances_all_twenty_horizons_without_dropping_late_sourc
 
 
 def test_dataset_rejects_mixed_split_and_wrong_training_normalization(tmp_path):
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_data import (
+    from latency_meta_mdp.belief.jepa.data import (
         DirectPredictionDataset,
     )
 

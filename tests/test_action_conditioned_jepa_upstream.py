@@ -9,15 +9,8 @@ from types import ModuleType
 
 import pytest
 
-from latency_meta_mdp.belief.action_conditioned_jepa.upstream_adapter import (
-    CheckpointMirror,
-    UpstreamCheckout,
-    load_upstream_primitives,
-    load_upstream_reference,
-    verify_checkpoint_mirror,
-    verify_upstream_checkout,
-)
-from latency_meta_mdp.belief.action_conditioned_jepa.upstream_qualification import (
+from latency_meta_mdp.belief.jepa.ar import qualify_cli as qualify_cli
+from latency_meta_mdp.belief.jepa.check_upstream import (
     OfficialPredictorQualification,
     official_predictor_config,
     qualify_official_predictor,
@@ -25,9 +18,17 @@ from latency_meta_mdp.belief.action_conditioned_jepa.upstream_qualification impo
     validate_locked_runtime,
     write_upstream_qualification_manifest,
 )
-from latency_meta_mdp.cli import qualify_action_conditioned_jepa as qualify_cli
+from latency_meta_mdp.belief.jepa.upstream_adapter import (
+    CheckpointMirror,
+    UpstreamCheckout,
+    load_upstream_primitives,
+    load_upstream_reference,
+    verify_checkpoint_mirror,
+    verify_upstream_checkout,
+)
+from latency_meta_mdp.io.paths import repository_root
 
-REFERENCE_PATH = Path("configs/belief/action_conditioned_jepa/upstream_reference.yaml")
+REFERENCE_PATH = Path("configs/models/jepa/upstream_reference.yaml")
 
 
 def _valid_upstream_yaml() -> str:
@@ -80,9 +81,9 @@ def test_upstream_reference_rejects_noninteger_schema_version(
 
 
 def test_upstream_checkout_verifies_pinned_submodule() -> None:
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = repository_root()
     reference = load_upstream_reference(
-        project_root / "configs/belief/action_conditioned_jepa/upstream_reference.yaml"
+        project_root / "configs/models/jepa/upstream_reference.yaml"
     )
 
     checkout = verify_upstream_checkout(reference=reference, project_root=project_root)
@@ -95,7 +96,7 @@ def test_upstream_checkout_verifies_pinned_submodule() -> None:
 
 
 def test_upstream_primitive_bundle_exposes_adaln_and_rope_contract(monkeypatch) -> None:
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = repository_root()
     reference = load_upstream_reference(REFERENCE_PATH)
 
     # The eval environment exposes only our src directory, not the JEPA checkout.
@@ -118,7 +119,7 @@ def test_upstream_primitives_reject_modules_outside_verified_checkout(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = repository_root()
     reference = load_upstream_reference(REFERENCE_PATH)
     fake = ModuleType("fake")
     fake.__file__ = str(tmp_path / "fake.py")
@@ -271,7 +272,7 @@ def test_predictor_qualification_rejects_model_specific_topology_mismatch() -> N
 
 
 def test_qualification_manifest_binds_upstream_and_mirrors(tmp_path: Path) -> None:
-    reference_path = Path("configs/belief/action_conditioned_jepa/upstream_reference.yaml")
+    reference_path = Path("configs/models/jepa/upstream_reference.yaml")
     reference = load_upstream_reference(reference_path)
     checkout = UpstreamCheckout(
         root=Path("/checkout"),
@@ -381,7 +382,7 @@ def test_official_predictor_configs_match_checkpoint_topology() -> None:
 
 
 def test_upstream_qualification_orchestrates_both_predictors(tmp_path: Path) -> None:
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = repository_root()
     mirror_root = tmp_path / "mirrors"
     (mirror_root / "direct").mkdir(parents=True)
     (mirror_root / "hf").mkdir()
@@ -432,6 +433,7 @@ def test_upstream_qualification_cli_prints_only_manifest(
 ) -> None:
     captured = {}
     manifest = tmp_path / "qualification/manifest.json"
+
     def fake_qualify(**kwargs):
         print("upstream-info")
         captured.update(kwargs)

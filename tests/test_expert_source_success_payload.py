@@ -7,9 +7,9 @@ from expert_realization_test_support import make_formal_source_episode
 
 
 def _recording():
-    from latency_meta_mdp.expert_realization.qualification import QualificationDecision
-    from latency_meta_mdp.expert_realization.safety import ActualRolloutSafetyReport
-    from latency_meta_mdp.expert_realization.source_corpus.recording import (
+    from latency_meta_mdp.data.collection.qualification import QualificationDecision
+    from latency_meta_mdp.data.collection.safety import ActualRolloutSafetyReport
+    from latency_meta_mdp.data.source.recording import (
         QualifiedSourceRecording,
     )
 
@@ -37,9 +37,7 @@ def _recording():
         pre_handoff_saturation_fraction=0.0,
     )
     return QualifiedSourceRecording(
-        episode=make_formal_source_episode(
-            boundary_count=4, camera_height=256, camera_width=256
-        ),
+        episode=make_formal_source_episode(boundary_count=4, camera_height=256, camera_width=256),
         safety_report=report,
         qualification=QualificationDecision(eligible=True, failures=()),
     )
@@ -49,19 +47,19 @@ def test_success_payload_round_trips_typed_episode_and_lossless_images(
     tmp_path: Path,
 ) -> None:
     """Break caught: resume changes source values or drops actual-physics qualification."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_corpus_config,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.parquet import (
+    from latency_meta_mdp.data.source.parquet import (
         episode_to_frame_table,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.success_payload import (
+    from latency_meta_mdp.data.source.success_payload import (
         load_source_success_payload,
         write_source_success_payload,
     )
 
     config = load_source_corpus_config(
-        Path("configs/source_corpus/panda_ball_source_parquet.yaml")
+        Path("configs/data/source_corpus/panda_ball_source_parquet.yaml")
     )
     recording = _recording()
     target = tmp_path / "success"
@@ -99,16 +97,16 @@ def test_success_payload_rejects_overwrite_tamper_and_nonqualified_input(
     tmp_path: Path,
 ) -> None:
     """Break caught: failed or mutable data enters the resumable success namespace."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_corpus_config,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.success_payload import (
+    from latency_meta_mdp.data.source.success_payload import (
         load_source_success_payload,
         write_source_success_payload,
     )
 
     config = load_source_corpus_config(
-        Path("configs/source_corpus/panda_ball_source_parquet.yaml")
+        Path("configs/data/source_corpus/panda_ball_source_parquet.yaml")
     )
     kwargs = dict(
         target=tmp_path / "success",

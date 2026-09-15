@@ -7,7 +7,7 @@ import torch
 
 
 def _launch_context(*, batch_size: int = 2):
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
+    from latency_meta_mdp.belief.jepa.contracts import LaunchContextBatch
 
     return LaunchContextBatch(
         vision_history=torch.zeros(batch_size, 6, 2, 196, 384, dtype=torch.float16),
@@ -18,7 +18,7 @@ def _launch_context(*, batch_size: int = 2):
 
 
 def _rollout(*, batch_size: int = 1):
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentRollout
+    from latency_meta_mdp.belief.jepa.contracts import FutureLatentRollout
 
     return FutureLatentRollout(
         native_delay_ticks=torch.arange(1, 21, dtype=torch.int64),
@@ -69,7 +69,7 @@ def test_launch_context_requires_exact_shapes_dtypes_and_semantics() -> None:
     ),
 )
 def test_launch_context_rejects_shape_or_dtype_drift(field, replacement, match) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
+    from latency_meta_mdp.belief.jepa.contracts import LaunchContextBatch
 
     values = {
         "vision_history": torch.zeros(2, 6, 2, 196, 384, dtype=torch.float16),
@@ -84,7 +84,7 @@ def test_launch_context_rejects_shape_or_dtype_drift(field, replacement, match) 
 
 
 def test_launch_context_rejects_device_mismatch_before_compute() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
+    from latency_meta_mdp.belief.jepa.contracts import LaunchContextBatch
 
     with pytest.raises(ValueError, match="device"):
         LaunchContextBatch(
@@ -112,7 +112,7 @@ def test_future_rollout_contract_exposes_physical_proprio() -> None:
 
 
 def test_future_rollout_rejects_shape_dtype_or_device_drift() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentRollout
+    from latency_meta_mdp.belief.jepa.contracts import FutureLatentRollout
 
     with pytest.raises(ValueError, match="future_visual_latents"):
         FutureLatentRollout(
@@ -137,7 +137,7 @@ def test_future_rollout_rejects_shape_dtype_or_device_drift() -> None:
 
 
 def test_return_belief_accepts_exact_d20_probability_mixture() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
+    from latency_meta_mdp.belief.jepa.contracts import (
         ReturnLatentBeliefBatch,
     )
 
@@ -158,7 +158,7 @@ def test_return_belief_accepts_exact_d20_probability_mixture() -> None:
 
 
 def test_return_belief_rejects_invalid_delay_mass() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
+    from latency_meta_mdp.belief.jepa.contracts import (
         ReturnLatentBeliefBatch,
     )
 
@@ -184,7 +184,7 @@ def test_return_belief_rejects_invalid_delay_mass() -> None:
     ),
 )
 def test_return_belief_rejects_noncanonical_delay_ticks(delay_ticks) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
+    from latency_meta_mdp.belief.jepa.contracts import (
         ReturnLatentBeliefBatch,
     )
 
@@ -199,7 +199,7 @@ def test_return_belief_rejects_noncanonical_delay_ticks(delay_ticks) -> None:
 
 
 def test_return_belief_rejects_probability_sum_or_nonfinite_values() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
+    from latency_meta_mdp.belief.jepa.contracts import (
         ReturnLatentBeliefBatch,
     )
 
@@ -218,7 +218,7 @@ def test_return_belief_rejects_probability_sum_or_nonfinite_values() -> None:
 
 
 def test_return_belief_rejects_empty_or_mismatched_batches() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
+    from latency_meta_mdp.belief.jepa.contracts import (
         ReturnLatentBeliefBatch,
     )
 
@@ -242,7 +242,7 @@ def test_return_belief_rejects_empty_or_mismatched_batches() -> None:
 def test_stride4_contract_preserves_macro_controls_and_native_anchors() -> None:
     """Catches flattening away macro-control order or retaining fixed D20 tensor shapes."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
+    from latency_meta_mdp.belief.jepa.contracts import (
         FutureLatentRollout,
         LaunchContextBatch,
         ReturnLatentBeliefBatch,

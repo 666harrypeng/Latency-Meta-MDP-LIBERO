@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from latency_meta_mdp.cli import certify_conditional_return_branches as certify_cli
-from latency_meta_mdp.cli import collect_conditional_return_branches as collect_cli
+from latency_meta_mdp.legacy.cli import certify_conditional_return_branches as certify_cli
+from latency_meta_mdp.legacy.cli import collect_conditional_return_branches as collect_cli
 
 
 def test_collect_cli_forwards_explicit_paths_and_per_level_bound(

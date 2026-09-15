@@ -8,14 +8,10 @@ import pytest
 
 
 def test_dino_specs_share_the_full_spatial_output_contract() -> None:
-    from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
+    from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
 
-    v2 = load_vision_encoder_spec(
-        Path("configs/vision/dinov2_vits14_lvd142m_196_v1.yaml")
-    )
-    v3 = load_vision_encoder_spec(
-        Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
-    )
+    v2 = load_vision_encoder_spec(Path("configs/models/vision/dinov2_vits14_lvd142m_196_v1.yaml"))
+    v3 = load_vision_encoder_spec(Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml"))
 
     assert v2.family == "dinov2"
     assert v2.input_size_px == (196, 196)
@@ -23,10 +19,7 @@ def test_dino_specs_share_the_full_spatial_output_contract() -> None:
     assert v2.special_token_count == 1
     assert v2.output_shape == (196, 384)
     assert v2.access_mode == "public"
-    assert (
-        v2.weights_sha256
-        == "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1"
-    )
+    assert v2.weights_sha256 == "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1"
 
     assert v3.family == "dinov3"
     assert v3.input_size_px == (224, 224)
@@ -34,10 +27,7 @@ def test_dino_specs_share_the_full_spatial_output_contract() -> None:
     assert v3.special_token_count == 5
     assert v3.output_shape == (196, 384)
     assert v3.access_mode == "gated_manual"
-    assert (
-        v3.weights_sha256
-        == "4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d"
-    )
+    assert v3.weights_sha256 == "4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d"
 
     assert v2.frozen is True
     assert v3.frozen is True
@@ -47,28 +37,29 @@ def test_dino_specs_share_the_full_spatial_output_contract() -> None:
 
 
 def test_encoder_fingerprint_binds_revision_and_preprocessing() -> None:
-    from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
+    from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
 
-    spec = load_vision_encoder_spec(
-        Path("configs/vision/dinov2_vits14_lvd142m_196_v1.yaml")
-    )
+    spec = load_vision_encoder_spec(Path("configs/models/vision/dinov2_vits14_lvd142m_196_v1.yaml"))
 
     assert spec.fingerprint == replace(spec).fingerprint
     assert spec.fingerprint != replace(spec, revision="0" * 40).fingerprint
-    assert spec.fingerprint != replace(
-        spec,
-        preprocessing=replace(spec.preprocessing, resize_mode="bilinear"),
-    ).fingerprint
+    assert (
+        spec.fingerprint
+        != replace(
+            spec,
+            preprocessing=replace(spec.preprocessing, resize_mode="bilinear"),
+        ).fingerprint
+    )
 
 
 def test_spatial_token_selection_excludes_only_declared_special_tokens() -> None:
-    from latency_meta_mdp.vision_encoder import (
+    from latency_meta_mdp.data.vision.contracts import (
         load_vision_encoder_spec,
         select_spatial_tokens,
     )
 
     spec = load_vision_encoder_spec(
-        Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+        Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
     )
     hidden = np.full((2, 201, 384), -17.0, dtype=np.float32)
     expected = np.arange(2 * 196 * 384, dtype=np.float32).reshape(2, 196, 384)
@@ -81,14 +72,12 @@ def test_spatial_token_selection_excludes_only_declared_special_tokens() -> None
 
 
 def test_spatial_token_selection_rejects_wrong_model_layout() -> None:
-    from latency_meta_mdp.vision_encoder import (
+    from latency_meta_mdp.data.vision.contracts import (
         load_vision_encoder_spec,
         select_spatial_tokens,
     )
 
-    spec = load_vision_encoder_spec(
-        Path("configs/vision/dinov2_vits14_lvd142m_196_v1.yaml")
-    )
+    spec = load_vision_encoder_spec(Path("configs/models/vision/dinov2_vits14_lvd142m_196_v1.yaml"))
 
     with pytest.raises(ValueError, match="token layout"):
         select_spatial_tokens(
@@ -98,7 +87,7 @@ def test_spatial_token_selection_rejects_wrong_model_layout() -> None:
 
 
 def test_encoder_spec_rejects_grid_that_disagrees_with_input_size() -> None:
-    from latency_meta_mdp.vision_encoder import (
+    from latency_meta_mdp.data.vision.contracts import (
         VisionEncoderSpec,
         VisionPreprocessingSpec,
     )

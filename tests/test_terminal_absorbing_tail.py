@@ -6,12 +6,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief_data import load_belief_episode
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
-from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.recording import RecordProfile
-from latency_meta_mdp.temporal_contract import load_temporal_contract
+from latency_meta_mdp.data.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.io.episode_artifacts import write_synchronized_episode_artifact
+from latency_meta_mdp.legacy.belief_data import load_belief_episode
+from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
 
 def _episode(tmp_path: Path):
@@ -34,16 +34,14 @@ def _episode(tmp_path: Path):
 
 
 def test_absorbing_tail_is_target_only_aligned_and_non_mutating(tmp_path: Path) -> None:
-    from latency_meta_mdp.terminal_absorbing_tail import (
+    from latency_meta_mdp.legacy.terminal_absorbing_tail import (
         build_terminal_absorbing_tail,
     )
 
     episode = _episode(tmp_path)
-    contract = load_temporal_contract(
-        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
-    )
+    contract = load_temporal_contract(Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"))
     action_contract = load_action_contract(
-        Path("configs/control/panda_osc_pose_delta_v1.yaml")
+        Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
     )
     original_actions = episode.expert_actions.copy()
     original_images = episode.deployment.agentview_rgb.copy()
@@ -80,9 +78,7 @@ def test_absorbing_tail_is_target_only_aligned_and_non_mutating(tmp_path: Path) 
 
     expected_hold = np.asarray([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
     np.testing.assert_array_equal(view.hold_action, expected_hold)
-    np.testing.assert_array_equal(
-        view.expert_actions[:terminal_tick], episode.expert_actions
-    )
+    np.testing.assert_array_equal(view.expert_actions[:terminal_tick], episode.expert_actions)
     np.testing.assert_array_equal(
         view.expert_actions[terminal_tick:],
         np.repeat(expected_hold[None, :], 70, axis=0),
@@ -93,9 +89,7 @@ def test_absorbing_tail_is_target_only_aligned_and_non_mutating(tmp_path: Path) 
     np.testing.assert_array_equal(
         extended_images[: episode.boundary_count], episode.deployment.agentview_rgb
     )
-    np.testing.assert_array_equal(
-        extended_images[-1], episode.deployment.agentview_rgb[-1]
-    )
+    np.testing.assert_array_equal(extended_images[-1], episode.deployment.agentview_rgb[-1])
     extended_velocity = view.extend_boundary_array(
         episode.deployment.robot_qvel,
         absorbing_value=np.zeros(7),
@@ -109,7 +103,7 @@ def test_absorbing_tail_is_target_only_aligned_and_non_mutating(tmp_path: Path) 
 
 
 def test_absorbing_tail_rejects_failure_episode(tmp_path: Path) -> None:
-    from latency_meta_mdp.terminal_absorbing_tail import (
+    from latency_meta_mdp.legacy.terminal_absorbing_tail import (
         build_terminal_absorbing_tail,
     )
 
@@ -128,9 +122,9 @@ def test_absorbing_tail_rejects_failure_episode(tmp_path: Path) -> None:
         build_terminal_absorbing_tail(
             episode=failed,
             temporal_contract=load_temporal_contract(
-                Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
+                Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml")
             ),
             action_contract=load_action_contract(
-                Path("configs/control/panda_osc_pose_delta_v1.yaml")
+                Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
             ),
         )

@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+from latency_meta_mdp.io.paths import repository_root
+
+REPOSITORY_ROOT = repository_root()
 PINNED_CUROBO_COMMIT = "4ea77366ca48ee453e7df139e39fa6532af49f3b"
 APPROVED_WARP_VERSION = "1.17.0"
 APPROVED_CUDA_CORE_VERSION = "1.1.1"
@@ -61,7 +63,7 @@ def test_pinned_curobo_checkout_has_approved_identity() -> None:
 
 def test_qualification_report_rejects_missing_or_mismatched_contract_values() -> None:
     """A stale checkout or incomplete worker report must fail closed."""
-    from latency_meta_mdp.expert_realization.curobo_runtime import (
+    from latency_meta_mdp.data.collection.curobo_runtime import (
         QualificationContractError,
         qualification_from_json,
     )
@@ -99,7 +101,7 @@ def test_qualification_report_rejects_runtime_drift_and_invalid_measurements(
     field: str, value: object, message: str
 ) -> None:
     """A report that does not bind the approved runtime must not be consumable."""
-    from latency_meta_mdp.expert_realization.curobo_runtime import (
+    from latency_meta_mdp.data.collection.curobo_runtime import (
         QualificationContractError,
         qualification_from_json,
     )
@@ -110,7 +112,7 @@ def test_qualification_report_rejects_runtime_drift_and_invalid_measurements(
 
 def test_qualification_report_rejects_unknown_fields() -> None:
     """A silently accepted schema extension could hide an incompatible worker contract."""
-    from latency_meta_mdp.expert_realization.curobo_runtime import (
+    from latency_meta_mdp.data.collection.curobo_runtime import (
         QualificationContractError,
         qualification_from_json,
     )
@@ -124,11 +126,9 @@ def test_qualification_report_accepts_valid_zero_minor_compute_capability(
     capability: list[int],
 ) -> None:
     """Valid NVIDIA architectures such as sm_80 and sm_90 must remain qualifiable."""
-    from latency_meta_mdp.expert_realization.curobo_runtime import qualification_from_json
+    from latency_meta_mdp.data.collection.curobo_runtime import qualification_from_json
 
-    qualification = qualification_from_json(
-        dict(_valid_report(), compute_capability=capability)
-    )
+    qualification = qualification_from_json(dict(_valid_report(), compute_capability=capability))
 
     assert qualification.compute_capability == tuple(capability)
 
@@ -138,7 +138,7 @@ def test_qualification_report_rejects_invalid_compute_capability_components(
     capability: list[object],
 ) -> None:
     """Boolean, non-integer, nonpositive-major, and negative-minor values are invalid."""
-    from latency_meta_mdp.expert_realization.curobo_runtime import (
+    from latency_meta_mdp.data.collection.curobo_runtime import (
         QualificationContractError,
         qualification_from_json,
     )
@@ -154,9 +154,9 @@ def test_non_worker_import_keeps_curobo_out_of_robosuite_process() -> None:
             sys.executable,
             "-c",
             (
-                "import latency_meta_mdp.expert_realization; "
-                "import latency_meta_mdp.expert_realization.curobo_runtime; "
-                "import latency_meta_mdp.cli.qualify_structured_expert_planner; "
+                "import latency_meta_mdp.data.collection; "
+                "import latency_meta_mdp.data.collection.curobo_runtime; "
+                "import latency_meta_mdp.runtime.diagnostics.qualify_structured_expert_planner; "
                 "import sys; "
                 "raise SystemExit(any(name == 'curobo' or name.startswith('curobo.') "
                 "for name in sys.modules))"
@@ -177,7 +177,7 @@ def test_worker_module_help_has_no_runpy_reimport_warning() -> None:
         [
             sys.executable,
             "-m",
-            "latency_meta_mdp.expert_realization.curobo_runtime",
+            "latency_meta_mdp.data.collection.curobo_runtime",
             "--help",
         ],
         cwd=REPOSITORY_ROOT,
@@ -193,8 +193,7 @@ def test_worker_module_help_has_no_runpy_reimport_warning() -> None:
 def _write_worker(tmp_path: Path, script: str) -> Path:
     worker = tmp_path / "worker.py"
     worker.write_text(
-        "#!" + sys.executable + "\n"
-        + script,
+        "#!" + sys.executable + "\n" + script,
         encoding="utf-8",
     )
     worker.chmod(0o755)
@@ -206,7 +205,7 @@ def _run_cli(worker: Path, report_path: Path) -> subprocess.CompletedProcess[str
         [
             sys.executable,
             "-m",
-            "latency_meta_mdp.cli.qualify_structured_expert_planner",
+            "latency_meta_mdp.runtime.diagnostics.qualify_structured_expert_planner",
             "--worker-python",
             str(worker),
             "--report-path",

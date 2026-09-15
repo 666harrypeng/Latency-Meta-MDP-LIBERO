@@ -7,7 +7,7 @@ import numpy as np
 
 
 def make_shared_prefix_anchor():
-    from latency_meta_mdp.expert_realization.shared_prefix import SharedPrefixAnchor
+    from latency_meta_mdp.data.collection.shared_prefix import SharedPrefixAnchor
 
     f64 = np.float64
     return SharedPrefixAnchor(
@@ -48,8 +48,8 @@ def make_shared_prefix_anchor():
 
 
 def make_detached_task_instance(level: int = 3, seed: int = 4000):
-    from latency_meta_mdp.expert_realization.contracts import TaskInstanceId
-    from latency_meta_mdp.expert_realization.task_instance import (
+    from latency_meta_mdp.data.collection.contracts import TaskInstanceId
+    from latency_meta_mdp.data.collection.task_instance import (
         MaterializedTaskInstance,
         _materialize_motion_profile,
     )
@@ -78,11 +78,11 @@ def make_detached_task_instance(level: int = 3, seed: int = 4000):
 
 
 def strategy_config_and_keys(instance: object):
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey
-    from latency_meta_mdp.expert_realization.strategy import StructuredStrategyConfig
+    from latency_meta_mdp.data.collection.contracts import ExpertRealizationKey
+    from latency_meta_mdp.data.collection.strategy import StructuredStrategyConfig
 
     config = StructuredStrategyConfig.from_path(
-        Path.cwd() / "configs/expert_realization/panda_ball_structured.yaml"
+        Path.cwd() / "configs/data/expert_realization/panda_ball_structured.yaml"
     )
     keys = tuple(
         ExpertRealizationKey(instance.task_instance_id, index, config.source_sha256)
@@ -99,14 +99,14 @@ def make_formal_source_metadata(
     accepted_slot: int = 0,
     realization_draw_index: int = 0,
 ):
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationId,
         ExpertRealizationKey,
         StrategyFamily,
         TaskInstanceId,
     )
-    from latency_meta_mdp.expert_realization.recording_contracts import ImplementationIdentity
-    from latency_meta_mdp.expert_realization.source_corpus.contracts import (
+    from latency_meta_mdp.data.collection.recording_contracts import ImplementationIdentity
+    from latency_meta_mdp.data.source.contracts import (
         FormalSourceEpisodeMetadata,
     )
 
@@ -160,7 +160,7 @@ def make_formal_source_metadata(
 
 
 def make_formal_source_records(metadata, *, boundary_count: int = 2):
-    from latency_meta_mdp.expert_realization.recording_contracts import (
+    from latency_meta_mdp.data.collection.recording_contracts import (
         StructuredBoundaryRecord,
         StructuredDeploymentRecord,
         StructuredExpertAuditRecord,
@@ -205,9 +205,7 @@ def make_formal_source_records(metadata, *, boundary_count: int = 2):
                     robot_qvel=np.full(7, 0.5, dtype=np.float64),
                     gripper_qpos=np.zeros(2, dtype=np.float64),
                     gripper_qvel=np.zeros(2, dtype=np.float64),
-                    eef_position_world=np.array(
-                        [0.4 + tick * 0.001, 0.0, 0.3], dtype=np.float64
-                    ),
+                    eef_position_world=np.array([0.4 + tick * 0.001, 0.0, 0.3], dtype=np.float64),
                     eef_orientation_matrix_world=np.eye(3, dtype=np.float64),
                 ),
                 qualification=StructuredQualificationRecord(
@@ -215,15 +213,11 @@ def make_formal_source_records(metadata, *, boundary_count: int = 2):
                         [0.5 + tick * 0.002, 0.0, 0.2, 1.0, 0.0, 0.0, 0.0],
                         dtype=np.float64,
                     ),
-                    object_velocity=np.array(
-                        [0.1, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float64
-                    ),
+                    object_velocity=np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float64),
                     commanded_motion_position=np.array(
                         [0.5 + tick * 0.002, 0.0, 0.2], dtype=np.float64
                     ),
-                    commanded_motion_velocity=np.array(
-                        [0.1, 0.0, 0.0], dtype=np.float64
-                    ),
+                    commanded_motion_velocity=np.array([0.1, 0.0, 0.0], dtype=np.float64),
                     commanded_motion_acceleration=np.zeros(3, dtype=np.float64),
                     commanded_motion_segment_index=0,
                     left_pad_contact=contact,
@@ -243,9 +237,7 @@ def make_formal_source_records(metadata, *, boundary_count: int = 2):
                     nullspace_joint_position_error=(
                         np.zeros(7, dtype=np.float64) if has_previous else None
                     ),
-                    eef_position_error=(
-                        np.zeros(3, dtype=np.float64) if has_previous else None
-                    ),
+                    eef_position_error=(np.zeros(3, dtype=np.float64) if has_previous else None),
                     eef_orientation_error_rotvec=(
                         np.zeros(3, dtype=np.float64) if has_previous else None
                     ),
@@ -257,9 +249,7 @@ def make_formal_source_records(metadata, *, boundary_count: int = 2):
         StructuredTransitionRecord(
             source_formal_tick=tick,
             target_formal_tick=tick + 1,
-            expert_action=np.array(
-                [tick * 0.01, 0, 0, 0, 0, 0, -1], dtype=np.float64
-            ),
+            expert_action=np.array([tick * 0.01, 0, 0, 0, 0, 0, -1], dtype=np.float64),
             action_mask=np.ones(7, dtype=np.bool_),
             expert_audit=StructuredExpertAuditRecord(
                 expert_realization_id=metadata.expert_realization_id,
@@ -273,9 +263,7 @@ def make_formal_source_records(metadata, *, boundary_count: int = 2):
                     [0.4 + (tick + 1) * 0.001, 0.0, 0.3], dtype=np.float64
                 ),
                 target_eef_orientation_matrix_world=np.eye(3, dtype=np.float64),
-                estimated_object_velocity_world=np.array(
-                    [0.1, 0.0, 0.0], dtype=np.float64
-                ),
+                estimated_object_velocity_world=np.array([0.1, 0.0, 0.0], dtype=np.float64),
             ),
         )
         for tick in range(terminal_tick)
@@ -308,7 +296,7 @@ def make_formal_source_episode(
     accepted_slot: int = 0,
     realization_draw_index: int = 0,
 ):
-    from latency_meta_mdp.expert_realization.source_corpus.contracts import (
+    from latency_meta_mdp.data.source.contracts import (
         FormalSourceSynchronizedEpisode,
     )
 

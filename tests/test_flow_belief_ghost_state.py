@@ -6,14 +6,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.flow.ghost_config import load_flow_belief_ghost_config
-from latency_meta_mdp.belief.flow.ghost_state import (
+from latency_meta_mdp.legacy.belief.flow.ghost_config import load_flow_belief_ghost_config
+from latency_meta_mdp.legacy.belief.flow.ghost_state import (
     reconstruct_return_state,
     select_sample_medoid,
     valid_sample_mask,
 )
 
-_CONFIG = Path("configs/analysis/flow_belief_agentview_ghost_v1.yaml")
+_CONFIG = Path("configs/legacy/analysis/flow_belief_agentview_ghost_v1.yaml")
 
 
 def test_ghost_config_locks_agentview_render_contract() -> None:

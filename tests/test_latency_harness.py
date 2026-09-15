@@ -16,7 +16,7 @@ class _SimulationClock:
 
 
 def _module():
-    return importlib.import_module("latency_meta_mdp.latency_harness")
+    return importlib.import_module("latency_meta_mdp.runtime.latency_harness")
 
 
 def _make_harness(*, delay_ticks: int, wall_times: tuple[int, ...] = (100, 160)):
@@ -45,10 +45,13 @@ def test_fixed_delay_arrives_only_at_the_exact_future_boundary() -> None:
 
     clock.time_us = 5 * 20_000
     assert harness.open_boundary(5) is None
-    assert harness.launch(
-        observation=("immutable", 5),
-        infer=lambda context: (context.launch_formal_tick, "payload"),
-    ) is None
+    assert (
+        harness.launch(
+            observation=("immutable", 5),
+            infer=lambda context: (context.launch_formal_tick, "payload"),
+        )
+        is None
+    )
     assert harness.pending is True
     harness.close_boundary()
 
@@ -211,9 +214,7 @@ def test_wall_duration_is_diagnostic_and_does_not_change_arrival_tick() -> None:
     harness.launch(observation="obs", infer=lambda context: "payload")
 
     measured = next(
-        event
-        for event in harness.events
-        if event.kind is module.HarnessEventKind.MEASURED_RETURN
+        event for event in harness.events if event.kind is module.HarnessEventKind.MEASURED_RETURN
     )
     assert measured.wall_start_ns == 1_000
     assert measured.wall_end_ns == 9_001_000

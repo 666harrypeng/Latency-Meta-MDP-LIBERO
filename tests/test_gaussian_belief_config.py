@@ -4,10 +4,10 @@ from pathlib import Path
 
 
 def test_gaussian_belief_config_matches_locked_compact_contract() -> None:
-    from latency_meta_mdp.gaussian_belief_config import load_gaussian_belief_config
+    from latency_meta_mdp.legacy.gaussian_belief_config import load_gaussian_belief_config
 
     config = load_gaussian_belief_config(
-        Path("configs/belief/dinov3_gaussian_belief_v1.yaml")
+        Path("configs/legacy/belief/dinov3_gaussian_belief_v1.yaml")
     )
 
     assert config.model_id == "dinov3_gaussian_belief_v1"

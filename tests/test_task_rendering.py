@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from latency_meta_mdp.rendering import render_task_setup
+from latency_meta_mdp.envs.rendering import render_task_setup
 
-_TASK_CONFIG = Path("configs/task/dynamic_grasp_lift_l0.yaml")
+_TASK_CONFIG = Path("configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml")
 
 
 def test_render_task_setup_writes_two_same_boundary_camera_images(tmp_path: Path) -> None:

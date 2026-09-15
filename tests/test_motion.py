@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.motion import (
+from latency_meta_mdp.envs.motion import (
     MotionConfig,
     build_motion_profile,
     load_motion_config,
@@ -14,7 +14,7 @@ from latency_meta_mdp.motion import (
     sample_shared_geometry,
 )
 
-_CONFIG_ROOT = Path("configs/motion")
+_CONFIG_ROOT = Path("configs/tasks/moving_ball/motion")
 
 
 def config_for(level: int) -> MotionConfig:
@@ -89,9 +89,7 @@ def test_level2_is_smooth_curved_and_bounded() -> None:
         cross_magnitude = abs(chord[0] * relative[1] - chord[1] * relative[0])
         offsets.append(cross_magnitude / chord_length)
     assert config.l2_waypoint_deviation_range_m[0] <= max(offsets)
-    assert max(offsets) <= (
-        2 * config.l2_waypoint_deviation_range_m[1]
-    )
+    assert max(offsets) <= (2 * config.l2_waypoint_deviation_range_m[1])
     geometry = sample_shared_geometry(config=config, seed=7)
     np.testing.assert_array_equal(samples[-1].position[:2], geometry.end_xy)
     assert all(config.contains(sample.position[:2]) for sample in samples)
@@ -157,8 +155,7 @@ def test_train_seed_bank_chord_lengths_have_no_boundary_atoms() -> None:
         chord_lengths.append(float(np.linalg.norm(geometry.end_xy - geometry.start_xy)))
 
     assert all(
-        config.min_chord_length_m < length < config.max_chord_length_m
-        for length in chord_lengths
+        config.min_chord_length_m < length < config.max_chord_length_m for length in chord_lengths
     )
     assert all(
         abs(length - config.min_chord_length_m) > 1e-12

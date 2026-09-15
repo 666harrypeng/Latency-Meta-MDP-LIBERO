@@ -1,0 +1,12 @@
+# Reference recipe. An experiment batch override preserves sample exposure and the LR clock.
+batch_size: 192
+num_train_steps: 3999
+warmup_steps: 200
+num_workers: 8
+peak_learning_rate: 5.0e-05
+decay_learning_rate: 5.0e-06
+save_interval: 250
+keep_period: 1333
+log_interval: 33
+fsdp_devices: 1
+ema_decay: 0.999

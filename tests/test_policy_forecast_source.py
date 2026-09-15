@@ -3,7 +3,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from latency_meta_mdp.policy_data import PolicyEpisode
+from latency_meta_mdp.data.policy import PolicyEpisode
 
 
 def _episode():
@@ -25,7 +25,7 @@ def _episode():
 
 
 def test_last_real_source_retains_target_without_inventing_forecast_controls():
-    from latency_meta_mdp.policy_forecast import materialize_forecast_policy_source
+    from latency_meta_mdp.data.forecast.samples import materialize_forecast_policy_source
 
     ep = _episode()
     sample = materialize_forecast_policy_source(ep, source_tick=23, query_ticks=20)
@@ -48,7 +48,7 @@ def test_last_real_source_retains_target_without_inventing_forecast_controls():
 
 
 def test_query_changes_forecast_horizon_not_expert_target_origin():
-    from latency_meta_mdp.policy_forecast import materialize_forecast_policy_source
+    from latency_meta_mdp.data.forecast.samples import materialize_forecast_policy_source
 
     ep = _episode()
     short = materialize_forecast_policy_source(ep, source_tick=10, query_ticks=1)
@@ -63,7 +63,7 @@ def test_query_changes_forecast_horizon_not_expert_target_origin():
 
 
 def test_source_rejects_legacy_state_and_invalid_queries():
-    from latency_meta_mdp.policy_forecast import materialize_forecast_policy_source
+    from latency_meta_mdp.data.forecast.samples import materialize_forecast_policy_source
 
     with pytest.raises(ValueError, match="16D"):
         materialize_forecast_policy_source(
@@ -79,11 +79,11 @@ def test_direct_query_accepts_declared_tail_buffer_without_inventing_targets():
 
     import torch
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_data import (
+    from latency_meta_mdp.belief.jepa.data import (
         materialize_direct_query,
         materialize_direct_sample,
     )
-    from latency_meta_mdp.policy_forecast import materialize_forecast_policy_source
+    from latency_meta_mdp.data.forecast.samples import materialize_forecast_policy_source
 
     ep = _episode()
     record = SimpleNamespace(
@@ -119,13 +119,13 @@ def test_clocked_history_rejects_gaps_and_resets_between_episodes():
     import torch
     from test_action_conditioned_jepa_rollout import _normalization
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import load_jepa_temporal_sampling
-    from latency_meta_mdp.belief.action_conditioned_jepa.runtime import JepaRuntimeHistory
+    from latency_meta_mdp.belief.jepa.ar.runtime import JepaRuntimeHistory
+    from latency_meta_mdp.belief.jepa.config import load_jepa_temporal_sampling
 
     history = JepaRuntimeHistory(
         _normalization(),
         temporal_sampling=load_jepa_temporal_sampling(
-            Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+            Path("configs/models/jepa/stride4_80ms_history_160ms.yaml")
         ),
     )
     visual = torch.zeros(2, 196, 384, dtype=torch.float16)

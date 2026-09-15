@@ -15,7 +15,7 @@ def _prepared(
     joint_margin: float = 0.4,
     velocity_fraction: float = 0.2,
 ):
-    from latency_meta_mdp.expert_realization.safety import PreparedPhysicsSafetySample
+    from latency_meta_mdp.data.collection.safety import PreparedPhysicsSafetySample
 
     return PreparedPhysicsSafetySample(
         physics_step_index=step,
@@ -29,7 +29,7 @@ def _prepared(
 
 
 def _completed(*, step: int, forces=()):
-    from latency_meta_mdp.expert_realization.safety import CompletedPhysicsSafetySample
+    from latency_meta_mdp.data.collection.safety import CompletedPhysicsSafetySample
 
     return CompletedPhysicsSafetySample(
         physics_step_index=step,
@@ -40,8 +40,8 @@ def _completed(*, step: int, forces=()):
 
 def test_physics_accumulator_pairs_step1_geometry_with_step2_force() -> None:
     """Break caught: impulse uses a force from a different split-step contact set."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.expert_realization.safety import (
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.safety import (
         ContactKind,
         PhysicsContactObservation,
         PhysicsSafetyAccumulator,
@@ -67,8 +67,8 @@ def test_physics_accumulator_pairs_step1_geometry_with_step2_force() -> None:
 
 def test_physics_accumulator_classifies_forbidden_contacts_without_conflation() -> None:
     """Break caught: pregrasp, other-link, environment, and self contacts share one vague count."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.expert_realization.safety import (
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.safety import (
         ContactKind,
         PhysicsContactObservation,
         PhysicsSafetyAccumulator,
@@ -108,8 +108,8 @@ def test_physics_accumulator_classifies_forbidden_contacts_without_conflation() 
 
 def test_physics_accumulator_reduces_joint_and_clearance_extrema() -> None:
     """Break caught: final report uses only the last physics point instead of the worst point."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.expert_realization.safety import PhysicsSafetyAccumulator
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.safety import PhysicsSafetyAccumulator
 
     accumulator = PhysicsSafetyAccumulator(physics_dt_us=2_000)
     accumulator.observe_prepared(
@@ -141,8 +141,8 @@ def test_physics_accumulator_reduces_joint_and_clearance_extrema() -> None:
 
 def test_physics_accumulator_rejects_clock_and_contact_force_mismatch() -> None:
     """Break caught: missing or reordered callbacks silently corrupt contact impulse."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.expert_realization.safety import (
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.safety import (
         ContactKind,
         PhysicsContactObservation,
         PhysicsSafetyAccumulator,
@@ -163,7 +163,7 @@ def test_compiled_geometry_classifies_contacts_by_exact_geom_ids() -> None:
     """Break caught: contact type is guessed from unstable geom-name prefixes."""
     import numpy as np
 
-    from latency_meta_mdp.expert_realization.safety import (
+    from latency_meta_mdp.data.collection.safety import (
         CompiledSafetyGeometry,
         ContactKind,
         classify_contact_pair,
@@ -197,7 +197,7 @@ def test_compiled_geometry_arrays_are_exact_and_immutable() -> None:
     """Break caught: runtime geometry carries malformed or mutable joint limits."""
     import numpy as np
 
-    from latency_meta_mdp.expert_realization.safety import CompiledSafetyGeometry
+    from latency_meta_mdp.data.collection.safety import CompiledSafetyGeometry
 
     kwargs = dict(
         left_pad_geom_ids=frozenset({1}),
@@ -223,7 +223,7 @@ def test_compiled_geometry_arrays_are_exact_and_immutable() -> None:
 
 def test_joint_margin_is_signed_so_a_limit_violation_cannot_be_hidden() -> None:
     """Break caught: a joint outside its limit is clipped to a safe zero margin."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
 
     sample = _prepared(
         step=0,
@@ -235,10 +235,10 @@ def test_joint_margin_is_signed_so_a_limit_violation_cannot_be_hidden() -> None:
 
 def test_runtime_monitor_binds_boundary_geometry_to_the_next_action_phase() -> None:
     """Break caught: boundary step1 contact is mislabeled with the preceding phase."""
-    from latency_meta_mdp.backend import CompletedPhysicsStep, PreparedPhysicsPoint
-    from latency_meta_mdp.expert_realization.actual_physics import RuntimePhysicsSafetyMonitor
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.expert_realization.safety import ContactKind, PhysicsContactObservation
+    from latency_meta_mdp.data.collection.actual_physics import RuntimePhysicsSafetyMonitor
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.safety import ContactKind, PhysicsContactObservation
+    from latency_meta_mdp.envs.backend import CompletedPhysicsStep, PreparedPhysicsPoint
 
     prepared_calls = []
     completed_calls = []
@@ -262,20 +262,12 @@ def test_runtime_monitor_binds_boundary_geometry_to_the_next_action_phase() -> N
         prepared_reader=prepared_reader,
         completed_reader=completed_reader,
     )
-    monitor.on_prepared(
-        PreparedPhysicsPoint(0, 0, 0, True)
-    )
+    monitor.on_prepared(PreparedPhysicsPoint(0, 0, 0, True))
     monitor.set_active_interval_phase(StructuredExpertPhase.CLOSE_STABILIZE)
-    monitor.on_completed(
-        CompletedPhysicsStep(1, 0, 2_000, False)
-    )
-    monitor.on_prepared(
-        PreparedPhysicsPoint(1, 0, 2_000, False)
-    )
+    monitor.on_completed(CompletedPhysicsStep(1, 0, 2_000, False))
+    monitor.on_prepared(PreparedPhysicsPoint(1, 0, 2_000, False))
     monitor.set_active_interval_phase(StructuredExpertPhase.LIFT)
-    monitor.on_completed(
-        CompletedPhysicsStep(2, 0, 4_000, False)
-    )
+    monitor.on_completed(CompletedPhysicsStep(2, 0, 4_000, False))
     summary = monitor.finalize()
 
     assert prepared_calls == [0, 1]
@@ -286,8 +278,8 @@ def test_runtime_monitor_binds_boundary_geometry_to_the_next_action_phase() -> N
 
 def test_runtime_monitor_rejects_completion_without_interval_phase() -> None:
     """Break caught: a split-step contact is silently assigned to an unknown phase."""
-    from latency_meta_mdp.backend import CompletedPhysicsStep, PreparedPhysicsPoint
-    from latency_meta_mdp.expert_realization.actual_physics import RuntimePhysicsSafetyMonitor
+    from latency_meta_mdp.data.collection.actual_physics import RuntimePhysicsSafetyMonitor
+    from latency_meta_mdp.envs.backend import CompletedPhysicsStep, PreparedPhysicsPoint
 
     monitor = RuntimePhysicsSafetyMonitor(
         env=object(),
@@ -307,8 +299,8 @@ def test_runtime_monitor_rejects_completion_without_interval_phase() -> None:
 
 def test_runtime_monitor_only_discards_an_unexecuted_formal_boundary() -> None:
     """Break caught: finalize hides a missing step2 from the middle of a formal interval."""
-    from latency_meta_mdp.backend import PreparedPhysicsPoint
-    from latency_meta_mdp.expert_realization.actual_physics import RuntimePhysicsSafetyMonitor
+    from latency_meta_mdp.data.collection.actual_physics import RuntimePhysicsSafetyMonitor
+    from latency_meta_mdp.envs.backend import PreparedPhysicsPoint
 
     monitor = RuntimePhysicsSafetyMonitor(
         env=object(),
@@ -328,8 +320,8 @@ def test_runtime_monitor_only_discards_an_unexecuted_formal_boundary() -> None:
 
 def test_rollout_report_uses_full_trace_and_phase_specific_errors() -> None:
     """Break caught: report extrema use only the terminal boundary or conflate contact phases."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.expert_realization.safety import (
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.safety import (
         PhysicsSafetySummary,
         build_actual_rollout_safety_report,
     )
@@ -383,13 +375,23 @@ def test_rollout_report_uses_full_trace_and_phase_specific_errors() -> None:
             dtype=np.float64,
         ),
         eef_positions_world=np.array(
-            [[0.0, 0.0, 0.0], [0.002, 0.0, 0.0], [0.006, 0.0, 0.0],
-             [0.012, 0.0, 0.0], [0.020, 0.0, 0.0]],
+            [
+                [0.0, 0.0, 0.0],
+                [0.002, 0.0, 0.0],
+                [0.006, 0.0, 0.0],
+                [0.012, 0.0, 0.0],
+                [0.020, 0.0, 0.0],
+            ],
             dtype=np.float64,
         ),
         object_positions_world=np.array(
-            [[0.0, 0.0, 0.0], [-0.003, 0.0, 0.0], [0.0, 0.0, 0.0],
-             [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            [
+                [0.0, 0.0, 0.0],
+                [-0.003, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+            ],
             dtype=np.float64,
         ),
     )
@@ -424,8 +426,8 @@ def test_rollout_report_uses_full_trace_and_phase_specific_errors() -> None:
 
 def test_rollout_report_rejects_nonmonotonic_phase_sequence() -> None:
     """Break caught: a return from close to approach is reported as valid phase order."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.expert_realization.safety import phase_order_is_valid
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.safety import phase_order_is_valid
 
     assert phase_order_is_valid(
         (
@@ -445,8 +447,8 @@ def test_rollout_report_rejects_nonmonotonic_phase_sequence() -> None:
 
 def test_physics_observer_composition_preserves_order_and_rejects_overlap() -> None:
     """Break caught: safety callback replaces handoff updates or overwrites their fields."""
-    from latency_meta_mdp.backend import PreparedPhysicsPoint
-    from latency_meta_mdp.expert_realization.task_instance import _compose_physics_observers
+    from latency_meta_mdp.data.collection.task_instance import _compose_physics_observers
+    from latency_meta_mdp.envs.backend import PreparedPhysicsPoint
 
     calls = []
     point = PreparedPhysicsPoint(0, 0, 0, True)
@@ -472,9 +474,9 @@ def test_real_panda_runtime_compiles_and_samples_exact_safety_roles() -> None:
     """Break caught: unit-only geometry IDs do not match the compiled RoboSuite model."""
     from pathlib import Path
 
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.expert_realization.robot_bridge import build_panda_planning_bridge
-    from latency_meta_mdp.expert_realization.task_instance import (
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.data.collection.robot_bridge import build_panda_planning_bridge
+    from latency_meta_mdp.data.collection.task_instance import (
         _build_task_instance_runtime,
         materialize_task_instance,
     )
@@ -491,15 +493,13 @@ def test_real_panda_runtime_compiles_and_samples_exact_safety_roles() -> None:
             "floor",
             "table_collision",
         }
-        assert {
-            names(index) for index in geometry.left_pad_geom_ids
-        } == {"gripper0_right_finger1_pad_collision"}
-        assert {
-            names(index) for index in geometry.right_pad_geom_ids
-        } == {"gripper0_right_finger2_pad_collision"}
-        runtime.safety_monitor.set_active_interval_phase(
-            StructuredExpertPhase.SMOOTH_APPROACH
-        )
+        assert {names(index) for index in geometry.left_pad_geom_ids} == {
+            "gripper0_right_finger1_pad_collision"
+        }
+        assert {names(index) for index in geometry.right_pad_geom_ids} == {
+            "gripper0_right_finger2_pad_collision"
+        }
+        runtime.safety_monitor.set_active_interval_phase(StructuredExpertPhase.SMOOTH_APPROACH)
         runtime.executor.step_formal(task.expected_anchor.shared_actions[0])
         summary = runtime.safety_monitor.finalize()
         assert summary.minimum_non_contact_environment_clearance_m > 0.002

@@ -10,15 +10,15 @@ def test_physical_data_audit_reads_all_formal_episodes(tmp_path: Path) -> None:
     source = Path("outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json")
     if not source.is_file():
         pytest.skip("physical data audit requires the formal expert corpus")
-    from latency_meta_mdp.belief.flow.data_sufficiency import (
+    from latency_meta_mdp.legacy.belief.flow.data_sufficiency import (
         write_flow_belief_physical_data_audit,
     )
 
     manifest_path = write_flow_belief_physical_data_audit(
         project_root=Path.cwd(),
         source_bulk_manifest=source,
-        split_config_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
-        audit_config_path=Path("configs/analysis/dinov3_flow_belief_data_scaling_v1.yaml"),
+        split_config_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
+        audit_config_path=Path("configs/legacy/analysis/dinov3_flow_belief_data_scaling_v1.yaml"),
         output_dir=tmp_path / "audit",
     )
 

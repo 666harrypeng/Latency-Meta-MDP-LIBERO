@@ -9,9 +9,9 @@ def test_caed902_gaussian_checkpoints_load_strictly_after_package_isolation() ->
     torch = pytest.importorskip("torch")
     from safetensors.torch import load_file
 
-    from latency_meta_mdp.belief.gaussian.config import load_gaussian_belief_config
-    from latency_meta_mdp.belief.gaussian.model import GaussianBeliefModel
-    from latency_meta_mdp.gaussian_belief_model import (
+    from latency_meta_mdp.legacy.belief.gaussian.config import load_gaussian_belief_config
+    from latency_meta_mdp.legacy.belief.gaussian.model import GaussianBeliefModel
+    from latency_meta_mdp.legacy.gaussian_belief_model import (
         GaussianBeliefModel as LegacyGaussianBeliefModel,
     )
 
@@ -21,7 +21,7 @@ def test_caed902_gaussian_checkpoints_load_strictly_after_package_isolation() ->
     if not root.is_dir():
         pytest.skip("checkpoint compatibility requires the local caed902 artifact")
     config = load_gaussian_belief_config(
-        Path("configs/belief/dinov3_gaussian_belief_v1.yaml")
+        Path("configs/legacy/belief/dinov3_gaussian_belief_v1.yaml")
     )
     model = GaussianBeliefModel(config)
 

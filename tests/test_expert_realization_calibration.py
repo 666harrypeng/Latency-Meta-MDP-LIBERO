@@ -12,7 +12,7 @@ CALIBRATION_CONFIG = Path("configs/analysis/panda_ball_structured_timing_calibra
 
 
 def _row(task_index: int, level: int, *, success: bool = True):
-    from latency_meta_mdp.expert_realization.calibration import TimingCalibrationRow
+    from latency_meta_mdp.data.collection.calibration import TimingCalibrationRow
 
     optional = {
         "pregrasp_tick": 50,
@@ -45,14 +45,14 @@ def _row(task_index: int, level: int, *, success: bool = True):
 
 
 def _implementation():
-    from latency_meta_mdp.expert_realization.recording_contracts import ImplementationIdentity
+    from latency_meta_mdp.data.collection.recording_contracts import ImplementationIdentity
 
     return ImplementationIdentity(revision="test-revision", source_sha256="f" * 64, dirty=False)
 
 
 def test_calibration_config_is_fixed_nontraining_and_complete() -> None:
     """Break caught: calibration scope silently authorizes training or changes sample coverage."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         load_timing_calibration_config,
     )
 
@@ -68,7 +68,7 @@ def test_calibration_config_is_fixed_nontraining_and_complete() -> None:
 
 def test_calibration_attempt_request_binds_seed_and_config_identity() -> None:
     """Break caught: caller can change task seed or runtime config behind one request identity."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         TimingCalibrationAttemptRequest,
     )
 
@@ -90,7 +90,7 @@ def test_calibration_attempt_request_binds_seed_and_config_identity() -> None:
 
 def test_calibration_attempt_request_and_result_use_strict_file_protocol(tmp_path: Path) -> None:
     """Break caught: parent/worker exchange unbound Python objects or ambiguous JSON files."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         TimingCalibrationAttemptRequest,
         load_timing_calibration_attempt_result,
         write_timing_calibration_attempt_request,
@@ -165,7 +165,7 @@ def test_calibration_preserves_physics_contact_that_precedes_formal_close_decisi
 
 def test_report_accounts_for_all_150_rows_and_uses_only_success_quantiles() -> None:
     """Break caught: failed attempts enter timing quantiles or one task/level row disappears."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         TimingCalibrationReport,
         build_timing_calibration_report,
         load_timing_calibration_config,
@@ -200,7 +200,7 @@ def test_report_accounts_for_all_150_rows_and_uses_only_success_quantiles() -> N
 
 def test_report_rejects_duplicate_or_missing_task_level_rows() -> None:
     """Break caught: a self-consistent summary hides incomplete calibration accounting."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         build_timing_calibration_report,
         load_timing_calibration_config,
     )
@@ -223,7 +223,7 @@ def test_report_rejects_duplicate_or_missing_task_level_rows() -> None:
 
 def test_calibration_report_publication_is_verified_and_no_overwrite(tmp_path: Path) -> None:
     """Break caught: a non-training calibration report is mutable or loads after corruption."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         build_timing_calibration_report,
         load_timing_calibration_config,
         load_verified_timing_calibration_report,
@@ -260,8 +260,8 @@ def test_importing_calibration_contract_does_not_load_historical_expert() -> Non
     """Break caught: normal structured imports acquire the old behavioral expert."""
     script = """
 import json, sys
-import latency_meta_mdp.expert_realization.calibration
-print(json.dumps({'historical_loaded': 'latency_meta_mdp.expert' in sys.modules}))
+import latency_meta_mdp.data.collection.calibration
+print(json.dumps({'historical_loaded': 'latency_meta_mdp.envs.expert' in sys.modules}))
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],
@@ -277,7 +277,7 @@ def test_calibration_collection_materializes_exact_universe_before_publication(
     tmp_path: Path,
 ) -> None:
     """Break caught: orchestration publishes incomplete or reordered attempt accounting."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         collect_timing_calibration,
         load_verified_timing_calibration_report,
     )
@@ -315,7 +315,7 @@ def test_scoped_provenance_ignores_unrelated_files_but_detects_source_drift(
     tmp_path: Path,
 ) -> None:
     """Break caught: unrelated files invalidate calibration or source edits go unnoticed."""
-    from latency_meta_mdp.expert_realization.calibration import (
+    from latency_meta_mdp.data.collection.calibration import (
         collect_scoped_implementation_identity,
     )
 

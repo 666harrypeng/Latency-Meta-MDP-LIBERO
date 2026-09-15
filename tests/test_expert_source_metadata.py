@@ -8,8 +8,8 @@ from expert_realization_test_support import make_formal_source_episode
 
 
 def _task_entry(*, logical_index: int = 0):
-    from latency_meta_mdp.expert_realization.contracts import TaskInstanceId
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import (
+    from latency_meta_mdp.data.collection.contracts import TaskInstanceId
+    from latency_meta_mdp.data.source.metadata import (
         SourceTaskMetadataEntry,
     )
 
@@ -35,10 +35,10 @@ def _task_entry(*, logical_index: int = 0):
 def _episode_entry(*, episode_id: str = "source-l1-task000-r000"):
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import (
+    from latency_meta_mdp.data.source.metadata import (
         SourceEpisodeMetadataEntry,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.parquet import EpisodeLocation
+    from latency_meta_mdp.data.source.parquet import EpisodeLocation
 
     episode = make_formal_source_episode(schema_version=3)
     if episode_id != episode.metadata.episode_id:
@@ -61,10 +61,10 @@ def _episode_entry(*, episode_id: str = "source-l1-task000-r000"):
 
 def test_task_instance_table_centralizes_exact_task_payloads() -> None:
     """Break caught: task identity/config payload is repeated or detached from its hashes."""
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import (
+    from latency_meta_mdp.data.source.metadata import (
         build_task_instance_table,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.schema import TASK_INSTANCE_SCHEMA
+    from latency_meta_mdp.data.source.schema import TASK_INSTANCE_SCHEMA
 
     table = build_task_instance_table((_task_entry(),))
 
@@ -88,8 +88,8 @@ def test_task_metadata_rejects_hash_and_identity_drift() -> None:
 
 def test_episode_table_is_success_only_and_locates_one_row_group() -> None:
     """Break caught: a source episode needs per-episode JSON or ambiguous shard offsets."""
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import build_episode_table
-    from latency_meta_mdp.expert_realization.source_corpus.schema import EPISODE_SCHEMA
+    from latency_meta_mdp.data.source.metadata import build_episode_table
+    from latency_meta_mdp.data.source.schema import EPISODE_SCHEMA
 
     table = build_episode_table((_episode_entry(),))
 
@@ -108,7 +108,7 @@ def test_episode_table_rejects_duplicate_ids_and_cross_level_paths() -> None:
     """Break caught: two logical episodes alias one identity or a level partition."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import build_episode_table
+    from latency_meta_mdp.data.source.metadata import build_episode_table
 
     entry = _episode_entry()
     with pytest.raises(ValueError, match="episode IDs must be unique"):
@@ -121,8 +121,8 @@ def test_episode_table_rejects_duplicate_ids_and_cross_level_paths() -> None:
 
 def test_event_table_is_a_single_relational_log() -> None:
     """Break caught: physical events are fragmented into one JSON file per episode."""
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import build_event_table
-    from latency_meta_mdp.expert_realization.source_corpus.schema import EVENT_SCHEMA
+    from latency_meta_mdp.data.source.metadata import build_event_table
+    from latency_meta_mdp.data.source.schema import EVENT_SCHEMA
 
     episode = make_formal_source_episode()
     table = build_event_table((episode,))
@@ -143,7 +143,7 @@ def test_event_table_is_a_single_relational_log() -> None:
 
 def test_metadata_builders_reject_empty_or_duplicate_inputs() -> None:
     """Break caught: an empty metadata table can masquerade as a complete source corpus."""
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import (
+    from latency_meta_mdp.data.source.metadata import (
         build_episode_table,
         build_event_table,
         build_task_instance_table,
@@ -159,7 +159,7 @@ def test_metadata_builders_reject_empty_or_duplicate_inputs() -> None:
 
 def test_schema_and_provenance_documents_are_centralized_and_model_agnostic() -> None:
     """Break caught: source metadata embeds a training transform or omits collection identity."""
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import (
+    from latency_meta_mdp.data.source.metadata import (
         build_provenance_document,
         build_schema_document,
     )
@@ -206,7 +206,7 @@ def test_provenance_rejects_mixed_dataset_level_contracts() -> None:
     """Break caught: one corpus silently mixes camera or runtime contracts."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import (
+    from latency_meta_mdp.data.source.metadata import (
         build_provenance_document,
     )
 
@@ -219,11 +219,11 @@ def test_provenance_allows_one_explicit_motion_config_per_level() -> None:
     """Break caught: one multi-level source repo incorrectly requires identical motion configs."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationId,
         ExpertRealizationKey,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import (
+    from latency_meta_mdp.data.source.metadata import (
         build_provenance_document,
     )
 
@@ -256,7 +256,7 @@ def test_provenance_allows_one_explicit_motion_config_per_level() -> None:
 
 def test_metadata_tables_are_plain_arrow_without_framework_specific_metadata() -> None:
     """Break caught: source tables require an OpenPI or LeRobot custom loader."""
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import build_episode_table
+    from latency_meta_mdp.data.source.metadata import build_episode_table
 
     table = build_episode_table((_episode_entry(),))
     assert isinstance(table, pa.Table)

@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.flow.buffer_causality import (
+from latency_meta_mdp.legacy.belief.flow.buffer_causality import (
     BufferCausalityCandidate,
     build_buffer_branches,
     load_buffer_causality_config,
@@ -31,7 +31,7 @@ def _candidates(*, per_phase: int = 6) -> tuple[BufferCausalityCandidate, ...]:
 
 def test_formal_buffer_causality_config_is_locked() -> None:
     config = load_buffer_causality_config(
-        Path("configs/analysis/dinov3_flow_belief_buffer_causality_v1.yaml")
+        Path("configs/legacy/analysis/dinov3_flow_belief_buffer_causality_v1.yaml")
     )
 
     assert config.contexts_per_phase == 4

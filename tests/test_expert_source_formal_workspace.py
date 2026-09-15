@@ -6,8 +6,8 @@ import pytest
 
 
 def _universe():
-    from latency_meta_mdp.expert_realization.config import FormalCorpusConfig
-    from latency_meta_mdp.expert_realization.contracts import build_formal_request_universe
+    from latency_meta_mdp.data.collection.config import FormalCorpusConfig
+    from latency_meta_mdp.data.collection.contracts import build_formal_request_universe
 
     config = FormalCorpusConfig(
         schema_version=2,
@@ -47,7 +47,7 @@ def _identity(*, source_sha: str = "d" * 64):
 
 
 def _workspace(tmp_path: Path):
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import CollectionWorkspace
+    from latency_meta_mdp.data.source.workspace import CollectionWorkspace
 
     return CollectionWorkspace.create_formal(
         tmp_path / "work",
@@ -57,7 +57,7 @@ def _workspace(tmp_path: Path):
 
 
 def _draw(universe, *, level: int, index: int):
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         TaskInstanceId,
         build_formal_realization_draw_request,
     )
@@ -209,7 +209,7 @@ def test_master_admission_requires_three_complete_level_quotas(tmp_path: Path) -
 
 
 def test_formal_resume_requires_exact_collection_identity_and_state(tmp_path: Path) -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import CollectionWorkspace
+    from latency_meta_mdp.data.source.workspace import CollectionWorkspace
 
     root = tmp_path / "work"
     workspace = CollectionWorkspace.create_formal(

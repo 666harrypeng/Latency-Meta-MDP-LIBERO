@@ -1,9 +1,9 @@
 **
 !docker/
 !docker/sft.Dockerfile
-!docker/preparation/
-!docker/preparation/pyproject.toml
-!docker/preparation/uv.lock
+!docker/belief/
+!docker/belief/pyproject.toml
+!docker/belief/uv.lock
 !third_party/
 !third_party/openpi/
 !third_party/openpi/**

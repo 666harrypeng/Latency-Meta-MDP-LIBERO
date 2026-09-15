@@ -10,14 +10,14 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from latency_meta_mdp.belief.common.feature_data import FeatureBeliefSample
-from latency_meta_mdp.belief.flow.config import load_flow_belief_config
-from latency_meta_mdp.belief.flow.context_sampling import (
+from latency_meta_mdp.legacy.belief.common.feature_data import FeatureBeliefSample
+from latency_meta_mdp.legacy.belief.flow.config import load_flow_belief_config
+from latency_meta_mdp.legacy.belief.flow.context_sampling import (
     LoadedFlowQualityLevel,
     sample_flow_validation_contexts,
 )
-from latency_meta_mdp.belief.flow.training_data import FlowBeliefNormalization
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.belief.flow.training_data import FlowBeliefNormalization
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 class _ZeroEncoder(torch.nn.Module):
@@ -103,7 +103,7 @@ def _loaded() -> LoadedFlowQualityLevel:
 @pytest.mark.parametrize("offsets", [(0,), (0, 3)])
 def test_context_sampler_preserves_requested_offset_and_delay_order(offsets) -> None:
     corpus = _FakeCorpus(tuple(_context(index) for index in range(8)))
-    config = load_flow_belief_config(Path("configs/belief/dinov3_flow_belief_v1.yaml"))
+    config = load_flow_belief_config(Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"))
 
     sampled = sample_flow_validation_contexts(
         corpus=corpus,
@@ -140,7 +140,7 @@ def test_context_sampler_preserves_requested_offset_and_delay_order(offsets) -> 
 
 def test_context_sampler_rejects_unordered_offsets_and_delay_queries() -> None:
     corpus = _FakeCorpus(tuple(_context(index) for index in range(8)))
-    config = load_flow_belief_config(Path("configs/belief/dinov3_flow_belief_v1.yaml"))
+    config = load_flow_belief_config(Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"))
     kwargs = {
         "corpus": corpus,
         "loaded": _loaded(),

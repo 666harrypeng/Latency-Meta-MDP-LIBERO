@@ -11,7 +11,7 @@ def test_latency_parity_cli_runs_a_real_tiny_calibration(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    cli = importlib.import_module("latency_meta_mdp.cli.calibrate_latency_harness")
+    cli = importlib.import_module("latency_meta_mdp.runtime.diagnostics.calibrate_latency_harness")
     output_dir = tmp_path / "parity-cli"
 
     result = cli.main(

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.belief.flow.ghost_config import load_flow_belief_ghost_config
-from latency_meta_mdp.belief.flow.ghost_visuals import (
+from latency_meta_mdp.legacy.belief.flow.ghost_config import load_flow_belief_ghost_config
+from latency_meta_mdp.legacy.belief.flow.ghost_visuals import (
     assemble_context_panel,
     compose_agentview_ghost,
     joint_quantile_bands,
@@ -17,7 +17,7 @@ from latency_meta_mdp.belief.flow.ghost_visuals import (
 
 def _config():
     return load_flow_belief_ghost_config(
-        Path("configs/analysis/flow_belief_agentview_ghost_v1.yaml")
+        Path("configs/legacy/analysis/flow_belief_agentview_ghost_v1.yaml")
     )
 
 

@@ -11,7 +11,9 @@ def test_action_chunk_parity_cli_runs_real_tiny_calibration(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    cli = importlib.import_module("latency_meta_mdp.cli.calibrate_action_chunk_client")
+    cli = importlib.import_module(
+        "latency_meta_mdp.runtime.diagnostics.calibrate_action_chunk_client"
+    )
     output_dir = tmp_path / "chunk-client-cli"
 
     result = cli.main(

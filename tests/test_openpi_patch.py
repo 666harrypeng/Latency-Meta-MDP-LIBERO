@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.openpi_patch import PatchState, apply_openpi_patch
+from latency_meta_mdp.policy.openpi.patches import PatchState, apply_openpi_patch
 
 
 def _run(*args: str, cwd: Path) -> str:

@@ -8,8 +8,8 @@ import pytest
 def built_cache(tmp_path, monkeypatch):
     from test_action_conditioned_jepa_data import _normalization, _record
 
-    import latency_meta_mdp.policy_forecast_cache as cache_module
-    from latency_meta_mdp.policy_forecast_cache import ForecastCache, write_forecast_cache
+    import latency_meta_mdp.data.forecast.cache as cache_module
+    from latency_meta_mdp.data.forecast.cache import ForecastCache, write_forecast_cache
 
     original_hash = cache_module.sha256_file
 
@@ -64,7 +64,7 @@ def test_cache_roundtrips_lossless_and_unavailable_is_not_synthetic(built_cache)
     assert cache.read(record.episode_id, 0, 1) is None
     reopened = pickle.loads(pickle.dumps(cache))
     np.testing.assert_array_equal(reopened.read(record.episode_id, 10, 7)[0], rgb)
-    from latency_meta_mdp.policy_forecast_cache import ForecastCache
+    from latency_meta_mdp.data.forecast.cache import ForecastCache
 
     with pytest.raises(ValueError, match="binding"):
         ForecastCache(cache.root, expected_bindings={**identity, "decoder_sha256": "b" * 64})
@@ -72,7 +72,7 @@ def test_cache_roundtrips_lossless_and_unavailable_is_not_synthetic(built_cache)
 
 def test_dataset_preserves_each_native_target_and_balances_q_with_resume(built_cache):
     cache, record, _ = built_cache
-    from latency_meta_mdp.policy_forecast_dataset import ForecastPolicyDataset
+    from latency_meta_mdp.data.forecast.dataset import ForecastPolicyDataset
 
     class Native:
         def __len__(self):
@@ -117,7 +117,7 @@ def test_dataset_preserves_each_native_target_and_balances_q_with_resume(built_c
 def test_forecast_generation_resumes_after_last_complete_episode(tmp_path):
     from test_action_conditioned_jepa_data import _normalization, _record
 
-    from latency_meta_mdp.policy_forecast_cache import ForecastCache, write_forecast_cache
+    from latency_meta_mdp.data.forecast.cache import ForecastCache, write_forecast_cache
 
     records = tuple(_record(tmp_path, episode_id=f"record{i}", terminal_tick=12) for i in (1, 2))
     norm = _normalization(records[0])

@@ -9,7 +9,7 @@ import pytest
 def test_runtime_summary_uses_measured_end_to_end_samples_not_component_p95_sum() -> None:
     """Catches reporting a synthetic sum instead of the measured full-path latency."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.runtime_benchmark import (
+    from latency_meta_mdp.belief.jepa.ar.benchmark import (
         summarize_runtime_timings,
     )
 
@@ -42,7 +42,7 @@ def test_runtime_summary_uses_measured_end_to_end_samples_not_component_p95_sum(
 def test_runtime_summary_rejects_misaligned_or_nonfinite_samples() -> None:
     """Catches percentile reports formed from different launch inventories."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.runtime_benchmark import (
+    from latency_meta_mdp.belief.jepa.ar.benchmark import (
         summarize_runtime_timings,
     )
 
@@ -78,8 +78,10 @@ def test_runtime_benchmark_cli_runs_the_locked_three_seed_protocol(
 ) -> None:
     """Catches adding arbitrary seed/config selection to the final J6a command."""
 
-    import latency_meta_mdp.belief.action_conditioned_jepa.runtime_benchmark as module
-    from latency_meta_mdp.cli.benchmark_action_conditioned_jepa_l3_runtime import main
+    import latency_meta_mdp.belief.jepa.ar.benchmark as module
+    from latency_meta_mdp.belief.jepa.ar.benchmark_cli import (
+        main,
+    )
 
     output = tmp_path / "runtime.json"
     observed = {}

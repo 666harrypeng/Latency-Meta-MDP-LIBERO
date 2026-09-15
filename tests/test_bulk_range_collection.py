@@ -6,15 +6,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from latency_meta_mdp.bulk_plan import load_bulk_collection_plan
+from latency_meta_mdp.data.bulk_plan import load_bulk_collection_plan
 
 
 def _plan():
-    return load_bulk_collection_plan(Path("configs/collection/panda_ball_bulk_v1.yaml"))
+    return load_bulk_collection_plan(Path("configs/data/collection/panda_ball_bulk_v1.yaml"))
 
 
 def test_continuation_range_selects_exact_unique_level_seed_identities() -> None:
-    from latency_meta_mdp.bulk_collection import select_seed_range
+    from latency_meta_mdp.data.bulk_collection import select_seed_range
 
     attempts = select_seed_range(
         _plan(),
@@ -32,7 +32,7 @@ def test_continuation_range_selects_exact_unique_level_seed_identities() -> None
 
 
 def test_first_tranche_selection_is_the_same_seed_range_contract() -> None:
-    from latency_meta_mdp.bulk_collection import select_first_tranche, select_seed_range
+    from latency_meta_mdp.data.bulk_collection import select_first_tranche, select_seed_range
 
     plan = _plan()
 
@@ -59,7 +59,7 @@ def test_seed_range_rejects_out_of_bank_or_invalid_levels(
     seed_start: int,
     seed_count: int,
 ) -> None:
-    from latency_meta_mdp.bulk_collection import select_seed_range
+    from latency_meta_mdp.data.bulk_collection import select_seed_range
 
     with pytest.raises(ValueError):
         select_seed_range(
@@ -73,9 +73,9 @@ def test_seed_range_rejects_out_of_bank_or_invalid_levels(
 def test_tiny_explicit_range_run_is_atomic_and_preserves_range_identity(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.bulk_collection import collect_expert_range
+    from latency_meta_mdp.data.bulk_collection import collect_expert_range
 
-    raw = yaml.safe_load(Path("configs/collection/panda_ball_bulk_v1.yaml").read_text())
+    raw = yaml.safe_load(Path("configs/data/collection/panda_ball_bulk_v1.yaml").read_text())
     raw["camera_width"] = 8
     raw["camera_height"] = 8
     tiny_plan = tmp_path / "tiny_plan.yaml"
@@ -121,7 +121,7 @@ def test_tiny_explicit_range_run_is_atomic_and_preserves_range_identity(
 
 
 def test_range_collection_cli_parses_explicit_range(tmp_path: Path) -> None:
-    from latency_meta_mdp.cli.collect_expert_range import _parser
+    from latency_meta_mdp.data.collection.collect_expert_range import _parser
 
     args = _parser().parse_args(
         [

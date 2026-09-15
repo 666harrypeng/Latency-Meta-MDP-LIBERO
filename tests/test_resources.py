@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from latency_meta_mdp.resources import ResourceRecord, load_resource_manifest
+from latency_meta_mdp.envs.resources import ResourceRecord, load_resource_manifest
 
 
 def valid_record() -> ResourceRecord:

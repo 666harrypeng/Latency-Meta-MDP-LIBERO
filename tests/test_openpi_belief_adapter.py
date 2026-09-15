@@ -15,7 +15,7 @@ pytest.importorskip("flax")
 
 @pytest.fixture
 def patched_openpi():
-    from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
 
     patches = tuple(
         Path("patches/openpi") / name
@@ -50,7 +50,7 @@ def _inputs():
 def _adapter():
     import flax.nnx as nnx
 
-    from latency_meta_mdp.openpi_belief_adapter import ReturnBeliefAdapter
+    from latency_meta_mdp.legacy.policy.openpi_belief_adapter import ReturnBeliefAdapter
 
     return ReturnBeliefAdapter(action_width=64, rngs=nnx.Rngs(7))
 
@@ -206,7 +206,9 @@ def test_sampling_encodes_memory_once_and_keeps_native_prefix_protocol(patched_o
 
 
 def test_weight_loader_allows_only_new_adapter_weights(patched_openpi):
-    from latency_meta_mdp.openpi_belief_adapter import NativePolicyWithReturnBeliefLoader
+    from latency_meta_mdp.legacy.policy.openpi_belief_adapter import (
+        NativePolicyWithReturnBeliefLoader,
+    )
 
     native = {"action_out_proj": {"kernel": np.ones((4, 7), np.float32)}}
     adapter = {"gate": np.zeros((), np.float32)}
@@ -224,7 +226,7 @@ def test_belief_inputs_use_clean_state_statistics_and_reject_hidden_delay(patche
     from openpi.models.model import ModelType, Observation, preprocess_observation
     from openpi.shared.normalize import NormStats
 
-    from latency_meta_mdp.openpi_belief_data import ReturnBeliefInputs
+    from latency_meta_mdp.legacy.policy.openpi_belief_data import ReturnBeliefInputs
 
     stats = NormStats(mean=np.zeros(16), std=np.ones(16), q01=np.full(16, -2), q99=np.full(16, 2))
     transform = ReturnBeliefInputs(model_type=ModelType.PI05, state_norm_stats=stats)
@@ -264,16 +266,18 @@ def test_conditioned_data_transforms_preserve_native_tokens_and_action_mask(
     from openpi import transforms
     from openpi.shared import normalize
 
-    from latency_meta_mdp.openpi_belief_data import ReturnBeliefDataConfig
-    from latency_meta_mdp.openpi_sft import _build_config
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.legacy.policy.openpi_belief_data import ReturnBeliefDataConfig
+    from latency_meta_mdp.policy.openpi.training import _build_config
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
-    profile = load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml"))
+    profile = load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml"))
     clean = _build_config(profile, 3)
+
     def stats(n):
         return normalize.NormStats(
             mean=np.zeros(n), std=np.ones(n), q01=np.full(n, -2), q99=np.full(n, 2)
         )
+
     assets = tmp_path / "assets"
     normalize.save(assets / clean.data.repo_id, {"state": stats(16), "actions": stats(7)})
     conditioned = ReturnBeliefDataConfig(

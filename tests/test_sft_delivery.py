@@ -5,7 +5,7 @@ import yaml
 
 
 def test_job_resolves_profile_and_replicated_batch(tmp_path):
-    from latency_meta_mdp.sft_delivery import load_training_job
+    from latency_meta_mdp.policy.config import load_training_job
 
     data = dict(
         schema_version=1,
@@ -30,7 +30,7 @@ def test_job_resolves_profile_and_replicated_batch(tmp_path):
 
 
 def test_published_checkpoints_exclude_optimizer_and_logs(tmp_path):
-    from latency_meta_mdp.sft_delivery import inference_checkpoint_files
+    from latency_meta_mdp.io.policy_publish import inference_checkpoint_files
 
     for path in [
         "1000/params/manifest.ocdbt",
@@ -54,7 +54,7 @@ def test_published_checkpoints_exclude_optimizer_and_logs(tmp_path):
 
 
 def test_bundle_paths_cannot_escape_and_truncated_files_are_rejected(tmp_path):
-    from latency_meta_mdp.sft_delivery import verify_bundle_files
+    from latency_meta_mdp.data.bundles import verify_bundle_files
 
     (tmp_path / "data").write_bytes(b"1234")
     manifest = {
@@ -82,7 +82,7 @@ def test_publisher_uses_public_inference_allowlist(tmp_path, monkeypatch):
 
     import huggingface_hub
 
-    from latency_meta_mdp.sft_delivery import publish_checkpoints
+    from latency_meta_mdp.io.policy_publish import publish_checkpoints
 
     for name in (
         "1000/params/weights",

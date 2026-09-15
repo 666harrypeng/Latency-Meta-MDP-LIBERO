@@ -5,7 +5,7 @@ import pytest
 
 def test_state_probe_has_expected_shape_and_trains_only_probe_parameters() -> None:
     torch = pytest.importorskip("torch")
-    from latency_meta_mdp.vision_state_probe import TemporalVisionStateProbe
+    from latency_meta_mdp.legacy.vision_state_probe import TemporalVisionStateProbe
 
     model = TemporalVisionStateProbe(
         history_sample_count=6,

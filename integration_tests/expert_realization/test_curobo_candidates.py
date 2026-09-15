@@ -9,28 +9,28 @@ pytestmark = pytest.mark.integration
 
 def test_real_curobo_candidate_set_is_complete_seeded_and_numerical(tmp_path: Path) -> None:
     """Gate: one realization produces eight frozen records plus a repeated-seed audit."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
         StrategyFamily,
     )
-    from latency_meta_mdp.expert_realization.planner import (
+    from latency_meta_mdp.data.collection.planner import (
         PlannerCandidateStatus,
         generate_planner_candidates,
         load_planner_candidates,
         write_planner_candidates,
     )
-    from latency_meta_mdp.expert_realization.robot_bridge import build_panda_planning_bridge
-    from latency_meta_mdp.expert_realization.strategy import (
+    from latency_meta_mdp.data.collection.robot_bridge import build_panda_planning_bridge
+    from latency_meta_mdp.data.collection.strategy import (
         StructuredStrategyConfig,
         sample_strategy,
     )
-    from latency_meta_mdp.expert_realization.task_instance import materialize_task_instance
-    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+    from latency_meta_mdp.data.collection.task_instance import materialize_task_instance
+    from latency_meta_mdp.data.collection.trajectory_intent import build_trajectory_intent
 
     root = Path.cwd()
     task = materialize_task_instance(project_root=root, level=1, task_instance_seed=4000)
     config = StructuredStrategyConfig.from_path(
-        root / "configs/expert_realization/panda_ball_structured.yaml"
+        root / "configs/data/expert_realization/panda_ball_structured.yaml"
     )
     key = ExpertRealizationKey(task.task_instance_id, 0, config.source_sha256)
     strategy = sample_strategy(
@@ -71,8 +71,7 @@ def test_real_curobo_candidate_set_is_complete_seeded_and_numerical(tmp_path: Pa
             )
             assert all(
                 value == pytest.approx(0.02, abs=1.0e-12)
-                for value in candidate.timestamps_seconds[1:]
-                - candidate.timestamps_seconds[:-1]
+                for value in candidate.timestamps_seconds[1:] - candidate.timestamps_seconds[:-1]
             )
 
     artifact = tmp_path / "candidate-set"

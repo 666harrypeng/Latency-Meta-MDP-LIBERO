@@ -7,11 +7,9 @@ import yaml
 
 
 def test_formal_split_config_uses_train_and_validation_only() -> None:
-    from latency_meta_mdp.episode_split import load_episode_split_plan
+    from latency_meta_mdp.data.episode_split import load_episode_split_plan
 
-    plan = load_episode_split_plan(
-        Path("configs/data/formal_belief_train_val_v1.yaml")
-    )
+    plan = load_episode_split_plan(Path("configs/legacy/data/formal_belief_train_val_v1.yaml"))
 
     assert plan.source_seed_start == 1000
     assert plan.source_seed_count == 200
@@ -26,7 +24,7 @@ def test_formal_split_config_uses_train_and_validation_only() -> None:
 def test_split_plan_is_range_general_not_tied_to_formal_seed_values(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.episode_split import load_episode_split_plan
+    from latency_meta_mdp.data.episode_split import load_episode_split_plan
 
     path = tmp_path / "split.yaml"
     path.write_text(
@@ -68,7 +66,7 @@ def test_split_plan_is_range_general_not_tied_to_formal_seed_values(
     ),
 )
 def test_split_plan_rejects_overlap_or_gap(tmp_path: Path, splits: dict) -> None:
-    from latency_meta_mdp.episode_split import load_episode_split_plan
+    from latency_meta_mdp.data.episode_split import load_episode_split_plan
 
     path = tmp_path / "bad.yaml"
     path.write_text(

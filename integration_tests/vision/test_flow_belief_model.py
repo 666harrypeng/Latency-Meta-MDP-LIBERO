@@ -7,16 +7,14 @@ import pytest
 
 def test_flow_belief_model_jointly_trains_encoder_and_vector_field() -> None:
     torch = pytest.importorskip("torch")
-    from latency_meta_mdp.belief.flow.config import load_flow_belief_config
-    from latency_meta_mdp.belief.flow.model import (
+    from latency_meta_mdp.legacy.belief.flow.config import load_flow_belief_config
+    from latency_meta_mdp.legacy.belief.flow.model import (
         FlowBeliefModel,
         build_flow_matching_batch,
         conditional_flow_matching_loss,
     )
 
-    config = load_flow_belief_config(
-        Path("configs/belief/dinov3_flow_belief_v1.yaml")
-    )
+    config = load_flow_belief_config(Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"))
     model = FlowBeliefModel(config).cuda()
     target = torch.randn(2, 4, 22, device="cuda")
     flow_batch = build_flow_matching_batch(

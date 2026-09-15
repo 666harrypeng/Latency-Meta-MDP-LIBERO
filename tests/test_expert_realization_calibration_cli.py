@@ -7,7 +7,7 @@ def test_calibration_cli_prints_only_manifest_to_stdout(tmp_path: Path, capsys) 
     """Break caught: progress contaminates the machine-readable manifest-path stdout contract."""
     from test_expert_realization_calibration import _row
 
-    from latency_meta_mdp.cli.calibrate_structured_expert_timing import main
+    from latency_meta_mdp.runtime.diagnostics.calibrate_structured_expert_timing import main
 
     target = tmp_path / "calibration"
 

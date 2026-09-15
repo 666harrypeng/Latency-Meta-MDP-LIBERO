@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from latency_meta_mdp.expert_realization.contracts import TaskInstanceId
+from latency_meta_mdp.data.collection.contracts import TaskInstanceId
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -18,37 +18,33 @@ def _task() -> TaskInstanceId:
 
 
 def _key(index: int):
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey
+    from latency_meta_mdp.data.collection.contracts import ExpertRealizationKey
 
     return ExpertRealizationKey(_task(), index, SHA_C)
 
 
 def _row(index: int):
-    from latency_meta_mdp.expert_realization.artifacts import ArtifactRef, FrozenPlanRow
+    from latency_meta_mdp.data.collection.artifacts import ArtifactRef, FrozenPlanRow
 
     return FrozenPlanRow(
         expert_realization_key=_key(index),
         strategy=ArtifactRef(f"strategies/realization-{index:03d}.json", SHA_A),
-        planner_candidates=ArtifactRef(
-            f"planner_candidates/realization-{index:03d}.jsonl", SHA_B
-        ),
+        planner_candidates=ArtifactRef(f"planner_candidates/realization-{index:03d}.jsonl", SHA_B),
         selection_status="selected",
         selected_candidate_fingerprint=SHA_C,
-        selected_reference=ArtifactRef(
-            f"selected_references/realization-{index:03d}.npz", SHA_D
-        ),
+        selected_reference=ArtifactRef(f"selected_references/realization-{index:03d}.npz", SHA_D),
     )
 
 
 def _implementation():
-    from latency_meta_mdp.expert_realization.recording_contracts import ImplementationIdentity
+    from latency_meta_mdp.data.collection.recording_contracts import ImplementationIdentity
 
     return ImplementationIdentity(revision="test", source_sha256=SHA_A, dirty=False)
 
 
 def test_realization_key_serializes_namespace_and_accepts_request_bound_slot() -> None:
     """Break caught: a formal slot is rejected by the old global 0..7 key contract."""
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey
+    from latency_meta_mdp.data.collection.contracts import ExpertRealizationKey
 
     key = _key(12)
     mapping = key.to_mapping()
@@ -60,11 +56,11 @@ def test_realization_key_serializes_namespace_and_accepts_request_bound_slot() -
 
 def test_four_and_eight_slot_universes_bind_exact_plan_rows() -> None:
     """Break caught: a frozen plan silently assumes eight rows or accepts a missing formal row."""
-    from latency_meta_mdp.expert_realization.artifacts import (
+    from latency_meta_mdp.data.collection.artifacts import (
         ArtifactRef,
         FrozenPlanSetManifest,
     )
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         build_realization_universe_identity,
     )
 
@@ -96,7 +92,7 @@ def test_four_and_eight_slot_universes_bind_exact_plan_rows() -> None:
 
 def test_realization_universe_rejects_duplicate_or_noncanonical_slots() -> None:
     """Break caught: duplicate/out-of-order slots produce an ambiguous plan-set identity."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         build_realization_universe_identity,
     )
 
@@ -111,7 +107,7 @@ def test_realization_universe_rejects_duplicate_or_noncanonical_slots() -> None:
 
 def test_realization_universe_mapping_round_trip_rejects_false_hash() -> None:
     """Break caught: a serialized universe digest does not bind its request/task/slot payload."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         RealizationUniverseIdentity,
         build_realization_universe_identity,
     )

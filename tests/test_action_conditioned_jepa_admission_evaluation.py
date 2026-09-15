@@ -3,13 +3,13 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
-    FutureLatentRollout,
-    LaunchContextBatch,
-)
-from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+from latency_meta_mdp.belief.jepa.ar.temporal_view import (
     SharedJepaSampleIndex,
     TemporalJepaEvaluationBatch,
+)
+from latency_meta_mdp.belief.jepa.contracts import (
+    FutureLatentRollout,
+    LaunchContextBatch,
 )
 
 
@@ -85,7 +85,7 @@ def _constant_velocity_target(batch_size: int = 1) -> torch.Tensor:
 def test_j2_uses_seconds_for_constant_velocity_and_preserves_direction() -> None:
     """Catches multiplying velocity by raw tick indices or losing displacement direction."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.evaluation import (
         evaluate_future_proprio_batch,
     )
 
@@ -111,7 +111,7 @@ def test_j2_uses_seconds_for_constant_velocity_and_preserves_direction() -> None
 def test_j2_reports_physical_components_without_mixing_units() -> None:
     """Catches collapsing quantities with four different physical units into one RMSE."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.evaluation import (
         evaluate_future_proprio_batch,
     )
 
@@ -136,7 +136,7 @@ def test_j2_reports_physical_components_without_mixing_units() -> None:
 def test_j2_primary_summary_excludes_absorbing_targets() -> None:
     """Catches repeated terminal states making dynamic prediction quality look artificially good."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.evaluation import (
         evaluate_future_proprio_batch,
         summarize_future_proprio,
     )
@@ -169,7 +169,7 @@ def test_j2_primary_summary_excludes_absorbing_targets() -> None:
 def test_j2_counts_collapsed_qpos_prediction_as_zero_direction_skill() -> None:
     """Catches excluding a zero-motion prediction when the target actually moves."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.evaluation import (
         evaluate_future_proprio_batch,
     )
 
@@ -188,7 +188,7 @@ def test_j2_counts_collapsed_qpos_prediction_as_zero_direction_skill() -> None:
 def test_j2_can_score_one_precomputed_rollout_without_calling_model_again() -> None:
     """Catches forcing J2 and J3 to execute separate AR5 predictor rollouts."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_evaluation import (
+    from latency_meta_mdp.belief.jepa.ar.evaluation import (
         evaluate_future_proprio_rollout,
     )
 

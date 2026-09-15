@@ -23,7 +23,7 @@ def test_formal_source_metadata_has_no_pilot_or_attempt_identity() -> None:
         != metadata.structured_expert_config_sha256
     )
     assert not {"pilot_config_sha256", "pilot_gate_config_sha256", "attempt_id"} & set(mapping)
-    from latency_meta_mdp.expert_realization.source_corpus.contracts import (
+    from latency_meta_mdp.data.source.contracts import (
         FormalSourceEpisodeMetadata,
     )
 
@@ -46,7 +46,7 @@ def test_formal_source_metadata_rejects_identity_and_protocol_drift() -> None:
 
 def test_formal_source_episode_reuses_records_but_accepts_only_success() -> None:
     """Break caught: a failed execution becomes a canonical source episode payload."""
-    from latency_meta_mdp.expert_realization.source_corpus.contracts import (
+    from latency_meta_mdp.data.source.contracts import (
         FormalSourceSynchronizedEpisode,
     )
 
@@ -74,7 +74,7 @@ def test_formal_source_episode_reuses_records_but_accepts_only_success() -> None
 
 def test_source_episode_rejects_clock_and_realization_join_drift() -> None:
     """Break caught: source transitions or expert audits refer to another tick/realization."""
-    from latency_meta_mdp.expert_realization.source_corpus.contracts import (
+    from latency_meta_mdp.data.source.contracts import (
         FormalSourceSynchronizedEpisode,
     )
 
@@ -108,7 +108,7 @@ def test_source_episode_rejects_clock_and_realization_join_drift() -> None:
 
 def test_source_episode_requires_one_terminal_success_event_at_the_final_boundary() -> None:
     """Break caught: an admitted source episode lacks its causal success timestamp."""
-    from latency_meta_mdp.expert_realization.source_corpus.contracts import (
+    from latency_meta_mdp.data.source.contracts import (
         FormalSourceSynchronizedEpisode,
     )
 
@@ -123,7 +123,7 @@ def test_source_episode_requires_one_terminal_success_event_at_the_final_boundar
             physical_events=(),
             terminal_reason="lift_succeeded",
         )
-    from latency_meta_mdp.expert_realization.recording_contracts import (
+    from latency_meta_mdp.data.collection.recording_contracts import (
         StructuredPhysicalEventRecord,
     )
 

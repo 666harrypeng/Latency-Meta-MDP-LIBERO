@@ -9,7 +9,7 @@ import pytest
 
 
 def _bridge():
-    from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
+    from latency_meta_mdp.data.collection.robot_bridge import PandaPlanningBridge
 
     f64 = np.float64
     return PandaPlanningBridge(
@@ -40,7 +40,7 @@ def _bridge():
 
 def test_bridge_contract_is_exact_read_only_and_round_trips() -> None:
     """Break caught: joint/frame/assets drift without changing the bridge identity."""
-    from latency_meta_mdp.expert_realization.robot_bridge import PandaPlanningBridge
+    from latency_meta_mdp.data.collection.robot_bridge import PandaPlanningBridge
 
     bridge = _bridge()
     loaded = PandaPlanningBridge.from_mapping(bridge.to_mapping())
@@ -70,7 +70,7 @@ def test_bridge_contract_is_exact_read_only_and_round_trips() -> None:
 
 def test_parity_set_contains_home_interior_and_each_safe_limit_side() -> None:
     """Break caught: FK qualification quietly degenerates to one home configuration."""
-    from latency_meta_mdp.expert_realization.robot_bridge import sample_fk_parity_set
+    from latency_meta_mdp.data.collection.robot_bridge import sample_fk_parity_set
 
     bridge = _bridge()
     samples = sample_fk_parity_set(bridge, interior_count=16)
@@ -88,8 +88,8 @@ def test_bridge_modules_do_not_import_curobo_in_parent_process() -> None:
     """Break caught: normal RoboSuite collection imports CuRobo/CUDA worker dependencies."""
     code = """
 import sys
-import latency_meta_mdp.expert_realization.robot_bridge
-import latency_meta_mdp.expert_realization.planner_protocol
+import latency_meta_mdp.data.collection.robot_bridge
+import latency_meta_mdp.data.collection.planner_protocol
 bad = [name for name in sys.modules if name == 'curobo' or name.startswith('curobo.')]
 assert not bad, bad
 """

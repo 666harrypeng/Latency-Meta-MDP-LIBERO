@@ -15,7 +15,7 @@ def test_real_panda_runtime_smoke_and_no_overwrite(tmp_path: Path) -> None:
     command = [
         sys.executable,
         "-m",
-        "latency_meta_mdp.cli.check_runtime",
+        "latency_meta_mdp.envs.check",
         "--run-id",
         "g0_test",
         "--output-root",

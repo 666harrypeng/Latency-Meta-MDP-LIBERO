@@ -6,13 +6,14 @@ import numpy as np
 import torch
 from test_action_conditioned_jepa_data import _record
 
-from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+from latency_meta_mdp.belief.jepa.ar.temporal_view import (
     SharedJepaSampleIndex,
 )
+from latency_meta_mdp.io.paths import repository_root
 
 
 def _matching_signal_episode(record):
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
+    from latency_meta_mdp.belief.jepa.diagnostics.history_signal import (
         TemporalSignalEpisode,
     )
 
@@ -33,12 +34,12 @@ def _matching_signal_episode(record):
 def test_dual_view_readout_uses_both_full_patch_views_without_latent_gradients() -> None:
     """Catches dropping one camera or updating frozen JEPA latents."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
+    from latency_meta_mdp.belief.jepa.diagnostics.readout import (
         DualViewObjectStateReadout,
     )
 
     torch.manual_seed(4)
-    model = DualViewObjectStateReadout(project_root=Path(__file__).resolve().parents[1])
+    model = DualViewObjectStateReadout(project_root=repository_root())
     latents = torch.randn(1, 1, 2, 196, 384, dtype=torch.float32, requires_grad=True)
     base = model(latents)
     changed_agent = latents.detach().clone()
@@ -59,7 +60,7 @@ def test_object_state_dataset_reads_each_gt_frame_once_and_normalizes_targets(
 ) -> None:
     """Catches training the probe on repeated rollout contexts or unnormalized mixed-unit state."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
+    from latency_meta_mdp.belief.jepa.diagnostics.readout import (
         ObjectStateReadoutDataset,
         compute_object_state_normalization,
     )
@@ -95,7 +96,7 @@ class _LatentEncodedStateReadout(torch.nn.Module):
 def test_object_state_evaluation_uses_one_frozen_readout_for_gt_and_predicted_latents() -> None:
     """Catches mixing the GT-latent probe ceiling with predicted-latent error."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
+    from latency_meta_mdp.belief.jepa.diagnostics.readout import (
         ObjectStateNormalization,
         evaluate_object_state_latents,
     )
@@ -134,7 +135,7 @@ def test_object_state_evaluation_uses_one_frozen_readout_for_gt_and_predicted_la
 def test_object_state_targets_follow_stride4_ticks_and_terminal_absorption(tmp_path: Path) -> None:
     """Catches reading object targets from the source tick or beyond the terminal boundary."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
+    from latency_meta_mdp.belief.jepa.diagnostics.readout import (
         gather_object_state_targets,
     )
 
@@ -160,7 +161,7 @@ def test_object_state_targets_follow_stride4_ticks_and_terminal_absorption(tmp_p
 def test_object_state_summary_keeps_dynamic_and_absorbing_errors_separate() -> None:
     """Catches repeated terminal targets making grounded rollout quality look better."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.physical_readout import (
+    from latency_meta_mdp.belief.jepa.diagnostics.readout import (
         ObjectStateBatchMetrics,
         summarize_object_state_metrics,
     )

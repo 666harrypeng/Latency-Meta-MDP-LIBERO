@@ -9,7 +9,7 @@ import torch
 def test_console_progress_cadence_and_message_are_live_and_informative() -> None:
     """Catches silent multi-minute epochs or progress lines missing job identity."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.fold_runner import (
+    from latency_meta_mdp.belief.jepa.ar.selection import (
         format_temporal_training_progress,
         should_emit_temporal_training_progress,
     )
@@ -52,7 +52,7 @@ def test_console_progress_cadence_and_message_are_live_and_informative() -> None
 def test_loader_lifecycle_does_not_persist_workers_into_monitor_evaluation() -> None:
     """Catches epoch loaders retaining workers while a pinned monitor loader starts."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.fold_runner import (
+    from latency_meta_mdp.belief.jepa.ar.selection import (
         build_temporal_evaluation_loader,
         build_temporal_training_loader,
     )
@@ -86,7 +86,7 @@ def test_fold_runner_preflight_resolves_job_without_loading_or_writing_data(
 ) -> None:
     """Catches starting an expensive fold before job identity and credentials are reviewable."""
 
-    from latency_meta_mdp.cli.train_action_conditioned_jepa import main
+    from latency_meta_mdp.belief.jepa.diagnostics.train_action_conditioned_jepa import main
 
     monkeypatch.delenv("WANDB_API_KEY", raising=False)
     output = tmp_path / "run"
@@ -95,7 +95,7 @@ def test_fold_runner_preflight_resolves_job_without_loading_or_writing_data(
             "--project-root",
             ".",
             "--temporal-config",
-            "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml",
+            "configs/models/jepa/stride4_80ms_history_160ms.yaml",
             "--fold-index",
             "0",
             "--model-seed",

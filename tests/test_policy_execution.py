@@ -7,7 +7,7 @@ import pytest
 
 
 def _observation(tick):
-    from latency_meta_mdp.policy_execution import PolicyObservation
+    from latency_meta_mdp.runtime.policy_execution import PolicyObservation
 
     return PolicyObservation(
         formal_tick=tick,
@@ -18,9 +18,9 @@ def _observation(tick):
 
 
 def _runtime(*, scheduler, interval=1, shield=False, belief=None, probabilities=None):
-    from latency_meta_mdp.action_chunk_client import load_action_chunk_client_config
-    from latency_meta_mdp.control import load_action_contract
-    from latency_meta_mdp.policy_execution import LogicalPolicyRuntime, PhysicalStepResult
+    from latency_meta_mdp.envs.control import load_action_contract
+    from latency_meta_mdp.runtime.action_chunk_client import load_action_chunk_client_config
+    from latency_meta_mdp.runtime.policy_execution import LogicalPolicyRuntime, PhysicalStepResult
 
     clock = SimpleNamespace(tick=0)
 
@@ -30,9 +30,11 @@ def _runtime(*, scheduler, interval=1, shield=False, belief=None, probabilities=
         return actions
 
     runtime = LogicalPolicyRuntime(
-        action_contract=load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml")),
+        action_contract=load_action_contract(
+            Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+        ),
         client_config=load_action_chunk_client_config(
-            Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+            Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
         ),
         simulation_time_reader=lambda: clock.tick * 20_000,
         delay_sampler=lambda: 3,
@@ -74,7 +76,7 @@ def test_known_latency_law_is_available_without_future_belief():
 
 
 def test_logical_runtime_records_variable_duration_transitions_and_request_stages():
-    from latency_meta_mdp.policy_execution import ImmediateLaunchScheduler
+    from latency_meta_mdp.runtime.policy_execution import ImmediateLaunchScheduler
 
     runtime, clock, execute = _runtime(scheduler=ImmediateLaunchScheduler())
     while clock.tick < 8:
@@ -102,7 +104,7 @@ def test_logical_runtime_records_variable_duration_transitions_and_request_stage
 
 
 def test_fixed_scheduler_wait_does_not_pay_for_unused_belief_refresh():
-    from latency_meta_mdp.policy_execution import FixedCursorScheduler
+    from latency_meta_mdp.runtime.policy_execution import FixedCursorScheduler
 
     class Belief:
         calls = 0
@@ -125,7 +127,7 @@ def test_fixed_scheduler_wait_does_not_pay_for_unused_belief_refresh():
 
 
 def test_snapshot_packing_excludes_privileged_state():
-    from latency_meta_mdp.policy_execution import policy_observation_from_snapshot
+    from latency_meta_mdp.runtime.policy_execution import policy_observation_from_snapshot
 
     snapshot = SimpleNamespace(
         formal_tick_index=2,
@@ -155,7 +157,7 @@ def test_snapshot_packing_excludes_privileged_state():
 
 
 def test_latent_threshold_reference_updates_on_actual_shielded_launches():
-    from latency_meta_mdp.policy_execution import LatentChangeScheduler
+    from latency_meta_mdp.runtime.policy_execution import LatentChangeScheduler
 
     scheduler = LatentChangeScheduler(
         feature_reader=lambda obs: np.full(2, obs.formal_tick, dtype=float), threshold=2

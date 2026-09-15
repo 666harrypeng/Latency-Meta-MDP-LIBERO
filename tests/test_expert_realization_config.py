@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from latency_meta_mdp.io.paths import repository_root
+
+PROJECT_ROOT = repository_root()
 
 
 def _structured_mapping() -> dict[str, object]:
@@ -62,7 +64,7 @@ def test_structured_config_rejects_unknown_and_missing_fields(
     tmp_path: Path, mutation: str
 ) -> None:
     """Break caught: a semantic field may otherwise be silently accepted/defaulted."""
-    from latency_meta_mdp.expert_realization.config import load_structured_expert_config
+    from latency_meta_mdp.data.collection.config import load_structured_expert_config
 
     mapping = _structured_mapping()
     if mutation == "unknown":
@@ -77,7 +79,7 @@ def test_structured_config_rejects_unknown_and_missing_fields(
 @pytest.mark.parametrize("mutation", ["unknown", "missing"])
 def test_pilot_config_rejects_unknown_and_missing_fields(tmp_path: Path, mutation: str) -> None:
     """Break caught: pilot authorization or scope could otherwise silently change."""
-    from latency_meta_mdp.expert_realization.config import load_pilot_config
+    from latency_meta_mdp.data.collection.config import load_pilot_config
 
     mapping: dict[str, object] = {
         "schema_version": 1,
@@ -115,7 +117,7 @@ def test_pilot_config_rejects_unknown_and_missing_fields(tmp_path: Path, mutatio
 
 def test_checked_in_configs_preserve_paired_pilot_and_exact_bounds() -> None:
     """Break caught: a change to the checked-in pilot loses its specified realization domain."""
-    from latency_meta_mdp.expert_realization.config import (
+    from latency_meta_mdp.data.collection.config import (
         load_curobo_planner_config,
         load_pilot_config,
         load_pilot_gate_config,
@@ -123,12 +125,14 @@ def test_checked_in_configs_preserve_paired_pilot_and_exact_bounds() -> None:
     )
 
     structured = load_structured_expert_config(
-        PROJECT_ROOT / "configs/expert_realization/panda_ball_structured.yaml"
+        PROJECT_ROOT / "configs/data/expert_realization/panda_ball_structured.yaml"
     )
     curobo = load_curobo_planner_config(
-        PROJECT_ROOT / "configs/expert_realization/curobo_panda.yaml"
+        PROJECT_ROOT / "configs/data/expert_realization/curobo_panda.yaml"
     )
-    pilot = load_pilot_config(PROJECT_ROOT / "configs/collection/panda_ball_structured_pilot.yaml")
+    pilot = load_pilot_config(
+        PROJECT_ROOT / "configs/data/collection/panda_ball_structured_pilot.yaml"
+    )
     gate = load_pilot_gate_config(
         PROJECT_ROOT / "configs/analysis/panda_ball_structured_pilot_gate.yaml"
     )
@@ -180,19 +184,19 @@ def test_checked_in_configs_preserve_paired_pilot_and_exact_bounds() -> None:
     [
         (
             "load_structured_expert_config",
-            "configs/expert_realization/panda_ball_structured.yaml",
+            "configs/data/expert_realization/panda_ball_structured.yaml",
             "decision_source_tick",
             5.0,
         ),
         (
             "load_curobo_planner_config",
-            "configs/expert_realization/curobo_panda.yaml",
+            "configs/data/expert_realization/curobo_panda.yaml",
             "planner_candidate_count",
             True,
         ),
         (
             "load_pilot_config",
-            "configs/collection/panda_ball_structured_pilot.yaml",
+            "configs/data/collection/panda_ball_structured_pilot.yaml",
             "camera_width",
             256.0,
         ),
@@ -208,7 +212,7 @@ def test_config_loaders_reject_wrong_yaml_scalar_types(
     tmp_path: Path, loader_name: str, path: str, field: str, wrong_value: object
 ) -> None:
     """Break caught: YAML-equivalent values have different serialized config identities."""
-    import latency_meta_mdp.expert_realization.config as config_module
+    import latency_meta_mdp.data.collection.config as config_module
 
     mapping = yaml.safe_load((PROJECT_ROOT / path).read_text(encoding="utf-8"))
     mapping[field] = wrong_value

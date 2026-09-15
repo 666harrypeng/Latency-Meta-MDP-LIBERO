@@ -1,0 +1,9 @@
+schema_version: 2
+protocol_id: sharp_return_time_chunk_v2
+temporal_contract: ../../contracts/temporal/h50_e25_d20_k6_v1.yaml
+bootstrap_mode: warm_start
+handoff_strategy: sharp_replace
+arrival_write_mode: from_arrival
+chunk_alignment: return_time
+max_pending_requests: 1
+starvation_action: hold

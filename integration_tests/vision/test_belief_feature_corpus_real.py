@@ -4,31 +4,28 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 def test_l1_feature_belief_corpus_uses_level_specific_episode_splits() -> None:
-    source = Path(
-        "outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json")
     cache = Path(
-        "outputs/derived/vision_features/"
-        "dinov3-vits16-first-tranche-54b9562/manifest.json"
+        "outputs/derived/vision_features/dinov3-vits16-first-tranche-54b9562/manifest.json"
     )
     if not source.is_file() or not cache.is_file():
         pytest.skip("feature belief corpus requires the local first tranche")
-    from latency_meta_mdp.belief_feature_corpus import load_level_feature_belief_corpus
+    from latency_meta_mdp.legacy.belief_feature_corpus import load_level_feature_belief_corpus
 
     corpus = load_level_feature_belief_corpus(
         project_root=Path.cwd(),
         source_bulk_manifest=source,
         cache_run_manifest=cache,
         expected_spec=load_vision_encoder_spec(
-            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+            Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
         ),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
         level=1,
     )
 
@@ -49,17 +46,13 @@ def test_l1_feature_belief_corpus_uses_level_specific_episode_splits() -> None:
 
 
 def test_l1_formal_feature_belief_corpus_uses_160_20_20_splits() -> None:
-    source = Path(
-        "outputs/bulk/expert/"
-        "panda-ball-formal-train-1000-1199-7571a4c/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json")
     cache = Path(
-        "outputs/derived/vision_features/"
-        "dinov3-vits16-formal-1000-1199-408dbe3/manifest.json"
+        "outputs/derived/vision_features/dinov3-vits16-formal-1000-1199-408dbe3/manifest.json"
     )
     if not source.is_file() or not cache.is_file():
         pytest.skip("formal feature belief corpus requires local artifacts")
-    from latency_meta_mdp.belief.common.feature_corpus import (
+    from latency_meta_mdp.legacy.belief.common.feature_corpus import (
         load_level_feature_belief_corpus,
     )
 
@@ -68,11 +61,11 @@ def test_l1_formal_feature_belief_corpus_uses_160_20_20_splits() -> None:
         source_bulk_manifest=source,
         cache_run_manifest=cache,
         expected_spec=load_vision_encoder_spec(
-            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+            Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
         ),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
-        split_plan_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        split_plan_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
         level=1,
     )
 

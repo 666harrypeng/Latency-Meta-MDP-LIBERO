@@ -5,9 +5,7 @@ from dataclasses import fields, replace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.expert import ExpertPhase
-from latency_meta_mdp.outcomes import OutcomeStatus, TerminalReason
-from latency_meta_mdp.recording import (
+from latency_meta_mdp.data.recording import (
     BoundaryRecord,
     CameraRecord,
     CommandedMotionRecord,
@@ -24,6 +22,8 @@ from latency_meta_mdp.recording import (
     SynchronizedEpisode,
     TransitionRecord,
 )
+from latency_meta_mdp.envs.expert import ExpertPhase
+from latency_meta_mdp.envs.outcomes import OutcomeStatus, TerminalReason
 
 
 def _metadata(
@@ -128,9 +128,7 @@ def _boundary(
         time_us=tick * 20_000,
         deployment=_deployment(tick),
         privileged=(
-            _privileged()
-            if profile in (RecordProfile.BELIEF, RecordProfile.PILOT_DEBUG)
-            else None
+            _privileged() if profile in (RecordProfile.BELIEF, RecordProfile.PILOT_DEBUG) else None
         ),
         control_debug=(
             _control_debug(
@@ -385,9 +383,7 @@ def test_typed_payloads_reject_invalid_camera_and_state_shapes() -> None:
         PrivilegedRecord(
             object_pose=np.full(7, np.nan),
             object_velocity=np.zeros(6),
-            commanded_motion=CommandedMotionRecord(
-                np.zeros(3), np.zeros(3), np.zeros(3), 0
-            ),
+            commanded_motion=CommandedMotionRecord(np.zeros(3), np.zeros(3), np.zeros(3), 0),
             contact=PadContactRecord(False, False),
             handoff_state=HandoffState.DRIVEN,
             relative_geometry=np.zeros(3),

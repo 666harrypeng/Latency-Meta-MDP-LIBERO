@@ -7,14 +7,14 @@ import pytest
 
 
 def _key(index: int = 0):
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey, TaskInstanceId
+    from latency_meta_mdp.data.collection.contracts import ExpertRealizationKey, TaskInstanceId
 
     task = TaskInstanceId(1, 4000, "a" * 64, "b" * 64)
     return ExpertRealizationKey(task, index, "c" * 64)
 
 
 def _candidate(index: int = 0, *, key_index: int = 0, offset: float = 0.0):
-    from latency_meta_mdp.expert_realization.planner import (
+    from latency_meta_mdp.data.collection.planner import (
         PlannerCandidate,
         PlannerCandidateStatus,
         planner_candidate_seed,
@@ -48,7 +48,7 @@ def _candidate(index: int = 0, *, key_index: int = 0, offset: float = 0.0):
 
 def test_candidate_seed_set_and_numeric_records_are_complete() -> None:
     """Break caught: an invocation is missing or stores status without its numerical path."""
-    from latency_meta_mdp.expert_realization.planner import planner_candidate_seeds
+    from latency_meta_mdp.data.collection.planner import planner_candidate_seeds
 
     key = _key()
     seeds = planner_candidate_seeds(key, candidate_count=8)
@@ -68,7 +68,7 @@ def test_candidate_seed_set_and_numeric_records_are_complete() -> None:
 
 def test_timeout_is_a_typed_candidate_and_cannot_carry_success_arrays() -> None:
     """Break caught: a timed-out invocation disappears or masquerades as a numerical plan."""
-    from latency_meta_mdp.expert_realization.planner import (
+    from latency_meta_mdp.data.collection.planner import (
         PlannerCandidate,
         PlannerCandidateStatus,
         planner_candidate_seed,
@@ -99,7 +99,7 @@ def test_timeout_is_a_typed_candidate_and_cannot_carry_success_arrays() -> None:
 
 def test_candidate_serialization_round_trip_and_corruption_rejection(tmp_path) -> None:
     """Break caught: frozen numerical candidate bytes are not bound to their metadata."""
-    from latency_meta_mdp.expert_realization.planner import (
+    from latency_meta_mdp.data.collection.planner import (
         load_planner_candidates,
         write_planner_candidates,
     )
@@ -123,7 +123,7 @@ def test_hard_worker_timeout_writes_typed_candidate_record(
     import json
     import subprocess
 
-    from latency_meta_mdp.expert_realization.planner import (
+    from latency_meta_mdp.data.collection.planner import (
         PlannerCandidateStatus,
         load_single_candidate_result,
         planner_candidate_seed,
@@ -163,7 +163,7 @@ def test_hard_worker_timeout_writes_typed_candidate_record(
 
 def test_candidate_timestamps_bind_the_frozen_arrival_schedule() -> None:
     """Break caught: CuRobo's fastest path time replaces the sampled episode timing."""
-    from latency_meta_mdp.expert_realization.planner import schedule_candidate_timestamps
+    from latency_meta_mdp.data.collection.planner import schedule_candidate_timestamps
 
     raw = np.array([0.0, 0.25, 0.5, 0.75, 1.0], dtype=np.float64)
     nominal = schedule_candidate_timestamps(
@@ -203,7 +203,7 @@ def test_candidate_timestamps_bind_the_frozen_arrival_schedule() -> None:
 
 def test_retimed_joint_path_must_still_respect_planning_limits() -> None:
     """Break caught: arrival retiming creates an infeasible joint-space reference."""
-    from latency_meta_mdp.expert_realization.planner import validate_scheduled_joint_path
+    from latency_meta_mdp.data.collection.planner import validate_scheduled_joint_path
 
     timestamps = np.array([0.0, 0.1, 0.2], dtype=np.float64)
     lower = np.full(7, -1.0, dtype=np.float64)
@@ -246,11 +246,11 @@ def test_planner_request_serializes_curve_and_funnel_intent_not_hard_segments(
     )
     from test_expert_realization_robot_bridge import _bridge
 
-    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
-    from latency_meta_mdp.expert_realization.planner import write_planner_request
-    from latency_meta_mdp.expert_realization.strategy import sample_strategy
-    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
-    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+    from latency_meta_mdp.data.collection.contracts import StrategyFamily
+    from latency_meta_mdp.data.collection.planner import write_planner_request
+    from latency_meta_mdp.data.collection.strategy import sample_strategy
+    from latency_meta_mdp.data.collection.task_instance import MaterializedTaskInstance
+    from latency_meta_mdp.data.collection.trajectory_intent import build_trajectory_intent
 
     monkeypatch.setattr(
         MaterializedTaskInstance,
@@ -300,7 +300,7 @@ def test_planner_request_serializes_curve_and_funnel_intent_not_hard_segments(
 
 def test_worker_parser_preserves_empty_soft_guide_matrix_shape() -> None:
     """Break caught: JSON [] is interpreted as shape [0] instead of an empty [0,3] matrix."""
-    from latency_meta_mdp.expert_realization.curobo_worker import _parse_approach_geometry
+    from latency_meta_mdp.data.collection.curobo_worker import _parse_approach_geometry
 
     guides, radii, entry, tangent = _parse_approach_geometry(
         {
@@ -319,7 +319,7 @@ def test_worker_parser_preserves_empty_soft_guide_matrix_shape() -> None:
 
 def test_planner_timeout_is_per_pose_invocation_not_sum_over_guides() -> None:
     """Break caught: a three-target approach is rejected because total planning exceeds 5 s."""
-    from latency_meta_mdp.expert_realization.curobo_worker import (
+    from latency_meta_mdp.data.collection.curobo_worker import (
         _planner_invocation_timeout_reason,
     )
 

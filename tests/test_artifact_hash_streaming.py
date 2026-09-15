@@ -3,7 +3,7 @@ import io
 
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
+from latency_meta_mdp.io.artifacts import sha256_file
 
 
 @pytest.mark.parametrize("size", [0, 13, 3 * 1024 * 1024 + 17])

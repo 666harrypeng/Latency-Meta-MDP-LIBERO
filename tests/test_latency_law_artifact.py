@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.latency_law_artifact import write_latency_law_certification
+from latency_meta_mdp.runtime.latency_law_artifact import write_latency_law_certification
 
 
 def test_latency_law_certification_binds_theory_sampling_and_causal_visibility(
@@ -16,7 +16,7 @@ def test_latency_law_certification_binds_theory_sampling_and_causal_visibility(
     output = tmp_path / "law-certification"
     manifest_path = write_latency_law_certification(
         project_root=Path.cwd(),
-        config_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        config_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
         output_dir=output,
         sample_count=20_000,
         sampling_seed=2026,
@@ -45,16 +45,14 @@ def test_latency_law_certification_binds_theory_sampling_and_causal_visibility(
     with pytest.raises(FileExistsError, match="already exists"):
         write_latency_law_certification(
             project_root=Path.cwd(),
-            config_path=Path(
-                "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
-            ),
+            config_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
             output_dir=output,
             sample_count=20_000,
             sampling_seed=2026,
             maximum_probability_error=0.01,
         )
 
-    cli = importlib.import_module("latency_meta_mdp.cli.certify_latency_law")
+    cli = importlib.import_module("latency_meta_mdp.data.tools.certify_latency_law")
     cli_output = tmp_path / "law-certification-cli"
     assert (
         cli.main(
@@ -62,7 +60,7 @@ def test_latency_law_certification_binds_theory_sampling_and_causal_visibility(
                 "--project-root",
                 str(Path.cwd()),
                 "--config",
-                "configs/latency/truncated_beta_5_26_400ms_v1.yaml",
+                "configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml",
                 "--output-dir",
                 str(cli_output),
                 "--sample-count",

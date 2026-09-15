@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.sft_norm_stats import (
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.policy.norm_stats import (
     NormStatsComputation,
     compute_level_sft_norm_stats,
 )
 
-_PROFILE = Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
+_PROFILE = Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
 _PATCH = Path("patches/openpi/0001-filter-incomplete-action-chunks.patch")
 _REPO = "yypeng666/metamdp-robosuite-franka-moving_ball-l1-clean-50hz-h50-v2"
 
@@ -150,9 +150,7 @@ def test_compute_level_norm_stats_publishes_verified_atomic_artifact(tmp_path: P
     assert manifest["source_count"] == 4
     assert manifest["state_dim"] == 8
     assert manifest["action_dim"] == 7
-    assert manifest["artifacts"] == {
-        "norm_stats.json": sha256_file(output / "norm_stats.json")
-    }
+    assert manifest["artifacts"] == {"norm_stats.json": sha256_file(output / "norm_stats.json")}
 
 
 def test_compute_level_norm_stats_rejects_wrong_backend_source_count(tmp_path: Path) -> None:
@@ -252,7 +250,7 @@ def test_compute_norm_stats_cli_emits_clean_json_and_progress(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     derived, certification = _inputs(tmp_path)
-    cli = importlib.import_module("latency_meta_mdp.cli.compute_sft_norm_stats")
+    cli = importlib.import_module("latency_meta_mdp.data.tools.compute_sft_norm_stats")
 
     def backend(**kwargs) -> NormStatsComputation:
         _write_json(kwargs["output_path"], _norm_payload())

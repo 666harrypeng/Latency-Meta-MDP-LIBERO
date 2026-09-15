@@ -4,11 +4,9 @@ from pathlib import Path
 
 
 def test_flow_belief_config_matches_mainline_contract() -> None:
-    from latency_meta_mdp.belief.flow.config import load_flow_belief_config
+    from latency_meta_mdp.legacy.belief.flow.config import load_flow_belief_config
 
-    config = load_flow_belief_config(
-        Path("configs/belief/dinov3_flow_belief_v1.yaml")
-    )
+    config = load_flow_belief_config(Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"))
 
     assert config.model_id == "dinov3_flow_belief_v1"
     assert config.history_sample_count == 6

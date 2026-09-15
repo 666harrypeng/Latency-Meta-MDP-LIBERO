@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
-from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.data.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.io.episode_artifacts import write_synchronized_episode_artifact
 
 
 def _belief_episode_dir(tmp_path: Path) -> Path:
@@ -32,7 +32,7 @@ def _belief_episode_dir(tmp_path: Path) -> Path:
 def test_belief_episode_view_separates_deployment_and_privileged_streams(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.belief_data import load_belief_episode
+    from latency_meta_mdp.legacy.belief_data import load_belief_episode
 
     view = load_belief_episode(_belief_episode_dir(tmp_path))
 
@@ -68,13 +68,11 @@ def test_belief_episode_view_separates_deployment_and_privileged_streams(
 def test_belief_indices_use_unpadded_history_and_valid_future_boundaries(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.belief_data import build_belief_sample_indices, load_belief_episode
-    from latency_meta_mdp.temporal_contract import load_temporal_contract
+    from latency_meta_mdp.legacy.belief_data import build_belief_sample_indices, load_belief_episode
+    from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
     view = load_belief_episode(_belief_episode_dir(tmp_path))
-    contract = load_temporal_contract(
-        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
-    )
+    contract = load_temporal_contract(Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"))
     indices = build_belief_sample_indices(
         episode=view,
         temporal_contract=contract,
@@ -86,13 +84,11 @@ def test_belief_indices_use_unpadded_history_and_valid_future_boundaries(
     assert indices[0].history_start_tick == 20
     assert all(index.history_start_tick == index.source_tick - 5 for index in indices)
     assert all(
-        index.target_tick == index.source_tick + index.branch_delay_tick
-        for index in indices
+        index.target_tick == index.source_tick + index.branch_delay_tick for index in indices
     )
     assert all(index.target_tick < view.boundary_count for index in indices)
     assert all(
-        index.source_tick + index.branch_delay_tick <= view.transition_count
-        for index in indices
+        index.source_tick + index.branch_delay_tick <= view.transition_count for index in indices
     )
     valid_source_count = view.transition_count - 25 - 25 + 1
     expected_count = valid_source_count * 20
@@ -103,7 +99,7 @@ def test_belief_indices_use_unpadded_history_and_valid_future_boundaries(
 def test_launch_history_and_return_target_do_not_cross_privilege_boundary(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.belief_data import (
+    from latency_meta_mdp.legacy.belief_data import (
         SharpTeacherBufferAdapter,
         build_belief_sample_indices,
         build_launch_history,
@@ -111,12 +107,10 @@ def test_launch_history_and_return_target_do_not_cross_privilege_boundary(
         load_belief_episode,
         teacher_forced_pre_return_actions,
     )
-    from latency_meta_mdp.temporal_contract import load_temporal_contract
+    from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
     view = load_belief_episode(_belief_episode_dir(tmp_path))
-    contract = load_temporal_contract(
-        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
-    )
+    contract = load_temporal_contract(Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"))
     index = build_belief_sample_indices(
         episode=view,
         temporal_contract=contract,
@@ -160,7 +154,7 @@ def test_launch_history_and_return_target_do_not_cross_privilege_boundary(
 
 
 def test_belief_loader_rejects_nonbelief_episode(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief_data import load_belief_episode
+    from latency_meta_mdp.legacy.belief_data import load_belief_episode
 
     episode = collect_expert_episode(
         project_root=Path.cwd(),

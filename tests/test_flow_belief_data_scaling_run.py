@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.belief.flow.data_scaling_run import extract_scaling_metrics
-from latency_meta_mdp.latency_law import load_latency_law
+from latency_meta_mdp.legacy.belief.flow.data_scaling_run import extract_scaling_metrics
+from latency_meta_mdp.runtime.latency_law import load_latency_law
 
 
 def test_extract_scaling_metrics_matches_formal_l1_evaluation() -> None:
@@ -18,7 +18,7 @@ def test_extract_scaling_metrics_matches_formal_l1_evaluation() -> None:
         checkpoint_dir=checkpoint,
         evaluation_dir=evaluation,
         latency_probabilities=load_latency_law(
-            Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml")
+            Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml")
         ).probabilities,
     )
 

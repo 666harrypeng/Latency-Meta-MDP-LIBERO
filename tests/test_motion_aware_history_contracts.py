@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from latency_meta_mdp.belief.causal_return.motion_aware_contracts import (
+from latency_meta_mdp.legacy.belief.causal_return.motion_aware_contracts import (
     MotionAwareHistoryConfig,
     MotionAwareHistoryEstimate,
     MotionAwareHistorySample,

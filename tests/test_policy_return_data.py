@@ -34,7 +34,7 @@ class _Predictions:
 
 
 def _dataset(tmp_path, mode, *, split="train"):
-    from latency_meta_mdp.policy_return_data import MatchedReturnPolicyDataset
+    from latency_meta_mdp.legacy.policy.policy_return_data import MatchedReturnPolicyDataset
 
     record = _record(tmp_path, terminal_tick=30, split=split)
     pmf = np.arange(1, 21, dtype=float)
@@ -140,10 +140,10 @@ def test_policy_development_rejects_validation_records(tmp_path):
 
 
 def test_episode_law_key_preserves_existing_generation():
-    from latency_meta_mdp.latency_law_family import load_episode_latency_law_family
+    from latency_meta_mdp.runtime.latency_law_family import load_episode_latency_law_family
 
     family = load_episode_latency_law_family(
-        Path("configs/latency/truncated_beta_family_8_65_400ms_v1.yaml")
+        Path("configs/runtime/latency/truncated_beta_family_8_65_400ms_v1.yaml")
     )
     by_key = family.sample_for_key(assignment_key=12)
     legacy = family.sample_for_episode(

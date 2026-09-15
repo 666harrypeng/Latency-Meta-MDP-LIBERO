@@ -6,13 +6,25 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
+from latency_meta_mdp.data.expert_collection import (
+    ExpertEpisodeSpec,
+    build_expert_episode_runtime,
+)
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.envs.motion import build_motion_profile, load_motion_config
+from latency_meta_mdp.envs.outcomes import (
+    EpisodeOutcomeTracker,
+    OutcomeCriteria,
+    OutcomeStatus,
+)
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_contracts import (
     ControlContinuationSpec,
     ExecutablePrefix,
     SourceContextIdentity,
     load_branch_corpus_config,
 )
-from latency_meta_mdp.belief.conditional_return_flow.branch_runtime import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_runtime import (
     ReplayCertification,
     build_branch_runtime,
     execute_control_branch,
@@ -20,30 +32,18 @@ from latency_meta_mdp.belief.conditional_return_flow.branch_runtime import (
     replay_to_source,
     source_replay_fingerprint,
 )
-from latency_meta_mdp.belief.conditional_return_flow.control_continuations import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.control_continuations import (
     ControlContinuation,
     build_control_continuations,
 )
-from latency_meta_mdp.belief.conditional_return_flow.executable_prefix import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.executable_prefix import (
     materialize_teacher_executable_prefix,
 )
-from latency_meta_mdp.belief.conditional_return_flow.source_corpus import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.source_corpus import (
     load_one_verified_source,
     select_source_contexts,
 )
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.expert_collection import (
-    ExpertEpisodeSpec,
-    build_expert_episode_runtime,
-)
-from latency_meta_mdp.motion import build_motion_profile, load_motion_config
-from latency_meta_mdp.outcomes import (
-    EpisodeOutcomeTracker,
-    OutcomeCriteria,
-    OutcomeStatus,
-)
-from latency_meta_mdp.recording import RecordProfile
-from latency_meta_mdp.temporal_contract import load_temporal_contract
+from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
 
 def _spec(*, motion_seed: int) -> ExpertEpisodeSpec:
@@ -80,7 +80,7 @@ def _source_identity_for_terminal() -> SourceContextIdentity:
 def test_expert_runtime_uses_exact_motion_profile_override() -> None:
     project_root = Path.cwd()
     motion_config = load_motion_config(
-        project_root / "configs/motion/dynamic_grasp_lift_l1.yaml"
+        project_root / "configs/tasks/moving_ball/motion/dynamic_grasp_lift_l1.yaml"
     )
     override = build_motion_profile(config=motion_config, seed=1011, workspace_z=0.833)
 
@@ -167,22 +167,20 @@ def test_fresh_stored_profile_replay_matches_real_l1_source() -> None:
         project_root=project_root,
         source_bulk_manifest=project_root
         / "outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json",
-        split_config_path=project_root / "configs/data/formal_belief_train_val_v1.yaml",
+        split_config_path=project_root / "configs/legacy/data/formal_belief_train_val_v1.yaml",
         level=1,
         scene_seed=1000,
     )
     contexts = select_source_contexts(
         episodes=(source,),
         config=load_branch_corpus_config(
-            project_root / "configs/belief/conditional_return_flow/branch_corpus.yaml"
+            project_root / "configs/legacy/belief/conditional_return_flow/branch_corpus.yaml"
         ),
         temporal=load_temporal_contract(
-            project_root / "configs/temporal/h50_e25_d20_k6_v1.yaml"
+            project_root / "configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"
         ),
     )
-    context = next(
-        row for row in contexts.contexts if row.identity.source_phase == "approach"
-    )
+    context = next(row for row in contexts.contexts if row.identity.source_phase == "approach")
     runtime = build_branch_runtime(project_root=project_root, episode=source)
     try:
         replay = replay_to_source(runtime=runtime, episode=source, context=context)
@@ -200,15 +198,15 @@ def test_nominal_control_branch_matches_recorded_future_states() -> None:
         project_root=project_root,
         source_bulk_manifest=project_root
         / "outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json",
-        split_config_path=project_root / "configs/data/formal_belief_train_val_v1.yaml",
+        split_config_path=project_root / "configs/legacy/data/formal_belief_train_val_v1.yaml",
         level=1,
         scene_seed=1000,
     )
     config = load_branch_corpus_config(
-        project_root / "configs/belief/conditional_return_flow/branch_corpus.yaml"
+        project_root / "configs/legacy/belief/conditional_return_flow/branch_corpus.yaml"
     )
     temporal = load_temporal_contract(
-        project_root / "configs/temporal/h50_e25_d20_k6_v1.yaml"
+        project_root / "configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"
     )
     context = next(
         row
@@ -225,14 +223,14 @@ def test_nominal_control_branch_matches_recorded_future_states() -> None:
         source_tick=context.identity.source_tick,
         temporal=temporal,
         action_contract=load_action_contract(
-            project_root / "configs/control/panda_osc_pose_delta_v1.yaml"
+            project_root / "configs/runtime/control/panda_osc_pose_delta_v1.yaml"
         ),
     )
     continuation = build_control_continuations(
         nominal_prefix=prefix,
         config=config,
         action_contract=load_action_contract(
-            project_root / "configs/control/panda_osc_pose_delta_v1.yaml"
+            project_root / "configs/runtime/control/panda_osc_pose_delta_v1.yaml"
         ),
         source_context_id=context.identity.source_context_id,
     )[0]

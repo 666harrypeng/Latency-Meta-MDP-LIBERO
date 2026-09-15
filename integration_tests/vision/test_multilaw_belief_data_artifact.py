@@ -13,7 +13,7 @@ def test_multilaw_belief_data_artifact_certifies_runtime_view(tmp_path: Path) ->
     )
     if not source.is_file() or not cache.is_file():
         pytest.skip("multi-law Belief data artifact requires formal local artifacts")
-    from latency_meta_mdp.belief.flow.multilaw_data_artifact import (
+    from latency_meta_mdp.legacy.belief.flow.multilaw_data_artifact import (
         certify_multilaw_belief_data,
     )
 
@@ -21,12 +21,12 @@ def test_multilaw_belief_data_artifact_certifies_runtime_view(tmp_path: Path) ->
         project_root=Path.cwd(),
         source_bulk_manifest=source,
         cache_run_manifest=cache,
-        vision_config_path=Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        nominal_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
-        family_config_path=Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
-        split_config_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
-        multilaw_config_path=Path("configs/belief/dinov3_flow_belief_multilaw_v2.yaml"),
+        vision_config_path=Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        nominal_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        family_config_path=Path("configs/runtime/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
+        split_config_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
+        multilaw_config_path=Path("configs/legacy/belief/dinov3_flow_belief_multilaw_v2.yaml"),
         output_dir=tmp_path / "multilaw-data",
     )
 

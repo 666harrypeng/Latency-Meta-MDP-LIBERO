@@ -5,11 +5,11 @@ import yaml
 
 
 def test_direct_job_uses_level_specific_inputs_and_shared_budget(tmp_path):
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_run import (
+    from latency_meta_mdp.belief.jepa.job import (
         load_direct_job,
     )
 
-    config = Path("configs/training/action_conditioned_jepa/direct_query_l2.yaml")
+    config = Path("configs/experiments/moving_ball/l2/belief.yaml")
     job = load_direct_job(config, project_root=Path.cwd())
     assert job.level == 2
     assert "l2-final-admission" in str(job.normalization)
@@ -27,7 +27,7 @@ def test_direct_job_uses_level_specific_inputs_and_shared_budget(tmp_path):
 def test_epoch_journal_reconciles_to_saved_checkpoint(tmp_path):
     import json
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_run import (
+    from latency_meta_mdp.belief.jepa.job import (
         reconcile_epoch_journal,
     )
 
@@ -46,12 +46,12 @@ def test_training_entry_builds_identity_before_model_initialization(tmp_path, mo
     from dataclasses import asdict
     from types import SimpleNamespace
 
-    from latency_meta_mdp.artifacts import sha256_file
-    from latency_meta_mdp.belief.action_conditioned_jepa import direct_prediction_run as runner
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_training import (
+    from latency_meta_mdp.belief.jepa import job as runner
+    from latency_meta_mdp.belief.jepa import train as cli
+    from latency_meta_mdp.belief.jepa.optimization import (
         DirectTrainingConfig,
     )
-    from latency_meta_mdp.cli import train_direct_jepa as cli
+    from latency_meta_mdp.io.artifacts import sha256_file
 
     norm = tmp_path / "norm.json"
     norm.write_text("{}")

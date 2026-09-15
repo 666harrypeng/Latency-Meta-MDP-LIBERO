@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief_data import load_belief_episode
-from latency_meta_mdp.hf_dino_encoder import HfDinoPatchEncoder
-from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
+from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+from latency_meta_mdp.data.vision.dino import HfDinoPatchEncoder
+from latency_meta_mdp.legacy.belief_data import load_belief_episode
 
 
 def test_pinned_dinov2_extracts_full_frozen_spatial_grid() -> None:
@@ -15,14 +15,11 @@ def test_pinned_dinov2_extracts_full_frozen_spatial_grid() -> None:
     if not torch.cuda.is_available():
         pytest.skip("real DINOv2 integration requires CUDA")
     episode_path = Path(
-        "outputs/bulk/expert/panda-ball-first-tranche-e58eee5/"
-        "attempts/L1/seed_001000"
+        "outputs/bulk/expert/panda-ball-first-tranche-e58eee5/attempts/L1/seed_001000"
     )
     if not episode_path.is_dir():
         pytest.skip("real DINOv2 integration requires the local first tranche")
-    spec = load_vision_encoder_spec(
-        Path("configs/vision/dinov2_vits14_lvd142m_196_v1.yaml")
-    )
+    spec = load_vision_encoder_spec(Path("configs/models/vision/dinov2_vits14_lvd142m_196_v1.yaml"))
     encoder = HfDinoPatchEncoder.from_pretrained(
         spec=spec,
         device="cuda",

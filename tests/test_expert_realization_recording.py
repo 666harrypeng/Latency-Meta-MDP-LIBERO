@@ -17,7 +17,7 @@ SHA_F = "f" * 64
 
 
 def make_ids():
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         AttemptId,
         ExpertRealizationId,
         ExpertRealizationKey,
@@ -31,8 +31,8 @@ def make_ids():
 
 
 def make_episode(*, boundary_count: int = 2):
-    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
-    from latency_meta_mdp.expert_realization.recording_contracts import (
+    from latency_meta_mdp.data.collection.contracts import StrategyFamily
+    from latency_meta_mdp.data.collection.recording_contracts import (
         ImplementationIdentity,
         StructuredBoundaryRecord,
         StructuredDeploymentRecord,
@@ -272,7 +272,7 @@ def test_episode_publication_round_trips_exact_npz_contract_and_rejects_corrupti
     tmp_path: Path,
 ) -> None:
     """Break caught: bytes omit fields, change dtypes, or load after tampering."""
-    from latency_meta_mdp.expert_realization.recording_artifacts import (
+    from latency_meta_mdp.data.collection.recording_artifacts import (
         load_verified_structured_episode,
         write_structured_episode,
     )
@@ -342,7 +342,7 @@ def test_episode_publication_round_trips_exact_npz_contract_and_rejects_corrupti
 
 def test_episode_loader_rejects_legacy_missing_identity_and_hidden_builds(tmp_path: Path) -> None:
     """Break caught: historical or incomplete episodes are mistaken for structured artifacts."""
-    from latency_meta_mdp.expert_realization.recording_artifacts import (
+    from latency_meta_mdp.data.collection.recording_artifacts import (
         load_verified_structured_episode,
     )
 
@@ -372,7 +372,7 @@ def test_episode_loader_rejects_legacy_missing_identity_and_hidden_builds(tmp_pa
 
 def test_episode_writer_never_overwrites_empty_or_nonempty_targets(tmp_path: Path) -> None:
     """Break caught: publication replaces an artifact that another worker already owns."""
-    from latency_meta_mdp.expert_realization.recording_artifacts import write_structured_episode
+    from latency_meta_mdp.data.collection.recording_artifacts import write_structured_episode
 
     for name, populated in (("empty", False), ("full", True)):
         target = tmp_path / name
@@ -386,7 +386,7 @@ def test_episode_writer_never_overwrites_empty_or_nonempty_targets(tmp_path: Pat
 
 def test_structured_metadata_serializes_every_bound_identity_and_provenance_field() -> None:
     """Break caught: strategy, artifact, or implementation provenance is dropped."""
-    from latency_meta_mdp.expert_realization.recording_contracts import StructuredEpisodeMetadata
+    from latency_meta_mdp.data.collection.recording_contracts import StructuredEpisodeMetadata
 
     metadata = make_episode().metadata
     mapping = metadata.to_mapping()
@@ -410,7 +410,7 @@ def test_schema_versions_require_exact_integer_one_not_boolean_true() -> None:
 
 def test_episode_loader_rejects_boolean_schema_versions_and_event_count(tmp_path: Path) -> None:
     """Break caught: boolean envelope versions and counts are accepted as integer one."""
-    from latency_meta_mdp.expert_realization.recording_artifacts import (
+    from latency_meta_mdp.data.collection.recording_artifacts import (
         load_verified_structured_episode,
         write_structured_episode,
     )
@@ -451,7 +451,7 @@ def test_zero_transition_episode_round_trips_with_locked_empty_array_shapes(
     tmp_path: Path,
 ) -> None:
     """Break caught: empty transition arrays collapse their required trailing dimensions."""
-    from latency_meta_mdp.expert_realization.recording_artifacts import (
+    from latency_meta_mdp.data.collection.recording_artifacts import (
         load_verified_structured_episode,
         write_structured_episode,
     )
@@ -473,7 +473,7 @@ def test_episode_loader_rejects_complete_episode_below_hidden_staging_ancestor(
     tmp_path: Path,
 ) -> None:
     """Break caught: a complete nested child becomes visible before its parent publication."""
-    from latency_meta_mdp.expert_realization.recording_artifacts import (
+    from latency_meta_mdp.data.collection.recording_artifacts import (
         load_verified_structured_episode,
         write_structured_episode,
     )
@@ -493,7 +493,7 @@ def test_episode_loader_requires_exact_regular_nonsymlink_four_file_snapshot(
     tmp_path: Path,
 ) -> None:
     """Break caught: undeclared files, directories, or symlinks enter a verified episode."""
-    from latency_meta_mdp.expert_realization.recording_artifacts import (
+    from latency_meta_mdp.data.collection.recording_artifacts import (
         load_verified_structured_episode,
         write_structured_episode,
     )
@@ -528,7 +528,7 @@ def test_episode_loader_rejects_intermediate_alias_to_hidden_build_ancestry(
     tmp_path: Path,
 ) -> None:
     """Break caught: a clean alias exposes an episode physically beneath hidden staging."""
-    from latency_meta_mdp.expert_realization.recording_artifacts import (
+    from latency_meta_mdp.data.collection.recording_artifacts import (
         load_verified_structured_episode,
         write_structured_episode,
     )

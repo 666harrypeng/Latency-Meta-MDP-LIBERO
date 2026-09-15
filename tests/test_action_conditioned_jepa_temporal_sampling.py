@@ -6,7 +6,7 @@ import pytest
 import torch
 import yaml
 
-CONFIG_ROOT = Path("configs/belief/action_conditioned_jepa")
+CONFIG_ROOT = Path("configs/models/jepa")
 
 
 @pytest.mark.parametrize(
@@ -56,7 +56,7 @@ def test_temporal_configs_resolve_literal_source_offsets(
 ) -> None:
     """Catches a stride applied to counts but not to physical source indices."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_jepa_temporal_sampling,
     )
 
@@ -105,7 +105,7 @@ def test_temporal_configs_preserve_every_ordered_micro_control(
 ) -> None:
     """Catches averaging, endpoint-only selection, or gaps inside macro controls."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_jepa_temporal_sampling,
     )
 
@@ -119,13 +119,11 @@ def test_temporal_configs_preserve_every_ordered_micro_control(
 def test_history_readiness_uses_available_source_ticks_not_buffer_cursor() -> None:
     """Catches reintroducing the old cursor>=5 shortcut for all model strides."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_jepa_temporal_sampling,
     )
 
-    sampling = load_jepa_temporal_sampling(
-        CONFIG_ROOT / "stride5_100ms_history_200ms.yaml"
-    )
+    sampling = load_jepa_temporal_sampling(CONFIG_ROOT / "stride5_100ms_history_200ms.yaml")
 
     assert not sampling.is_history_ready(9)
     assert sampling.is_history_ready(10)
@@ -150,7 +148,7 @@ def test_temporal_sampling_rejects_semantic_drift(
 ) -> None:
     """Catches malformed configs that change time or latency semantics silently."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_jepa_temporal_sampling,
     )
 
@@ -174,7 +172,7 @@ def test_temporal_sampling_rejects_semantic_drift(
 def test_model_loader_accepts_an_explicit_temporal_candidate() -> None:
     """Catches loading candidate metadata without binding it to the resolved model config."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
 
@@ -195,16 +193,14 @@ def test_model_loader_accepts_an_explicit_temporal_candidate() -> None:
 def test_macro_latency_quantizer_conserves_every_d20_bin_with_upper_ties() -> None:
     """Catches dropping or independently renormalizing latency bins on a coarse grid."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.latent_return import (
+    from latency_meta_mdp.belief.jepa.ar.return_belief import (
         quantize_d20_probabilities,
     )
-
-    sampling = load_jepa_temporal_sampling(
-        CONFIG_ROOT / "stride2_40ms_history_120ms.yaml"
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
     )
+
+    sampling = load_jepa_temporal_sampling(CONFIG_ROOT / "stride2_40ms_history_120ms.yaml")
     probabilities = torch.arange(1, 21, dtype=torch.float32)
     probabilities = (probabilities / probabilities.sum()).unsqueeze(0)
 
@@ -222,11 +218,11 @@ def test_macro_latency_quantizer_conserves_every_d20_bin_with_upper_ties() -> No
 def test_dense_latency_quantizer_is_exact_identity() -> None:
     """Catches changing D20 probabilities in the full-rate reference."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.latent_return import (
+    from latency_meta_mdp.belief.jepa.ar.return_belief import (
         quantize_d20_probabilities,
+    )
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
     )
 
     sampling = load_jepa_temporal_sampling(CONFIG_ROOT / "dense_20ms_history_100ms.yaml")
@@ -244,18 +240,16 @@ def test_dense_latency_quantizer_is_exact_identity() -> None:
 def test_macro_assembler_attaches_quantized_weights_without_copying_rollout() -> None:
     """Catches a macro Belief that keeps D20 weights or recomputes fixed-delay futures."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentRollout
-    from latency_meta_mdp.belief.action_conditioned_jepa.latent_return import (
+    from latency_meta_mdp.belief.jepa.ar.return_belief import (
         assemble_return_latent_belief,
         quantize_d20_probabilities,
     )
-
-    sampling = load_jepa_temporal_sampling(
-        CONFIG_ROOT / "stride4_80ms_history_160ms.yaml"
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
     )
+    from latency_meta_mdp.belief.jepa.contracts import FutureLatentRollout
+
+    sampling = load_jepa_temporal_sampling(CONFIG_ROOT / "stride4_80ms_history_160ms.yaml")
     anchors = torch.tensor([4, 8, 12, 16, 20], dtype=torch.int64)
     rollout = FutureLatentRollout(
         native_delay_ticks=anchors,

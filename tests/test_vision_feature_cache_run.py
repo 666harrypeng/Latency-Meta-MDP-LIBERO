@@ -9,9 +9,9 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from latency_meta_mdp.artifacts import ImplementationProvenance, sha256_file
-from latency_meta_mdp.expert_realization.source_corpus.parquet import encode_png
-from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
+from latency_meta_mdp.data.source.parquet import encode_png
+from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+from latency_meta_mdp.io.artifacts import ImplementationProvenance, sha256_file
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,7 @@ class _RuntimeInfo:
 class _DeterministicEncoder:
     def __init__(self, *, fail_on_call: int | None = None) -> None:
         self.spec = load_vision_encoder_spec(
-            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+            Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
         )
         self.runtime_info = _RuntimeInfo()
         self.fail_on_call = fail_on_call
@@ -103,7 +103,7 @@ def _clean_provenance(_root: Path) -> ImplementationProvenance:
 
 
 def test_structured_source_cache_run_round_trips_exact_inventory(tmp_path: Path) -> None:
-    from latency_meta_mdp.vision_feature_cache_run import (
+    from latency_meta_mdp.data.vision.extract import (
         load_verified_vision_feature_cache_run,
         write_vision_feature_cache_run,
     )
@@ -159,7 +159,7 @@ def test_structured_source_cache_run_round_trips_exact_inventory(tmp_path: Path)
 
 
 def test_cache_run_rejects_overwrite_and_cleans_failed_staging(tmp_path: Path) -> None:
-    from latency_meta_mdp.vision_feature_cache_run import write_vision_feature_cache_run
+    from latency_meta_mdp.data.vision.extract import write_vision_feature_cache_run
 
     corpus = _Corpus(tmp_path / "source")
     output = tmp_path / "cache"
@@ -188,7 +188,7 @@ def test_cache_run_rejects_overwrite_and_cleans_failed_staging(tmp_path: Path) -
 
 
 def test_cache_run_loader_rejects_child_tamper(tmp_path: Path) -> None:
-    from latency_meta_mdp.vision_feature_cache_run import (
+    from latency_meta_mdp.data.vision.extract import (
         load_verified_vision_feature_cache_run,
         write_vision_feature_cache_run,
     )
@@ -217,7 +217,7 @@ def test_cache_run_loader_rejects_child_tamper(tmp_path: Path) -> None:
 
 
 def test_cache_cli_exposes_structured_source_selection(tmp_path: Path, capsys) -> None:
-    from latency_meta_mdp.cli.cache_vision_features import main
+    from latency_meta_mdp.data.vision.prepare import main
 
     source = tmp_path / "source"
     output = tmp_path / "cache"
@@ -266,7 +266,7 @@ def test_cache_cli_exposes_structured_source_selection(tmp_path: Path, capsys) -
 
 
 def test_cache_can_select_explicit_training_episode_inventory(tmp_path):
-    from latency_meta_mdp.vision_feature_cache_run import (
+    from latency_meta_mdp.data.vision.extract import (
         load_verified_vision_feature_cache_run,
         write_vision_feature_cache_run,
     )

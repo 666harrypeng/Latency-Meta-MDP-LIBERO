@@ -5,7 +5,7 @@ import pytest
 
 
 def test_gaussian_metrics_use_latency_weights_and_physical_units() -> None:
-    from latency_meta_mdp.gaussian_belief_metrics import gaussian_prediction_metrics
+    from latency_meta_mdp.legacy.gaussian_belief_metrics import gaussian_prediction_metrics
 
     target = np.zeros((2, 2, 22), dtype=np.float64)
     mean = target.copy()

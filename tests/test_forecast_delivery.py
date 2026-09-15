@@ -6,9 +6,9 @@ from types import SimpleNamespace
 def test_pipeline_runs_stages_in_order_and_skips_completed_work(tmp_path, monkeypatch):
     import sys
 
-    from latency_meta_mdp.cli import run_policy_sft_pipeline as cli
+    from latency_meta_mdp.policy import pipeline as cli
 
-    config = Path("configs/training/pi05/l2_clean_conditioned.yaml").resolve()
+    config = Path("configs/experiments/moving_ball/l2/conditioned.yaml").resolve()
     monkeypatch.setattr(
         sys,
         "argv",
@@ -31,9 +31,9 @@ def test_pipeline_runs_stages_in_order_and_skips_completed_work(tmp_path, monkey
     cli.main()
     assert len(calls) == 4
     assert "--check-access" in calls[0]
-    assert "latency_meta_mdp.cli.train_structured_pi05" in calls[1]
-    assert "latency_meta_mdp.cli.prepare_forecast_sft" in calls[2]
-    assert "latency_meta_mdp.cli.train_forecast_pi05" in calls[3]
+    assert "latency_meta_mdp.policy.train_clean" in calls[1]
+    assert "latency_meta_mdp.data.forecast.prepare" in calls[2]
+    assert "latency_meta_mdp.policy.train_conditioned" in calls[3]
     assert json.loads((tmp_path / "pipeline.json").read_text())["phase"] == "complete"
     calls.clear()
     cli.main()
@@ -45,7 +45,7 @@ def test_source_materialization_excludes_hf_metadata_and_preserves_declared_file
 ):
     import huggingface_hub
 
-    from latency_meta_mdp.forecast_delivery import stage_source
+    from latency_meta_mdp.data.forecast.assets import stage_source
 
     snapshot = tmp_path / "snapshot"
     snapshot.mkdir()
@@ -67,17 +67,15 @@ def test_source_materialization_excludes_hf_metadata_and_preserves_declared_file
 def test_scoped_vision_join_requires_every_requested_episode(monkeypatch, tmp_path):
     import pytest
 
-    from latency_meta_mdp.belief.action_conditioned_jepa import data_adapter as data
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa import corpus as data
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
 
     config = load_action_conditioned_jepa_config(
-        model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
-        level_path=Path("configs/belief/action_conditioned_jepa/l2.yaml"),
-        temporal_sampling_path=Path(
-            "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml"
-        ),
+        model_path=Path("configs/models/jepa/model.yaml"),
+        level_path=Path("configs/models/jepa/l2.yaml"),
+        temporal_sampling_path=Path("configs/models/jepa/stride4_80ms_history_160ms.yaml"),
     )
     source = SimpleNamespace(
         root=tmp_path,

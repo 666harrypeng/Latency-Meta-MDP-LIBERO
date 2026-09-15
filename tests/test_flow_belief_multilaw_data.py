@@ -7,19 +7,19 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.common.feature_data import (
+from latency_meta_mdp.legacy.belief.common.feature_data import (
     FeatureBeliefSample,
     sample_feature_delay_queries,
 )
-from latency_meta_mdp.belief.flow.config import load_flow_belief_config
-from latency_meta_mdp.belief.flow.multilaw_config import (
+from latency_meta_mdp.legacy.belief.flow.config import load_flow_belief_config
+from latency_meta_mdp.legacy.belief.flow.multilaw_config import (
     load_multilaw_flow_training_config,
 )
-from latency_meta_mdp.belief.flow.training_data import (
+from latency_meta_mdp.legacy.belief.flow.training_data import (
     FlowBeliefDataset,
     FlowBeliefNormalization,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 def _sample(probabilities: np.ndarray) -> FeatureBeliefSample:
@@ -71,28 +71,30 @@ def test_multilaw_corpus_changes_only_episode_law_condition() -> None:
     )
     if not source.is_file() or not cache.is_file():
         pytest.skip("multi-law corpus test requires formal local artifacts")
-    from latency_meta_mdp.belief.common.feature_corpus import (
+    from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+    from latency_meta_mdp.legacy.belief.common.feature_corpus import (
         load_level_feature_belief_corpus,
     )
-    from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
-    from latency_meta_mdp.vision_probe_data import ProbeSplit
+    from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
     common = dict(
         project_root=Path.cwd(),
         source_bulk_manifest=source,
         cache_run_manifest=cache,
         expected_spec=load_vision_encoder_spec(
-            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+            Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
         ),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
-        split_plan_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        split_plan_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
         level=1,
     )
     nominal = load_level_feature_belief_corpus(**common)
     multi = load_level_feature_belief_corpus(
         **common,
-        latency_law_family_path=Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
+        latency_law_family_path=Path(
+            "configs/runtime/latency/truncated_beta_family_5_26_400ms_v1.yaml"
+        ),
     )
     nominal_sample = nominal.materialize(ProbeSplit.TRAIN, 0)
     multi_sample = multi.materialize(ProbeSplit.TRAIN, 0)
@@ -119,25 +121,27 @@ def test_multilaw_is_stable_within_episode_and_shared_across_levels() -> None:
     )
     if not source.is_file() or not cache.is_file():
         pytest.skip("multi-law corpus test requires formal local artifacts")
-    from latency_meta_mdp.belief.common.feature_corpus import (
+    from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+    from latency_meta_mdp.legacy.belief.common.feature_corpus import (
         load_level_feature_belief_corpus,
     )
-    from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
-    from latency_meta_mdp.vision_probe_data import ProbeSplit
+    from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
-    spec = load_vision_encoder_spec(Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml"))
+    spec = load_vision_encoder_spec(
+        Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+    )
     corpora = [
         load_level_feature_belief_corpus(
             project_root=Path.cwd(),
             source_bulk_manifest=source,
             cache_run_manifest=cache,
             expected_spec=spec,
-            temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-            latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+            temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+            latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
             latency_law_family_path=Path(
-                "configs/latency/truncated_beta_family_5_26_400ms_v1.yaml"
+                "configs/runtime/latency/truncated_beta_family_5_26_400ms_v1.yaml"
             ),
-            split_plan_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
+            split_plan_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
             level=level,
         )
         for level in (1, 2, 3)
@@ -164,7 +168,7 @@ def test_multilaw_is_stable_within_episode_and_shared_across_levels() -> None:
 
 def test_multilaw_training_config_locks_tail_query_floor() -> None:
     config = load_multilaw_flow_training_config(
-        Path("configs/belief/dinov3_flow_belief_multilaw_v2.yaml")
+        Path("configs/legacy/belief/dinov3_flow_belief_multilaw_v2.yaml")
     )
 
     assert config.training_id == "dinov3_flow_belief_multilaw_v2"
@@ -175,7 +179,7 @@ def test_multilaw_training_config_locks_tail_query_floor() -> None:
 
 def test_multilaw_v3_training_config_locks_earlier_latency_family() -> None:
     config = load_multilaw_flow_training_config(
-        Path("configs/belief/dinov3_flow_belief_multilaw_v3.yaml")
+        Path("configs/legacy/belief/dinov3_flow_belief_multilaw_v3.yaml")
     )
 
     assert config.training_id == "dinov3_flow_belief_multilaw_v3"
@@ -203,7 +207,7 @@ def test_flow_dataset_applies_tail_mix_only_to_training_query_draws() -> None:
         target_std=np.ones(22, dtype=np.float32),
     )
     config = replace(
-        load_flow_belief_config(Path("configs/belief/dinov3_flow_belief_v1.yaml")),
+        load_flow_belief_config(Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml")),
         sampled_delay_query_count=20_000,
     )
     nominal = FlowBeliefDataset(

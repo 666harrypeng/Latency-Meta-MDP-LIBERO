@@ -10,10 +10,10 @@ pytestmark = pytest.mark.integration
 
 def test_curobo_and_robosuite_policy_eef_fk_match_across_joint_domain() -> None:
     """Gate: Panda base/TCP bridge matches beyond home before planning is allowed."""
-    from latency_meta_mdp.expert_realization.planner_protocol import (
+    from latency_meta_mdp.data.collection.planner_protocol import (
         request_curobo_fk_subprocess,
     )
-    from latency_meta_mdp.expert_realization.robot_bridge import (
+    from latency_meta_mdp.data.collection.robot_bridge import (
         build_panda_planning_bridge,
         compute_robosuite_fk,
         qualify_fk_parity,

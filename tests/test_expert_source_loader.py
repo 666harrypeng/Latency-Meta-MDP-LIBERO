@@ -11,11 +11,9 @@ from test_expert_source_collection import _admitted, _publication_fixture, _summ
 
 
 def _publish(tmp_path: Path, *, boundary_count: int = 2) -> Path:
-    from latency_meta_mdp.expert_realization.source_corpus.collection import publish_source_corpus
+    from latency_meta_mdp.data.source.collection import publish_source_corpus
 
-    request, config, task, episode = _publication_fixture(
-        boundary_count=boundary_count
-    )
+    request, config, task, episode = _publication_fixture(boundary_count=boundary_count)
     target = tmp_path / "source"
     publish_source_corpus(
         target=target,
@@ -41,7 +39,7 @@ def _refresh_manifest_entry(root: Path, relative: str) -> None:
 
 def test_verified_loader_indexes_and_reads_one_episode_row_group(tmp_path: Path) -> None:
     """Break caught: centralized metadata cannot recover the logical episode abstraction."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
 
@@ -58,18 +56,16 @@ def test_verified_loader_indexes_and_reads_one_episode_row_group(tmp_path: Path)
 
 def test_verified_loader_enforces_typed_field_role_allowlists(tmp_path: Path) -> None:
     """Break caught: simulator GT leaks through a generic read-fields call."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.schema import SourceFieldRole
+    from latency_meta_mdp.data.source.schema import SourceFieldRole
 
     corpus = load_verified_source_corpus(_publish(tmp_path))
     table = corpus.read_fields(
         "source-l1-task000-r000",
         fields=("formal_tick", "agentview_rgb", "robot_qpos", "expert_action"),
-        allowed_roles=frozenset(
-            {SourceFieldRole.IDENTITY, SourceFieldRole.DEPLOYMENT_INPUT}
-        ),
+        allowed_roles=frozenset({SourceFieldRole.IDENTITY, SourceFieldRole.DEPLOYMENT_INPUT}),
     )
     assert table.column_names == ["formal_tick", "agentview_rgb", "robot_qpos", "expert_action"]
     with pytest.raises(PermissionError, match="object_pose"):
@@ -91,10 +87,10 @@ def test_read_fields_projects_parquet_columns_before_loading(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Break caught: numeric model views silently read both compressed camera streams."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.schema import SourceFieldRole
+    from latency_meta_mdp.data.source.schema import SourceFieldRole
 
     corpus = load_verified_source_corpus(_publish(tmp_path))
     observed: list[tuple[str, ...] | None] = []
@@ -118,7 +114,7 @@ def test_read_fields_projects_parquet_columns_before_loading(
 
 def test_loader_rejects_extra_missing_and_hash_drift_files(tmp_path: Path) -> None:
     """Break caught: a partial or contaminated corpus is accepted as complete."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
 
@@ -141,7 +137,7 @@ def test_loader_rejects_extra_missing_and_hash_drift_files(tmp_path: Path) -> No
 
 def test_loader_rejects_metadata_schema_task_join_and_row_group_drift(tmp_path: Path) -> None:
     """Break caught: self-consistent file hashes hide relational/schema corruption."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
 
@@ -182,7 +178,7 @@ def test_loader_rejects_metadata_schema_task_join_and_row_group_drift(tmp_path: 
 
 def test_loader_rejects_non_png_embedded_camera_bytes(tmp_path: Path) -> None:
     """Break caught: a file with the right Arrow schema contains lossy or invalid image payload."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
 
@@ -206,7 +202,7 @@ def test_loader_rejects_non_png_embedded_camera_bytes(tmp_path: Path) -> None:
 
 def test_loader_rejects_wrong_length_nullable_vectors(tmp_path: Path) -> None:
     """Break caught: variable-list Parquet storage weakens the declared fixed source shape."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
 
@@ -230,7 +226,7 @@ def test_loader_rejects_wrong_length_nullable_vectors(tmp_path: Path) -> None:
 
 def test_loader_rehashes_embedded_task_source_payloads(tmp_path: Path) -> None:
     """Break caught: task identity trusts adjacent hash text instead of the stored source bytes."""
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         load_verified_source_corpus,
     )
 

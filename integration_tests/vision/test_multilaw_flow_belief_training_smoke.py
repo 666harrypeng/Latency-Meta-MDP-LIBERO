@@ -19,7 +19,7 @@ def test_multilaw_flow_training_runs_from_random_initialization(tmp_path: Path) 
     )
     if not source.is_file() or not cache.is_file() or not data_artifact.is_file():
         pytest.skip("multi-law Flow training smoke requires formal local artifacts")
-    from latency_meta_mdp.belief.flow.multilaw_run import (
+    from latency_meta_mdp.legacy.belief.flow.multilaw_run import (
         train_multilaw_flow_belief_run,
     )
 
@@ -28,13 +28,13 @@ def test_multilaw_flow_training_runs_from_random_initialization(tmp_path: Path) 
         source_bulk_manifest=source,
         cache_run_manifest=cache,
         multilaw_data_manifest=data_artifact,
-        vision_config_path=Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        nominal_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
-        family_config_path=Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
-        flow_config_path=Path("configs/belief/dinov3_flow_belief_v1.yaml"),
-        multilaw_config_path=Path("configs/belief/dinov3_flow_belief_multilaw_v2.yaml"),
-        split_config_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
+        vision_config_path=Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        nominal_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        family_config_path=Path("configs/runtime/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
+        flow_config_path=Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"),
+        multilaw_config_path=Path("configs/legacy/belief/dinov3_flow_belief_multilaw_v2.yaml"),
+        split_config_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
         output_dir=tmp_path / "run",
         levels=(1,),
         device="cuda",

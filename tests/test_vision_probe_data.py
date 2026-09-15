@@ -41,24 +41,30 @@ def _episode(*, seed: int = 1000, boundary_count: int = 8):
 
 @pytest.mark.parametrize(
     ("seed", "expected"),
-    ((1000, "train"), (1019, "train"), (1020, "validation"), (1021, "validation"),
-     (1022, "holdout"), (1024, "holdout")),
+    (
+        (1000, "train"),
+        (1019, "train"),
+        (1020, "validation"),
+        (1021, "validation"),
+        (1022, "holdout"),
+        (1024, "holdout"),
+    ),
 )
 def test_first_tranche_probe_split_is_episode_seed_based(seed: int, expected: str) -> None:
-    from latency_meta_mdp.vision_probe_data import first_tranche_probe_split
+    from latency_meta_mdp.legacy.vision_probe_data import first_tranche_probe_split
 
     assert first_tranche_probe_split(seed).value == expected
 
 
 def test_first_tranche_probe_split_rejects_seed_outside_the_bank() -> None:
-    from latency_meta_mdp.vision_probe_data import first_tranche_probe_split
+    from latency_meta_mdp.legacy.vision_probe_data import first_tranche_probe_split
 
     with pytest.raises(ValueError, match="outside"):
         first_tranche_probe_split(1025)
 
 
 def test_probe_indices_use_unpadded_six_boundary_histories() -> None:
-    from latency_meta_mdp.vision_probe_data import build_probe_sample_indices
+    from latency_meta_mdp.legacy.vision_probe_data import build_probe_sample_indices
 
     indices = build_probe_sample_indices(
         episode=_episode(),
@@ -75,19 +81,23 @@ def test_probe_indices_use_unpadded_six_boundary_histories() -> None:
 
 
 def test_probe_sample_materializes_deployment_history_and_nine_dimensional_target() -> None:
-    from latency_meta_mdp.vision_probe_data import (
+    from latency_meta_mdp.legacy.vision_probe_data import (
         build_probe_sample_indices,
         materialize_probe_sample,
     )
 
     episode = _episode()
     features = (
-        np.arange(
-        episode.boundary_count * 2 * 196 * 384,
-            dtype=np.int64,
+        (
+            np.arange(
+                episode.boundary_count * 2 * 196 * 384,
+                dtype=np.int64,
+            )
+            % 1024
         )
-        % 1024
-    ).astype(np.float16).reshape(episode.boundary_count, 2, 196, 384)
+        .astype(np.float16)
+        .reshape(episode.boundary_count, 2, 196, 384)
+    )
     index = build_probe_sample_indices(
         episode=episode,
         history_sample_count=6,

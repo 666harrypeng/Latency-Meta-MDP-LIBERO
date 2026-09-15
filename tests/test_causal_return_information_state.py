@@ -4,17 +4,17 @@ from pathlib import Path
 import pytest
 import torch
 
-from latency_meta_mdp.belief.causal_return.contracts import (
+from latency_meta_mdp.legacy.belief.causal_return.contracts import (
     load_information_state_config,
 )
-from latency_meta_mdp.belief.causal_return.information_state import (
+from latency_meta_mdp.legacy.belief.causal_return.information_state import (
     InformationStateEstimator,
 )
 
 
 def _model() -> InformationStateEstimator:
     config = load_information_state_config(
-        Path("configs/belief/causal_return/information_state.yaml")
+        Path("configs/legacy/belief/causal_return/information_state.yaml")
     )
     torch.manual_seed(7)
     model = InformationStateEstimator(config)

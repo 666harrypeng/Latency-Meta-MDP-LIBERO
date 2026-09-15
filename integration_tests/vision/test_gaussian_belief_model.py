@@ -7,11 +7,11 @@ import pytest
 
 def test_gaussian_belief_encoder_is_delta_free_and_decoder_is_query_conditioned() -> None:
     torch = pytest.importorskip("torch")
-    from latency_meta_mdp.gaussian_belief_config import load_gaussian_belief_config
-    from latency_meta_mdp.gaussian_belief_model import GaussianBeliefModel
+    from latency_meta_mdp.legacy.gaussian_belief_config import load_gaussian_belief_config
+    from latency_meta_mdp.legacy.gaussian_belief_model import GaussianBeliefModel
 
     config = load_gaussian_belief_config(
-        Path("configs/belief/dinov3_gaussian_belief_v1.yaml")
+        Path("configs/legacy/belief/dinov3_gaussian_belief_v1.yaml")
     )
     model = GaussianBeliefModel(config).cuda().eval()
     vision = torch.randn(2, 6, 2, 196, 384, device="cuda", dtype=torch.float16)
@@ -40,16 +40,14 @@ def test_gaussian_belief_encoder_is_delta_free_and_decoder_is_query_conditioned(
 
 def test_gaussian_nll_backpropagates_through_encoder_and_decoder() -> None:
     torch = pytest.importorskip("torch")
-    from latency_meta_mdp.gaussian_belief_config import load_gaussian_belief_config
-    from latency_meta_mdp.gaussian_belief_model import (
+    from latency_meta_mdp.legacy.gaussian_belief_config import load_gaussian_belief_config
+    from latency_meta_mdp.legacy.gaussian_belief_model import (
         GaussianBeliefModel,
         diagonal_gaussian_nll,
     )
 
     model = GaussianBeliefModel(
-        load_gaussian_belief_config(
-            Path("configs/belief/dinov3_gaussian_belief_v1.yaml")
-        )
+        load_gaussian_belief_config(Path("configs/legacy/belief/dinov3_gaussian_belief_v1.yaml"))
     ).cuda()
     mean, log_std, _belief = model(
         vision_history=torch.randn(2, 6, 2, 196, 384, device="cuda", dtype=torch.float16),

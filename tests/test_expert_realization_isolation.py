@@ -3,27 +3,28 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = PROJECT_ROOT / "src/latency_meta_mdp/expert_realization"
+from latency_meta_mdp.io.paths import repository_root
+
+PROJECT_ROOT = repository_root()
+PACKAGE_ROOT = PROJECT_ROOT / "src/latency_meta_mdp/data/collection"
 TASK3_MODULES = (
     PACKAGE_ROOT / "recording_contracts.py",
     PACKAGE_ROOT / "recording_artifacts.py",
     PACKAGE_ROOT / "artifacts.py",
 )
 FORBIDDEN = {
-    "latency_meta_mdp.expert",
-    "latency_meta_mdp.expert_collection",
-    "latency_meta_mdp.bulk_collection",
-    "latency_meta_mdp.pilot_collection",
-    "latency_meta_mdp.recording",
-    "latency_meta_mdp.episode_artifacts",
-    "latency_meta_mdp.formal_corpus",
-    "latency_meta_mdp.vision_feature_cache",
-    "latency_meta_mdp.vision_feature_cache_run",
-    "latency_meta_mdp.belief_data",
-    "latency_meta_mdp.belief_data_artifact",
+    "latency_meta_mdp.envs.expert",
+    "latency_meta_mdp.data.expert_collection",
+    "latency_meta_mdp.data.bulk_collection",
+    "latency_meta_mdp.data.pilot_collection",
+    "latency_meta_mdp.data.recording",
+    "latency_meta_mdp.io.episode_artifacts",
+    "latency_meta_mdp.data.formal_corpus",
+    "latency_meta_mdp.data.vision.cache",
+    "latency_meta_mdp.data.vision.extract",
+    "latency_meta_mdp.legacy.belief_data",
+    "latency_meta_mdp.legacy.belief_data_artifact",
 }
 
 
@@ -46,21 +47,21 @@ def test_clean_process_import_graph_does_not_load_historical_recording_or_collec
     """Break caught: an allowed-looking direct import has a forbidden transitive dependency."""
     code = """
 import sys
-import latency_meta_mdp.expert_realization.recording_contracts
-import latency_meta_mdp.expert_realization.recording_artifacts
-import latency_meta_mdp.expert_realization.artifacts
+import latency_meta_mdp.data.collection.recording_contracts
+import latency_meta_mdp.data.collection.recording_artifacts
+import latency_meta_mdp.data.collection.artifacts
 forbidden = {
-    'latency_meta_mdp.expert',
-    'latency_meta_mdp.expert_collection',
-    'latency_meta_mdp.bulk_collection',
-    'latency_meta_mdp.pilot_collection',
-    'latency_meta_mdp.recording',
-    'latency_meta_mdp.episode_artifacts',
-    'latency_meta_mdp.formal_corpus',
-    'latency_meta_mdp.vision_feature_cache',
-    'latency_meta_mdp.vision_feature_cache_run',
-    'latency_meta_mdp.belief_data',
-    'latency_meta_mdp.belief_data_artifact',
+    'latency_meta_mdp.envs.expert',
+    'latency_meta_mdp.data.expert_collection',
+    'latency_meta_mdp.data.bulk_collection',
+    'latency_meta_mdp.data.pilot_collection',
+    'latency_meta_mdp.data.recording',
+    'latency_meta_mdp.io.episode_artifacts',
+    'latency_meta_mdp.data.formal_corpus',
+    'latency_meta_mdp.data.vision.cache',
+    'latency_meta_mdp.data.vision.extract',
+    'latency_meta_mdp.legacy.belief_data',
+    'latency_meta_mdp.legacy.belief_data_artifact',
 }
 loaded = sorted(forbidden.intersection(sys.modules))
 if loaded:

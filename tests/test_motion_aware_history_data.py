@@ -5,19 +5,19 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from latency_meta_mdp.belief.causal_return.motion_aware_data import (
+from latency_meta_mdp.data.vision.cache import EpisodeVisionFeatureCache
+from latency_meta_mdp.legacy.belief.causal_return.motion_aware_data import (
     build_motion_aware_history_corpus,
 )
-from latency_meta_mdp.temporal_contract import TemporalContract
-from latency_meta_mdp.vision_feature_cache import EpisodeVisionFeatureCache
-from latency_meta_mdp.vision_probe_corpus import (
+from latency_meta_mdp.legacy.vision_probe_corpus import (
     VisionProbeCorpus,
     VisionProbeEpisodeRecord,
 )
-from latency_meta_mdp.vision_probe_data import (
+from latency_meta_mdp.legacy.vision_probe_data import (
     ProbeSplit,
     build_probe_sample_indices,
 )
+from latency_meta_mdp.runtime.temporal_contract import TemporalContract
 
 
 def _episode(*, level: int, seed: int, count: int = 81, transitions=(40,)):

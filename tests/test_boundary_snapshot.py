@@ -3,14 +3,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from latency_meta_mdp.backend import (
+from latency_meta_mdp.envs.backend import (
     FormalStepExecutor,
     RoboSuitePlant,
     instrument_stock_step,
     make_g1_environment,
 )
-from latency_meta_mdp.snapshots import BoundarySnapshotter
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.envs.snapshots import BoundarySnapshotter
+from latency_meta_mdp.runtime.timing import ClockLedger
 
 
 def test_stock_step_has_ten_substeps_one_goal_and_measured_observation_age() -> None:

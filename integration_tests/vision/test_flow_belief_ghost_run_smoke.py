@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.artifacts import ImplementationProvenance, sha256_file
+from latency_meta_mdp.io.artifacts import ImplementationProvenance, sha256_file
+from latency_meta_mdp.io.paths import repository_root
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = repository_root()
 _SOURCE = (
     _PROJECT_ROOT / "outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json"
 )
@@ -27,10 +28,13 @@ def _run_kwargs(tmp_path: Path) -> dict:
         "project_root": _PROJECT_ROOT,
         "source_bulk_manifest": _SOURCE,
         "quality_sample_manifest": _SAMPLES,
-        "task_config_path": _PROJECT_ROOT / "configs/task/dynamic_grasp_lift_l0.yaml",
-        "control_config_path": _PROJECT_ROOT / "configs/control/panda_osc_pose_delta_v1.yaml",
-        "temporal_config_path": _PROJECT_ROOT / "configs/temporal/h50_e25_d20_k6_v1.yaml",
-        "ghost_config_path": _PROJECT_ROOT / "configs/analysis/flow_belief_agentview_ghost_v1.yaml",
+        "task_config_path": _PROJECT_ROOT
+        / "configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml",
+        "control_config_path": _PROJECT_ROOT
+        / "configs/runtime/control/panda_osc_pose_delta_v1.yaml",
+        "temporal_config_path": _PROJECT_ROOT / "configs/contracts/temporal/h50_e25_d20_k6_v1.yaml",
+        "ghost_config_path": _PROJECT_ROOT
+        / "configs/legacy/analysis/flow_belief_agentview_ghost_v1.yaml",
         "output_dir": tmp_path / "ghost",
         "levels": (1, 2, 3),
     }
@@ -61,7 +65,7 @@ def test_ghost_run_publishes_three_aligned_levels_atomically(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _require_formal_artifacts()
-    from latency_meta_mdp.belief.flow import ghost_run
+    from latency_meta_mdp.legacy.belief.flow import ghost_run
 
     monkeypatch.setattr(
         ghost_run,
@@ -103,7 +107,7 @@ def test_ghost_run_cleans_staging_after_injected_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _require_formal_artifacts()
-    from latency_meta_mdp.belief.flow import ghost_run
+    from latency_meta_mdp.legacy.belief.flow import ghost_run
 
     monkeypatch.setattr(
         ghost_run,
@@ -135,7 +139,7 @@ def test_ghost_run_marks_dirty_implementation_ineligible(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _require_formal_artifacts()
-    from latency_meta_mdp.belief.flow import ghost_run
+    from latency_meta_mdp.legacy.belief.flow import ghost_run
 
     monkeypatch.setattr(
         ghost_run,
@@ -161,7 +165,7 @@ def test_ghost_run_rejects_quality_manifest_from_another_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _require_formal_artifacts()
-    from latency_meta_mdp.belief.flow import ghost_run
+    from latency_meta_mdp.legacy.belief.flow import ghost_run
 
     copied = json.loads(_SAMPLES.read_text(encoding="utf-8"))
     copied["input_sha256"]["source_bulk_manifest"] = "0" * 64
@@ -179,7 +183,7 @@ def test_ghost_run_rejects_quality_manifest_from_another_source(
 
 
 def test_ghost_cli_exposes_only_selected_case_rendering() -> None:
-    from latency_meta_mdp.cli.render_flow_belief_quality import build_parser
+    from latency_meta_mdp.legacy.cli.render_flow_belief_quality import build_parser
 
     help_text = build_parser().format_help()
     assert "--quality-sample-manifest" in help_text
@@ -191,7 +195,7 @@ def test_ghost_cli_exposes_only_selected_case_rendering() -> None:
 
 def test_real_l1_ghost_renderer_emits_selected_case_panels(tmp_path: Path) -> None:
     _require_formal_artifacts()
-    from latency_meta_mdp.belief.flow.ghost_render_level import (
+    from latency_meta_mdp.legacy.belief.flow.ghost_render_level import (
         render_flow_belief_ghost_level,
     )
 
@@ -202,10 +206,12 @@ def test_real_l1_ghost_renderer_emits_selected_case_panels(tmp_path: Path) -> No
         source_bulk_manifest=_SOURCE,
         quality_sample_manifest=_SAMPLES,
         quality_level_manifest=_SAMPLES.parent / "L1/manifest.json",
-        task_config_path=_PROJECT_ROOT / "configs/task/dynamic_grasp_lift_l0.yaml",
-        control_config_path=_PROJECT_ROOT / "configs/control/panda_osc_pose_delta_v1.yaml",
-        temporal_config_path=_PROJECT_ROOT / "configs/temporal/h50_e25_d20_k6_v1.yaml",
-        ghost_config_path=_PROJECT_ROOT / "configs/analysis/flow_belief_agentview_ghost_v1.yaml",
+        task_config_path=_PROJECT_ROOT
+        / "configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml",
+        control_config_path=_PROJECT_ROOT / "configs/runtime/control/panda_osc_pose_delta_v1.yaml",
+        temporal_config_path=_PROJECT_ROOT / "configs/contracts/temporal/h50_e25_d20_k6_v1.yaml",
+        ghost_config_path=_PROJECT_ROOT
+        / "configs/legacy/analysis/flow_belief_agentview_ghost_v1.yaml",
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 

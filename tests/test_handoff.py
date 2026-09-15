@@ -5,32 +5,32 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.backend import FormalStepExecutor, PreparedPhysicsPoint, RoboSuitePlant
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.handoff import (
-    HandoffAwareBallWorld,
-    HandoffState,
-    OneWayHandoff,
-    PandaBallContactDetector,
-)
-from latency_meta_mdp.motion import (
+from latency_meta_mdp.data.recording import HandoffState as RecordedHandoffState
+from latency_meta_mdp.envs.backend import FormalStepExecutor, PreparedPhysicsPoint, RoboSuitePlant
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.envs.motion import (
     ConstantVelocityProfile,
     DrivenBallWorld,
     build_motion_profile,
     load_motion_config,
 )
-from latency_meta_mdp.outcomes import (
+from latency_meta_mdp.envs.outcomes import (
     EpisodeOutcomeTracker,
     OutcomeCriteria,
     TerminalReason,
 )
-from latency_meta_mdp.recording import HandoffState as RecordedHandoffState
-from latency_meta_mdp.snapshots import BoundarySnapshotter
-from latency_meta_mdp.task import load_task_spec, make_dynamic_grasp_lift_environment
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.envs.snapshots import BoundarySnapshotter
+from latency_meta_mdp.envs.task import load_task_spec, make_dynamic_grasp_lift_environment
+from latency_meta_mdp.runtime.handoff import (
+    HandoffAwareBallWorld,
+    HandoffState,
+    OneWayHandoff,
+    PandaBallContactDetector,
+)
+from latency_meta_mdp.runtime.timing import ClockLedger
 
-_CONTROL_CONFIG = Path("configs/control/panda_osc_pose_delta_v1.yaml")
-_TASK_CONFIG = Path("configs/task/dynamic_grasp_lift_l0.yaml")
+_CONTROL_CONFIG = Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+_TASK_CONFIG = Path("configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml")
 
 
 def _environment():
@@ -167,7 +167,7 @@ def test_coordinator_is_the_only_grasp_deadline_authority() -> None:
             outcome_tracker=tracker,
         )
         motion_config = load_motion_config(
-            Path("configs/motion/dynamic_grasp_lift_l1.yaml")
+            Path("configs/tasks/moving_ball/motion/dynamic_grasp_lift_l1.yaml")
         )
         profile = build_motion_profile(
             config=motion_config,

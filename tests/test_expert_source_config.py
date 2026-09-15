@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-SOURCE_CONFIG = Path("configs/source_corpus/panda_ball_source_parquet.yaml")
-FORMAL_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_pilot.yaml")
-EXECUTION_CONFIG = Path("configs/source_corpus/panda_ball_formal_source_execution.yaml")
+SOURCE_CONFIG = Path("configs/data/source_corpus/panda_ball_source_parquet.yaml")
+FORMAL_CONFIG = Path("configs/data/source_corpus/panda_ball_formal_source_pilot.yaml")
+EXECUTION_CONFIG = Path("configs/data/source_corpus/panda_ball_formal_source_execution.yaml")
 
 
 def _valid_source_mapping() -> dict[str, object]:
@@ -55,7 +55,7 @@ def _write(tmp_path: Path, name: str, mapping: dict[str, object]) -> Path:
 
 def test_source_config_loads_the_canonical_lossless_parquet_contract() -> None:
     """Break caught: source storage silently becomes lossy or model-specific."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_corpus_config,
     )
 
@@ -86,7 +86,7 @@ def test_source_config_rejects_storage_semantic_drift(
     tmp_path: Path, mutation, message: str
 ) -> None:
     """Break caught: a config edit changes source meaning without a schema revision."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_corpus_config,
     )
 
@@ -110,7 +110,7 @@ def test_source_config_rejects_yaml_scalar_and_container_coercion(
     tmp_path: Path, field: str, bad_value: object
 ) -> None:
     """Break caught: bool/int/float or list/tuple coercion weakens an exact file contract."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_corpus_config,
     )
 
@@ -125,13 +125,11 @@ def test_master_task_split_plan_round_trips_and_covers_a_declared_universe(
     tmp_path: Path,
 ) -> None:
     """Break caught: reserve tasks or one level can drift into another split."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_master_task_split_plan,
     )
 
-    plan = load_master_task_split_plan(
-        _write(tmp_path, "split.yaml", _valid_split_mapping())
-    )
+    plan = load_master_task_split_plan(_write(tmp_path, "split.yaml", _valid_split_mapping()))
 
     assert plan.to_mapping() == _valid_split_mapping()
     assert plan.sha256 == "7e7af9fbae0708f8ab761638e9c76567d65d330871b23a8d0cc69c4c677bcd68"
@@ -160,7 +158,7 @@ def test_master_task_split_plan_rejects_identity_and_partition_drift(
     tmp_path: Path, mutation, message: str
 ) -> None:
     """Break caught: malformed split metadata permits group leakage or ambiguous identity."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_master_task_split_plan,
     )
 
@@ -175,13 +173,11 @@ def test_master_task_split_plan_rejects_missing_or_extra_universe_indices(
     tmp_path: Path,
 ) -> None:
     """Break caught: a formally requested reserve identity has no stable split assignment."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_master_task_split_plan,
     )
 
-    plan = load_master_task_split_plan(
-        _write(tmp_path, "split.yaml", _valid_split_mapping())
-    )
+    plan = load_master_task_split_plan(_write(tmp_path, "split.yaml", _valid_split_mapping()))
 
     with pytest.raises(ValueError, match="exact requested master-task universe"):
         plan.require_exact_indices((0, 1, 2, 3, 4))
@@ -191,8 +187,8 @@ def test_master_task_split_plan_rejects_missing_or_extra_universe_indices(
 
 def test_formal_collection_configs_lock_36_successes_and_sequential_planning() -> None:
     """Break caught: pilot size, retry policy, or paired admission silently drifts."""
-    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.collection.config import load_formal_corpus_config
+    from latency_meta_mdp.data.source.config import (
         load_source_execution_config,
     )
 
@@ -224,7 +220,7 @@ def test_source_execution_config_rejects_semantic_or_type_drift(
     tmp_path: Path, field: str, bad_value: object
 ) -> None:
     """Break caught: invalid retry or admission semantics enter a formal collection identity."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_execution_config,
     )
 
@@ -239,7 +235,7 @@ def test_source_execution_config_rejects_missing_or_unknown_fields(
     tmp_path: Path, mutation: str
 ) -> None:
     """Break caught: an execution default changes without changing serialized identity."""
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_execution_config,
     )
 

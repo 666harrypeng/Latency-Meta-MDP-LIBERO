@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import random
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from latency_meta_mdp.io.paths import repository_root
+
+PROJECT_ROOT = repository_root()
 SHA_A = "a" * 64
 SHA_B = "b" * 64
 SHA_C = "c" * 64
@@ -16,7 +17,7 @@ SHA_D = "d" * 64
 
 
 def _task_instance(*, level: int = 1, seed: int = 4000):
-    from latency_meta_mdp.expert_realization.contracts import TaskInstanceId
+    from latency_meta_mdp.data.collection.contracts import TaskInstanceId
 
     return TaskInstanceId(
         level=level,
@@ -27,18 +28,20 @@ def _task_instance(*, level: int = 1, seed: int = 4000):
 
 
 def _structured_config():
-    from latency_meta_mdp.expert_realization.config import load_structured_expert_config
+    from latency_meta_mdp.data.collection.config import load_structured_expert_config
 
     return load_structured_expert_config(
-        PROJECT_ROOT / "configs/expert_realization/panda_ball_structured.yaml"
+        PROJECT_ROOT / "configs/data/expert_realization/panda_ball_structured.yaml"
     )
 
 
 def _pilot_request():
-    from latency_meta_mdp.expert_realization.config import load_pilot_config
-    from latency_meta_mdp.expert_realization.contracts import PilotRequest
+    from latency_meta_mdp.data.collection.config import load_pilot_config
+    from latency_meta_mdp.data.collection.contracts import PilotRequest
 
-    config = load_pilot_config(PROJECT_ROOT / "configs/collection/panda_ball_structured_pilot.yaml")
+    config = load_pilot_config(
+        PROJECT_ROOT / "configs/data/collection/panda_ball_structured_pilot.yaml"
+    )
     return PilotRequest(
         pilot_config=config,
         structured_expert_config_sha256=SHA_C,
@@ -54,7 +57,7 @@ def _pilot_request():
 
 def test_seed_derivation_has_hand_checked_stable_tagged_values() -> None:
     """Break caught: changing canonical serialization or tag mixing changes replay semantics."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         derive_realization_seed,
         derive_subseed,
     )
@@ -72,7 +75,7 @@ def test_seed_derivation_has_hand_checked_stable_tagged_values() -> None:
 
 def test_subseeds_are_tag_independent_and_worker_order_independent() -> None:
     """Break caught: worker scheduling or a tag collision changes a realization's parameters."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
     )
 
@@ -88,7 +91,7 @@ def test_subseeds_are_tag_independent_and_worker_order_independent() -> None:
 
 def test_strategy_sampling_is_not_affected_by_process_global_rng_state() -> None:
     """Break caught: external global random calls perturb sampled semantic strategy values."""
-    from latency_meta_mdp.expert_realization.contracts import sample_strategy_parameters
+    from latency_meta_mdp.data.collection.contracts import sample_strategy_parameters
 
     config = _structured_config()
     before = sample_strategy_parameters(
@@ -112,7 +115,7 @@ def test_strategy_sampling_is_not_affected_by_process_global_rng_state() -> None
 
 def test_realization_identity_requires_completed_task_instance_plan_set() -> None:
     """Break caught: a result becomes identifiable before task-plan provenance exists."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationId,
         ExpertRealizationKey,
     )
@@ -128,7 +131,7 @@ def test_realization_identity_requires_completed_task_instance_plan_set() -> Non
 
 def test_attempt_identity_adds_retries_without_changing_semantic_identity() -> None:
     """Break caught: retry number is accidentally treated as a new semantic realization."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         AttemptId,
         ExpertRealizationId,
         ExpertRealizationKey,
@@ -148,7 +151,7 @@ def test_attempt_identity_adds_retries_without_changing_semantic_identity() -> N
 
 def test_realization_and_attempt_ids_round_trip_with_bound_config_hash() -> None:
     """Break caught: loaders accept identity JSON without recomputing the nested key seed."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         AttemptId,
         ExpertRealizationId,
         ExpertRealizationKey,
@@ -171,7 +174,7 @@ def test_realization_and_attempt_ids_round_trip_with_bound_config_hash() -> None
 
 def test_realization_and_attempt_id_mappings_reject_all_stored_identity_corruption() -> None:
     """Break caught: an outer ID trusts altered nested fields or ignores extra serialized data."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         AttemptId,
         ExpertRealizationId,
         ExpertRealizationKey,
@@ -200,7 +203,7 @@ def test_realization_and_attempt_id_mappings_reject_all_stored_identity_corrupti
 
 def test_failure_classes_remain_distinct_serialized_categories() -> None:
     """Break caught: a failure category is merged, losing its retry/triage semantics."""
-    from latency_meta_mdp.expert_realization.contracts import FailureClass
+    from latency_meta_mdp.data.collection.contracts import FailureClass
 
     assert {failure.value for failure in FailureClass} == {
         "planner_failure",
@@ -230,11 +233,13 @@ def test_pilot_request_expands_complete_review_only_identity_universe() -> None:
 
 def test_pilot_request_rejects_permuted_task_instances_and_serializes_parent_order() -> None:
     """Break caught: worker order changes the parent pilot's canonical request identity."""
-    from latency_meta_mdp.expert_realization.config import load_pilot_config
-    from latency_meta_mdp.expert_realization.contracts import PilotRequest
+    from latency_meta_mdp.data.collection.config import load_pilot_config
+    from latency_meta_mdp.data.collection.contracts import PilotRequest
 
     request = _pilot_request()
-    config = load_pilot_config(PROJECT_ROOT / "configs/collection/panda_ball_structured_pilot.yaml")
+    config = load_pilot_config(
+        PROJECT_ROOT / "configs/data/collection/panda_ball_structured_pilot.yaml"
+    )
 
     assert request.task_instances[0].to_mapping()["level"] == 1
     assert request.task_instances[0].to_mapping()["task_instance_seed"] == 4000
@@ -251,7 +256,7 @@ def test_pilot_request_rejects_permuted_task_instances_and_serializes_parent_ord
 
 def test_realization_key_recomputes_a_request_bound_uint64_seed() -> None:
     """Break caught: caller-supplied key fields no longer describe the deterministic realization."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
         TaskInstanceId,
         derive_realization_seed,
@@ -273,7 +278,7 @@ def test_realization_key_recomputes_a_request_bound_uint64_seed() -> None:
 
 def test_task_instance_and_realization_key_round_trip_through_strict_mappings() -> None:
     """Break caught: serialized identities load without validating their complete factual seed."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
         TaskInstanceId,
     )
@@ -282,15 +287,12 @@ def test_task_instance_and_realization_key_round_trip_through_strict_mappings() 
     key = ExpertRealizationKey(task, 0, SHA_C)
 
     assert TaskInstanceId.from_mapping(task.to_mapping()) == task
-    assert (
-        ExpertRealizationKey.from_mapping(key.to_mapping())
-        == key
-    )
+    assert ExpertRealizationKey.from_mapping(key.to_mapping()) == key
 
 
 def test_realization_key_mapping_rejects_corruption_and_noncanonical_shapes() -> None:
     """Break caught: an artifact can alter the stored seed or nested task identity unnoticed."""
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey, TaskInstanceId
+    from latency_meta_mdp.data.collection.contracts import ExpertRealizationKey, TaskInstanceId
 
     key = ExpertRealizationKey(_task_instance(), 0, SHA_C)
     corrupted = key.to_mapping()
@@ -326,7 +328,7 @@ def _hand_dwell_choice(realization_seed: int, tag: str) -> int:
 
 def test_close_target_uses_the_timing_subseed_while_close_dwell_is_canonical() -> None:
     """Break caught: capture timing and canonical grasp semantics share one random variable."""
-    from latency_meta_mdp.expert_realization.contracts import sample_strategy_parameters
+    from latency_meta_mdp.data.collection.contracts import sample_strategy_parameters
 
     parameters = sample_strategy_parameters(
         _structured_config(), family="canonical_direct", realization_seed=0
@@ -339,7 +341,7 @@ def test_close_target_uses_the_timing_subseed_while_close_dwell_is_canonical() -
 
 def test_direct_strategy_parameters_must_obey_the_bound_config() -> None:
     """Break caught: an artifact caller serializes a physically impossible sampled strategy."""
-    from latency_meta_mdp.expert_realization.contracts import StrategyFamily, StrategyParameters
+    from latency_meta_mdp.data.collection.contracts import StrategyFamily, StrategyParameters
 
     config = _structured_config()
     with pytest.raises(ValueError):
@@ -373,7 +375,7 @@ def test_direct_strategy_parameters_must_obey_the_bound_config() -> None:
 
 def test_stage_is_constrained_to_parent_scope_and_has_no_training_override() -> None:
     """Break caught: a stage silently changes its parent's sample scope or authorization."""
-    from latency_meta_mdp.expert_realization.contracts import PilotStageRequest
+    from latency_meta_mdp.data.collection.contracts import PilotStageRequest
 
     request = _pilot_request()
     stage = PilotStageRequest(

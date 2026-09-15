@@ -1,0 +1,13 @@
+schema_version: 1
+clean_job: clean.yaml
+source_repo: yypeng666/metamdp-robosuite-franka-moving_ball-structured-source-100x4-v1
+source_revision: 43bb80adbdfa29f29b20e763416f4f703d5ba1ba
+split_manifest: configs/data/structured_source_split_v1.json
+predictor_repo: yypeng666/metamdp-jepa-direct-l2-q20-h160ms-epoch75-v1
+predictor_revision: 4489acb8aee59a1d8637897d619351738b7856b0
+decoder_repo: yypeng666/metamdp-dino-rgb-decoder-dualview-w384-d4-v1
+decoder_revision: cfe2a5be5a0e5ce84edc29a826739e1b56fcd78b
+conditioned_run_name: l2-forecast-rgb-state16-h50-v1
+conditioned_publish_repo: yypeng666/metamdp-pi05-l2-forecast-rgb-state16-h50-sft-v1
+boundary_batch_size: 6
+forecast_batch_size: 32

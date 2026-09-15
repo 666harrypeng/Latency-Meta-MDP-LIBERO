@@ -46,7 +46,7 @@ EXPECTED_FRAME_FIELDS = (
 
 def test_source_frame_schema_preserves_the_complete_recording_contract() -> None:
     """Break caught: a source field is dropped or silently changes dtype/shape."""
-    from latency_meta_mdp.expert_realization.source_corpus.schema import SOURCE_FRAME_SCHEMA
+    from latency_meta_mdp.data.source.schema import SOURCE_FRAME_SCHEMA
 
     assert tuple(SOURCE_FRAME_SCHEMA.names) == EXPECTED_FRAME_FIELDS
     assert SOURCE_FRAME_SCHEMA.field("robot_qpos").type == pa.list_(pa.float64(), 7)
@@ -61,7 +61,7 @@ def test_source_frame_schema_preserves_the_complete_recording_contract() -> None
 
 def test_source_images_use_embedded_bytes_and_descriptive_paths() -> None:
     """Break caught: source images become external files or lossy video references."""
-    from latency_meta_mdp.expert_realization.source_corpus.schema import SOURCE_FRAME_SCHEMA
+    from latency_meta_mdp.data.source.schema import SOURCE_FRAME_SCHEMA
 
     image_type = pa.struct(
         [
@@ -77,11 +77,9 @@ def test_source_images_use_embedded_bytes_and_descriptive_paths() -> None:
 
 def test_only_terminal_or_conditionally_absent_fields_are_nullable() -> None:
     """Break caught: missing source state is silently accepted on ordinary boundaries."""
-    from latency_meta_mdp.expert_realization.source_corpus.schema import SOURCE_FRAME_SCHEMA
+    from latency_meta_mdp.data.source.schema import SOURCE_FRAME_SCHEMA
 
-    nullable = {
-        field.name for field in SOURCE_FRAME_SCHEMA if field.nullable
-    }
+    nullable = {field.name for field in SOURCE_FRAME_SCHEMA if field.nullable}
     assert nullable == {
         "applied_reference",
         "applied_reference_source_tick",
@@ -101,7 +99,7 @@ def test_only_terminal_or_conditionally_absent_fields_are_nullable() -> None:
 
 def test_field_roles_keep_privileged_and_audit_state_out_of_deployment_inputs() -> None:
     """Break caught: a generic source reader leaks simulator privilege into a learned model."""
-    from latency_meta_mdp.expert_realization.source_corpus.schema import (
+    from latency_meta_mdp.data.source.schema import (
         SourceFieldRole,
         fields_for_role,
     )
@@ -126,7 +124,7 @@ def test_field_roles_keep_privileged_and_audit_state_out_of_deployment_inputs() 
 
 def test_schema_document_exposes_shape_unit_nullability_and_all_roles() -> None:
     """Break caught: downstream builders cannot audit stored semantics without Python code."""
-    from latency_meta_mdp.expert_realization.source_corpus.schema import (
+    from latency_meta_mdp.data.source.schema import (
         SourceFieldRole,
         source_schema_document,
     )
@@ -154,7 +152,7 @@ def test_schema_document_exposes_shape_unit_nullability_and_all_roles() -> None:
 
 def test_central_metadata_schemas_are_relational_and_success_only() -> None:
     """Break caught: per-episode JSON or failed rows become necessary to locate source data."""
-    from latency_meta_mdp.expert_realization.source_corpus.schema import (
+    from latency_meta_mdp.data.source.schema import (
         EPISODE_SCHEMA,
         EVENT_SCHEMA,
         TASK_INSTANCE_SCHEMA,
@@ -212,7 +210,7 @@ def test_central_metadata_schemas_are_relational_and_success_only() -> None:
 @pytest.mark.parametrize("bad_role", ["deployment", "target", 1, None])
 def test_fields_for_role_rejects_untyped_role_requests(bad_role: object) -> None:
     """Break caught: stringly typed role lookup bypasses the model-input allowlist."""
-    from latency_meta_mdp.expert_realization.source_corpus.schema import fields_for_role
+    from latency_meta_mdp.data.source.schema import fields_for_role
 
     with pytest.raises(TypeError, match="SourceFieldRole"):
         fields_for_role(bad_role)  # type: ignore[arg-type]

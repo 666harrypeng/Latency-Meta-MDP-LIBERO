@@ -11,17 +11,17 @@ from expert_realization_test_support import make_formal_source_episode
 
 
 def _publication_fixture(*, boundary_count: int = 2):
-    from latency_meta_mdp.expert_realization.config import FormalCorpusConfig
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.config import FormalCorpusConfig
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationId,
         TaskInstanceId,
         build_formal_realization_draw_request,
         build_formal_request_universe,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_corpus_config,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.metadata import (
+    from latency_meta_mdp.data.source.metadata import (
         SourceTaskMetadataEntry,
     )
 
@@ -49,7 +49,7 @@ def _publication_fixture(*, boundary_count: int = 2):
         structured_expert_config_sha256="f" * 64,
     )
     source_config = load_source_corpus_config(
-        Path("configs/source_corpus/panda_ball_source_parquet.yaml")
+        Path("configs/data/source_corpus/panda_ball_source_parquet.yaml")
     )
     motion = b'{"level":1,"profile":"constant_velocity"}\n'
     initial = b"exact-initial-state-npz"
@@ -108,7 +108,7 @@ def _publication_fixture(*, boundary_count: int = 2):
 
 
 def _admitted(episode):
-    from latency_meta_mdp.expert_realization.source_corpus.collection import (
+    from latency_meta_mdp.data.source.collection import (
         AdmittedSourceEpisode,
     )
 
@@ -125,7 +125,7 @@ def _admitted(episode):
 
 
 def _summary():
-    from latency_meta_mdp.expert_realization.source_corpus.collection import CollectionSummary
+    from latency_meta_mdp.data.source.collection import CollectionSummary
 
     return CollectionSummary(
         requested_realizations=2,
@@ -141,7 +141,7 @@ def test_source_publication_contains_only_success_data_and_central_metadata(
     tmp_path: Path,
 ) -> None:
     """Break caught: failed/workspace artifacts or per-episode JSON enter the source corpus."""
-    from latency_meta_mdp.expert_realization.source_corpus.collection import publish_source_corpus
+    from latency_meta_mdp.data.source.collection import publish_source_corpus
 
     request, config, task, episode = _publication_fixture()
     target = tmp_path / "formal_source_corpus"
@@ -190,7 +190,7 @@ def test_source_publication_contains_only_success_data_and_central_metadata(
 
 def test_source_publication_rejects_incomplete_blocks(tmp_path: Path) -> None:
     """Break caught: a partial task block is finalized as complete."""
-    from latency_meta_mdp.expert_realization.source_corpus.collection import publish_source_corpus
+    from latency_meta_mdp.data.source.collection import publish_source_corpus
 
     request, config, task, episode = _publication_fixture()
     with pytest.raises(ValueError, match="complete admitted master-task blocks"):
@@ -208,11 +208,11 @@ def test_source_publication_requires_episode_and_task_table_identity_match(
     tmp_path: Path,
 ) -> None:
     """Break caught: a same-seed episode joins a different task profile or initial state."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationId,
         ExpertRealizationKey,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.collection import publish_source_corpus
+    from latency_meta_mdp.data.source.collection import publish_source_corpus
 
     request, config, task, episode = _publication_fixture()
     wrong_task_id = replace(
@@ -261,7 +261,7 @@ def test_source_publication_requires_episode_and_task_table_identity_match(
 
 def test_source_publication_is_no_overwrite_and_manifest_is_last(tmp_path: Path) -> None:
     """Break caught: a rerun mutates an immutable source corpus or exposes partial completion."""
-    from latency_meta_mdp.expert_realization.source_corpus.collection import publish_source_corpus
+    from latency_meta_mdp.data.source.collection import publish_source_corpus
 
     request, config, task, episode = _publication_fixture()
     kwargs = dict(
@@ -282,7 +282,7 @@ def test_source_publication_is_no_overwrite_and_manifest_is_last(tmp_path: Path)
 
 def test_source_publication_streams_a_one_shot_episode_iterable(tmp_path: Path) -> None:
     """Break caught: final publication materializes every decoded episode in host RAM."""
-    from latency_meta_mdp.expert_realization.source_corpus.collection import (
+    from latency_meta_mdp.data.source.collection import (
         publish_source_corpus,
     )
 
@@ -317,7 +317,7 @@ def test_source_publication_streams_a_one_shot_episode_iterable(tmp_path: Path) 
 
 def test_failed_publication_removes_only_its_owned_building_tree(tmp_path: Path) -> None:
     """Break caught: a failed finalization leaves ambiguous hidden corpus payloads."""
-    from latency_meta_mdp.expert_realization.source_corpus.collection import publish_source_corpus
+    from latency_meta_mdp.data.source.collection import publish_source_corpus
 
     request, config, task, episode = _publication_fixture()
     success_event = tuple(event for event in episode.physical_events if event.kind == "success")
@@ -340,7 +340,7 @@ def test_failed_publication_removes_only_its_owned_building_tree(tmp_path: Path)
 
 def test_collection_summary_is_aggregate_only_and_monotonic() -> None:
     """Break caught: aggregate accounting accepts impossible counts or failure payload paths."""
-    from latency_meta_mdp.expert_realization.source_corpus.collection import CollectionSummary
+    from latency_meta_mdp.data.source.collection import CollectionSummary
 
     with pytest.raises(ValueError, match="monotonic"):
         CollectionSummary(
@@ -373,7 +373,7 @@ def test_collection_summary_is_aggregate_only_and_monotonic() -> None:
 
 
 def test_quota_collection_summary_names_draw_and_family_accounting_explicitly() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.collection import CollectionSummary
+    from latency_meta_mdp.data.source.collection import CollectionSummary
 
     summary = CollectionSummary(
         requested_realizations=14,

@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder import (
+from latency_meta_mdp.belief.decoder.model import (
     DualViewVisualDecoder,
     VisualDecoderConfig,
     unpatchify_rgb,
@@ -53,7 +53,7 @@ def test_loss_identity_and_spatial_edge_sensitivity():
 
 
 def test_grouped_decoder_split_is_disjoint_and_reproducible():
-    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_data import (
+    from latency_meta_mdp.belief.decoder.data import (
         partition_decoder_masters,
     )
 
@@ -68,7 +68,7 @@ def test_decoder_dataset_pairs_exact_boundaries_without_copying_feature_cache(tm
 
     import numpy as np
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_data import (
+    from latency_meta_mdp.belief.decoder.data import (
         VisualDecoderDataset,
     )
 
@@ -108,7 +108,7 @@ def test_decoder_dataset_pairs_exact_boundaries_without_copying_feature_cache(tm
 
 
 def test_rgb_metrics_report_coordinate_error_and_empty_red_region():
-    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_evaluation import RGBMetrics
+    from latency_meta_mdp.belief.decoder.evaluation import RGBMetrics
 
     metric = RGBMetrics()
     target = torch.zeros(1, 2, 3, 224, 224)
@@ -125,10 +125,10 @@ def test_decoder_checkpoint_roundtrip_preserves_weights_and_resume_cursor(tmp_pa
     import dataclasses
     import json
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_evaluation import (
+    from latency_meta_mdp.belief.decoder.evaluation import (
         load_visual_decoder,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.visual_decoder_run import (
+    from latency_meta_mdp.belief.decoder.training import (
         save_decoder_training_checkpoint,
     )
 

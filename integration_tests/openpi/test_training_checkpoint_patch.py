@@ -6,7 +6,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_worktree
+from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_worktree
 
 
 def _run_debug_training(

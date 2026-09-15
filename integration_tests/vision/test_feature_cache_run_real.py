@@ -5,26 +5,24 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.hf_dino_encoder import HfDinoPatchEncoder
-from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
-from latency_meta_mdp.vision_feature_cache import load_episode_vision_feature_cache
+from latency_meta_mdp.data.vision.cache import load_episode_vision_feature_cache
+from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+from latency_meta_mdp.data.vision.dino import HfDinoPatchEncoder
 
 
 def test_dinov3_cache_run_selects_one_seed_from_each_level(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("real DINOv3 cache integration requires CUDA")
-    source = Path(
-        "outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json")
     if not source.is_file():
         pytest.skip("real DINOv3 cache integration requires the local first tranche")
-    from latency_meta_mdp.vision_feature_cache_run import (
+    from latency_meta_mdp.data.vision.extract import (
         write_vision_feature_cache_run,
     )
 
     spec = load_vision_encoder_spec(
-        Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+        Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
     )
     encoder = HfDinoPatchEncoder.from_pretrained(
         spec=spec,
@@ -72,18 +70,15 @@ def test_dinov3_cache_run_accepts_formal_corpus_layout(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("real DINOv3 cache integration requires CUDA")
-    source = Path(
-        "outputs/bulk/expert/"
-        "panda-ball-formal-train-1000-1199-7571a4c/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json")
     if not source.is_file():
         pytest.skip("formal cache integration requires the local formal corpus")
-    from latency_meta_mdp.vision_feature_cache_run import (
+    from latency_meta_mdp.data.vision.extract import (
         write_vision_feature_cache_run,
     )
 
     spec = load_vision_encoder_spec(
-        Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+        Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
     )
     encoder = HfDinoPatchEncoder.from_pretrained(
         spec=spec,

@@ -2,24 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from latency_meta_mdp.vision_encoder import load_vision_encoder_spec
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.data.vision.contracts import load_vision_encoder_spec
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 def test_probe_corpus_uses_disjoint_episode_splits_and_k6_histories() -> None:
-    from latency_meta_mdp.vision_probe_corpus import load_level_probe_corpus
+    from latency_meta_mdp.legacy.vision_probe_corpus import load_level_probe_corpus
 
-    source = Path(
-        "outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-first-tranche-e58eee5/manifest.json")
     cache = Path(
-        "outputs/derived/vision_features/"
-        "dinov3-vits16-first-tranche-54b9562/manifest.json"
+        "outputs/derived/vision_features/dinov3-vits16-first-tranche-54b9562/manifest.json"
     )
     if not source.is_file() or not cache.is_file():
         return
     spec = load_vision_encoder_spec(
-        Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+        Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
     )
 
     corpus = load_level_probe_corpus(
@@ -42,12 +39,9 @@ def test_probe_corpus_uses_disjoint_episode_splits_and_k6_histories() -> None:
     assert corpus.seeds[ProbeSplit.VALIDATION] == frozenset((1020, 1021))
     assert corpus.seeds[ProbeSplit.HOLDOUT] == frozenset((1022, 1023, 1024))
     assert not (
-        corpus.seeds[ProbeSplit.TRAIN]
-        & corpus.seeds[ProbeSplit.VALIDATION]
-        | corpus.seeds[ProbeSplit.TRAIN]
-        & corpus.seeds[ProbeSplit.HOLDOUT]
-        | corpus.seeds[ProbeSplit.VALIDATION]
-        & corpus.seeds[ProbeSplit.HOLDOUT]
+        corpus.seeds[ProbeSplit.TRAIN] & corpus.seeds[ProbeSplit.VALIDATION]
+        | corpus.seeds[ProbeSplit.TRAIN] & corpus.seeds[ProbeSplit.HOLDOUT]
+        | corpus.seeds[ProbeSplit.VALIDATION] & corpus.seeds[ProbeSplit.HOLDOUT]
     )
     first = corpus.materialize(ProbeSplit.TRAIN, 0)
     assert first.vision_history.shape == (6, 2, 196, 384)
@@ -56,15 +50,11 @@ def test_probe_corpus_uses_disjoint_episode_splits_and_k6_histories() -> None:
 
 
 def test_formal_probe_corpus_uses_160_20_20_splits() -> None:
-    from latency_meta_mdp.vision_probe_corpus import load_level_probe_corpus
+    from latency_meta_mdp.legacy.vision_probe_corpus import load_level_probe_corpus
 
-    source = Path(
-        "outputs/bulk/expert/"
-        "panda-ball-formal-train-1000-1199-7571a4c/manifest.json"
-    )
+    source = Path("outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json")
     cache = Path(
-        "outputs/derived/vision_features/"
-        "dinov3-vits16-formal-1000-1199-408dbe3/manifest.json"
+        "outputs/derived/vision_features/dinov3-vits16-formal-1000-1199-408dbe3/manifest.json"
     )
     if not source.is_file() or not cache.is_file():
         return
@@ -72,11 +62,11 @@ def test_formal_probe_corpus_uses_160_20_20_splits() -> None:
         source_bulk_manifest=source,
         cache_run_manifest=cache,
         expected_spec=load_vision_encoder_spec(
-            Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+            Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
         ),
         level=1,
         history_sample_count=6,
-        split_plan_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
+        split_plan_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
     )
 
     assert corpus.episode_counts == {

@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from latency_meta_mdp.backend import FormalStepExecutor
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.envs.backend import FormalStepExecutor
+from latency_meta_mdp.runtime.timing import ClockLedger
 
 
 @dataclass

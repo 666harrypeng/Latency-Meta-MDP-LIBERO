@@ -12,30 +12,30 @@ import torch
 import yaml
 from safetensors.torch import load_file as load_safetensors
 
-from latency_meta_mdp.belief.flow.config import load_flow_belief_config
-from latency_meta_mdp.belief.flow.fresh_decoder_config import (
+from latency_meta_mdp.legacy.belief.flow.config import load_flow_belief_config
+from latency_meta_mdp.legacy.belief.flow.fresh_decoder_config import (
     load_fresh_decoder_probe_config,
 )
-from latency_meta_mdp.belief.flow.fresh_decoder_evaluation import (
+from latency_meta_mdp.legacy.belief.flow.fresh_decoder_evaluation import (
     evaluate_cached_vector_field,
 )
-from latency_meta_mdp.belief.flow.fresh_decoder_probe import (
+from latency_meta_mdp.legacy.belief.flow.fresh_decoder_probe import (
     CachedBeliefSplit,
     FrozenEncoderFreshDecoder,
     cache_frozen_belief_splits,
 )
-from latency_meta_mdp.belief.flow.fresh_decoder_run import (
+from latency_meta_mdp.legacy.belief.flow.fresh_decoder_run import (
     summarize_fresh_decoder_metrics,
 )
-from latency_meta_mdp.belief.flow.fresh_decoder_training import train_fresh_vector_field
-from latency_meta_mdp.belief.flow.model import FlowBeliefModel
-from latency_meta_mdp.belief.flow.training_data import FlowBeliefNormalization
-from latency_meta_mdp.belief.flow.vector_field import ConditionalStateVectorField
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.belief.flow.fresh_decoder_training import train_fresh_vector_field
+from latency_meta_mdp.legacy.belief.flow.model import FlowBeliefModel
+from latency_meta_mdp.legacy.belief.flow.training_data import FlowBeliefNormalization
+from latency_meta_mdp.legacy.belief.flow.vector_field import ConditionalStateVectorField
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 def _config():
-    return load_flow_belief_config(Path("configs/belief/dinov3_flow_belief_v1.yaml"))
+    return load_flow_belief_config(Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"))
 
 
 def _cached_split() -> CachedBeliefSplit:

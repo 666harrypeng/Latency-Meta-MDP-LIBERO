@@ -6,14 +6,14 @@ import numpy as np
 import pytest
 import yaml
 
-from latency_meta_mdp.belief.flow.data_sufficiency import (
+from latency_meta_mdp.legacy.belief.flow.data_sufficiency import (
     build_nested_episode_subsets,
     decide_data_scaling,
     load_flow_data_sufficiency_config,
     subset_feature_belief_corpus,
     summarize_episode_motion,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 def test_nested_episode_subsets_are_deterministic_nested_and_disjoint() -> None:

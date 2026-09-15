@@ -4,13 +4,13 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.belief.flow.ghost_config import load_flow_belief_ghost_config
-from latency_meta_mdp.belief.flow.rolling_video import (
+from latency_meta_mdp.legacy.belief.flow.ghost_config import load_flow_belief_ghost_config
+from latency_meta_mdp.legacy.belief.flow.rolling_video import (
     build_progressive_reveal_schedule,
     iter_progressive_context_frames,
     write_progressive_review_video,
 )
-from latency_meta_mdp.belief.flow.rolling_visuals import (
+from latency_meta_mdp.legacy.belief.flow.rolling_visuals import (
     derive_rolling_joint_limits,
     derive_rolling_plot_limits,
 )
@@ -43,7 +43,7 @@ def test_progressive_context_frames_keep_fixed_layout_and_change_reveal_state() 
         [np.full((256, 256, 3), 30 + index * 35, dtype=np.uint8) for index in range(5)]
     )
     config = load_flow_belief_ghost_config(
-        Path("configs/analysis/flow_belief_agentview_ghost_v1.yaml")
+        Path("configs/legacy/analysis/flow_belief_agentview_ghost_v1.yaml")
     )
     frames = list(
         iter_progressive_context_frames(

@@ -8,14 +8,14 @@ import numpy as np
 import pytest
 import yaml
 
-from latency_meta_mdp.bulk_plan import load_bulk_collection_plan
-from latency_meta_mdp.outcomes import OutcomeStatus, TerminalReason
+from latency_meta_mdp.data.bulk_plan import load_bulk_collection_plan
+from latency_meta_mdp.envs.outcomes import OutcomeStatus, TerminalReason
 
 
 def test_first_tranche_selects_exactly_25_train_seeds_per_level() -> None:
-    from latency_meta_mdp.bulk_collection import select_first_tranche
+    from latency_meta_mdp.data.bulk_collection import select_first_tranche
 
-    plan = load_bulk_collection_plan(Path("configs/collection/panda_ball_bulk_v1.yaml"))
+    plan = load_bulk_collection_plan(Path("configs/data/collection/panda_ball_bulk_v1.yaml"))
 
     attempts = select_first_tranche(plan)
 
@@ -31,7 +31,7 @@ def test_first_tranche_selects_exactly_25_train_seeds_per_level() -> None:
 
 
 def test_first_tranche_gate_is_applied_independently_per_level() -> None:
-    from latency_meta_mdp.bulk_collection import BulkAttemptResult, evaluate_first_tranche_gate
+    from latency_meta_mdp.data.bulk_collection import BulkAttemptResult, evaluate_first_tranche_gate
 
     results = []
     for level in (1, 2, 3):
@@ -41,9 +41,7 @@ def test_first_tranche_gate_is_applied_independently_per_level() -> None:
                 BulkAttemptResult(
                     level=level,
                     seed=seed,
-                    terminal_status=(
-                        OutcomeStatus.SUCCESS if succeeded else OutcomeStatus.FAILURE
-                    ),
+                    terminal_status=(OutcomeStatus.SUCCESS if succeeded else OutcomeStatus.FAILURE),
                     terminal_reason=(
                         TerminalReason.LIFT_SUCCEEDED
                         if succeeded
@@ -72,17 +70,13 @@ def test_first_tranche_gate_is_applied_independently_per_level() -> None:
 
 
 def test_review_video_selection_uses_first_three_successes_per_level() -> None:
-    from latency_meta_mdp.bulk_collection import BulkAttemptResult, select_review_attempts
+    from latency_meta_mdp.data.bulk_collection import BulkAttemptResult, select_review_attempts
 
     results = tuple(
         BulkAttemptResult(
             level=level,
             seed=seed,
-            terminal_status=(
-                OutcomeStatus.FAILURE
-                if seed == 1_000
-                else OutcomeStatus.SUCCESS
-            ),
+            terminal_status=(OutcomeStatus.FAILURE if seed == 1_000 else OutcomeStatus.SUCCESS),
             terminal_reason=(
                 TerminalReason.GRASP_DEADLINE_MISSED
                 if seed == 1_000
@@ -114,9 +108,9 @@ def test_review_video_selection_uses_first_three_successes_per_level() -> None:
 def test_tiny_first_tranche_run_writes_belief_attempts_and_review_videos(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.bulk_collection import collect_first_tranche
+    from latency_meta_mdp.data.bulk_collection import collect_first_tranche
 
-    plan = load_bulk_collection_plan(Path("configs/collection/panda_ball_bulk_v1.yaml"))
+    plan = load_bulk_collection_plan(Path("configs/data/collection/panda_ball_bulk_v1.yaml"))
     tiny = replace(
         plan,
         camera_width=8,
@@ -126,7 +120,7 @@ def test_tiny_first_tranche_run_writes_belief_attempts_and_review_videos(
         review_video_count_per_level=1,
     )
     tiny_plan_path = tmp_path / "tiny_bulk_plan.yaml"
-    raw = yaml.safe_load(Path("configs/collection/panda_ball_bulk_v1.yaml").read_text())
+    raw = yaml.safe_load(Path("configs/data/collection/panda_ball_bulk_v1.yaml").read_text())
     raw.update(
         {
             "camera_height": tiny.camera_height,
@@ -178,14 +172,14 @@ def test_tiny_first_tranche_run_writes_belief_attempts_and_review_videos(
 
 
 def test_bulk_collection_cli_parses_explicit_paths(tmp_path: Path) -> None:
-    from latency_meta_mdp.cli.collect_expert_bulk import _parser
+    from latency_meta_mdp.data.collection.collect_expert_bulk import _parser
 
     args = _parser().parse_args(
         [
             "--project-root",
             str(Path.cwd()),
             "--plan",
-            "configs/collection/panda_ball_bulk_v1.yaml",
+            "configs/data/collection/panda_ball_bulk_v1.yaml",
             "--output-root",
             str(tmp_path),
             "--run-id",

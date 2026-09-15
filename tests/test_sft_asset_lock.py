@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from latency_meta_mdp.sft_asset_lock import load_sft_asset_lock
-from latency_meta_mdp.sft_profile import load_sft_profile
+from latency_meta_mdp.legacy.policy.sft_asset_lock import load_sft_asset_lock
+from latency_meta_mdp.policy.profile import load_sft_profile
 
-_PROFILE_PATH = Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
+_PROFILE_PATH = Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
 
 
 def _payload() -> dict:

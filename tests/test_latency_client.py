@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.latency_harness import FixedDelaySampler, LogicalLatencyHarness
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.runtime.latency_harness import FixedDelaySampler, LogicalLatencyHarness
 
-_CONTROL_CONFIG = Path("configs/control/panda_osc_pose_delta_v1.yaml")
+_CONTROL_CONFIG = Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
 
 
 class _SimulationClock:
@@ -22,7 +22,7 @@ class _SimulationClock:
 
 
 def _client_module():
-    return importlib.import_module("latency_meta_mdp.latency_client")
+    return importlib.import_module("latency_meta_mdp.runtime.latency_client")
 
 
 def _make_client(delay_ticks: int):

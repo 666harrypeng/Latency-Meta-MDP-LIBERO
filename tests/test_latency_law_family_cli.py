@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from latency_meta_mdp.cli.certify_latency_law_family import build_parser
+from latency_meta_mdp.data.tools.certify_latency_law_family import build_parser
 
 
 def test_latency_law_family_cli_uses_locked_defaults() -> None:
@@ -15,5 +15,7 @@ def test_latency_law_family_cli_uses_locked_defaults() -> None:
         ]
     )
 
-    assert args.nominal_law == Path("configs/latency/truncated_beta_8_65_400ms_v1.yaml")
-    assert args.family_config == Path("configs/latency/truncated_beta_family_8_65_400ms_v1.yaml")
+    assert args.nominal_law == Path("configs/runtime/latency/truncated_beta_8_65_400ms_v1.yaml")
+    assert args.family_config == Path(
+        "configs/runtime/latency/truncated_beta_family_8_65_400ms_v1.yaml"
+    )

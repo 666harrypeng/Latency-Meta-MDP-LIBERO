@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 import torch
 
-from latency_meta_mdp.vision_feature_cache import EpisodeVisionFeatureCache
+from latency_meta_mdp.data.vision.cache import EpisodeVisionFeatureCache
+from latency_meta_mdp.io.paths import repository_root
 
 
 def _record(
@@ -18,7 +19,7 @@ def _record(
     terminal_tick: int = 10,
     future_offset: float = 0.0,
 ):
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import JepaEpisodeRecord
+    from latency_meta_mdp.belief.jepa.corpus import JepaEpisodeRecord
 
     feature_path = tmp_path / f"{episode_id}-{future_offset}.npy"
     features = np.lib.format.open_memmap(
@@ -79,7 +80,7 @@ def _record(
 
 
 def _normalization(record):
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         compute_jepa_proprio_normalization,
     )
 
@@ -91,7 +92,7 @@ def _normalization(record):
 
 
 def test_nominal_sample_uses_exact_boundary_action_alignment(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         materialize_jepa_sample,
     )
 
@@ -113,7 +114,7 @@ def test_nominal_sample_uses_exact_boundary_action_alignment(tmp_path: Path) -> 
 
 
 def test_future_target_mutation_cannot_change_launch_context(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         materialize_jepa_sample,
     )
 
@@ -140,7 +141,7 @@ def test_future_target_mutation_cannot_change_launch_context(tmp_path: Path) -> 
 
 
 def test_terminal_absorbing_targets_preserve_real_terminal_then_hold(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         formal_hold_suffix,
         materialize_jepa_sample,
     )
@@ -184,7 +185,7 @@ def test_terminal_absorbing_targets_preserve_real_terminal_then_hold(tmp_path: P
 
 
 def test_feature_cache_stays_memory_mapped_and_samples_are_stride_one(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         ActionConditionedJepaCorpus,
         compute_jepa_proprio_normalization,
     )
@@ -217,7 +218,7 @@ def test_feature_cache_stays_memory_mapped_and_samples_are_stride_one(tmp_path: 
 def test_normalization_counts_each_train_boundary_once_and_rejects_validation(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         compute_jepa_proprio_normalization,
     )
 
@@ -252,7 +253,7 @@ def test_normalization_counts_each_train_boundary_once_and_rejects_validation(
 
 
 def test_normalization_artifact_round_trips_and_is_no_overwrite(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         load_jepa_proprio_normalization,
         write_jepa_proprio_normalization,
     )
@@ -278,7 +279,7 @@ def test_normalization_artifact_round_trips_and_is_no_overwrite(tmp_path: Path) 
 
 
 def test_corpus_rejects_normalization_from_another_source_or_split(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         ActionConditionedJepaCorpus,
     )
 
@@ -300,14 +301,14 @@ def test_shared_temporal_indices_use_the_strictest_history_for_all_candidates(
 ) -> None:
     """Catches candidate-specific launch occupancy entering configuration selection."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+    from latency_meta_mdp.belief.jepa.ar.temporal_view import (
         build_shared_temporal_indices,
     )
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
+    )
 
-    root = Path("configs/belief/action_conditioned_jepa")
+    root = Path("configs/models/jepa")
     samplings = tuple(
         load_jepa_temporal_sampling(root / name)
         for name in (
@@ -332,16 +333,16 @@ def test_stride2_temporal_sample_preserves_macro_control_order_and_absorbing_tai
 ) -> None:
     """Catches strided endpoint sampling that drops intervening controls or pads nonphysically."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+    from latency_meta_mdp.belief.jepa.ar.temporal_view import (
         SharedJepaSampleIndex,
         materialize_temporal_jepa_sample,
     )
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
+    )
 
     sampling = load_jepa_temporal_sampling(
-        Path("configs/belief/action_conditioned_jepa/stride2_40ms_history_120ms.yaml")
+        Path("configs/models/jepa/stride2_40ms_history_120ms.yaml")
     )
     record = _record(tmp_path, terminal_tick=30)
     sample = materialize_temporal_jepa_sample(
@@ -402,17 +403,17 @@ def test_stride2_temporal_sample_preserves_macro_control_order_and_absorbing_tai
 def test_temporal_sample_rejects_wrong_boundary_disposition(tmp_path: Path) -> None:
     """Catches labeling a truncated terminal future as fully recorded."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+    from latency_meta_mdp.belief.jepa.ar.temporal_view import (
         SharedJepaSampleIndex,
         materialize_temporal_jepa_sample,
+    )
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
     )
 
     record = _record(tmp_path, terminal_tick=30)
     sampling = load_jepa_temporal_sampling(
-        Path("configs/belief/action_conditioned_jepa/stride5_100ms_history_200ms.yaml")
+        Path("configs/models/jepa/stride5_100ms_history_200ms.yaml")
     )
 
     with pytest.raises(ValueError, match="boundary disposition"):
@@ -435,17 +436,17 @@ def test_temporal_corpus_filters_fold_episodes_and_collates_dynamic_batch(
 ) -> None:
     """Catches loading development episodes into fit or returning fixed dense tensor shapes."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
-        compute_jepa_proprio_normalization,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+    from latency_meta_mdp.belief.jepa.ar.temporal_view import (
         TemporalJepaCorpus,
         build_shared_temporal_indices,
         collate_temporal_jepa_evaluation_samples,
         collate_temporal_jepa_samples,
+    )
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
+    )
+    from latency_meta_mdp.belief.jepa.corpus import (
+        compute_jepa_proprio_normalization,
     )
 
     first = _record(tmp_path, episode_id="fit", terminal_tick=30)
@@ -456,7 +457,7 @@ def test_temporal_corpus_filters_fold_episodes_and_collates_dynamic_batch(
         split_manifest_sha256="b" * 64,
     )
     sampling = load_jepa_temporal_sampling(
-        Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+        Path("configs/models/jepa/stride4_80ms_history_160ms.yaml")
     )
     indices = build_shared_temporal_indices(
         records=(first, second),
@@ -507,21 +508,21 @@ def test_deployed_evaluation_view_materializes_dense_d20_only_for_evaluation(
 ) -> None:
     """Catches evaluating a coarse rollout only at native anchors and hiding quantization error."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
-        load_jepa_temporal_sampling,
-    )
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+    from latency_meta_mdp.belief.jepa.ar.temporal_view import (
         TemporalJepaCorpus,
         TemporalJepaDeployedEvaluationCorpus,
         build_shared_temporal_indices,
         collate_temporal_jepa_deployed_evaluation_samples,
+    )
+    from latency_meta_mdp.belief.jepa.config import (
+        load_jepa_temporal_sampling,
     )
 
     record = _record(tmp_path, episode_id="development", terminal_tick=30)
     normalization_source = _record(tmp_path, episode_id="fit", terminal_tick=30)
     normalization = _normalization(normalization_source)
     sampling = load_jepa_temporal_sampling(
-        Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+        Path("configs/models/jepa/stride4_80ms_history_160ms.yaml")
     )
     indices = build_shared_temporal_indices(records=(record,), samplings=(sampling,))
     native = TemporalJepaCorpus(
@@ -547,17 +548,17 @@ def test_deployed_evaluation_view_materializes_dense_d20_only_for_evaluation(
 
 @pytest.mark.integration
 def test_formal_source_cache_split_join_for_one_episode_per_level() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.data_adapter import (
+    from latency_meta_mdp.belief.jepa.corpus import (
         compute_jepa_proprio_normalization,
         load_verified_jepa_inputs,
         load_verified_jepa_record,
         materialize_jepa_sample,
     )
 
-    root = Path(__file__).resolve().parents[1]
+    root = repository_root()
     source_root = root / "outputs/source_corpus/panda-ball-structured-source-quota-formal-100x4-v1"
     cache_manifest = (
         root
@@ -571,12 +572,9 @@ def test_formal_source_cache_split_join_for_one_episode_per_level() -> None:
     if not all(path.exists() for path in (source_root, cache_manifest, split_manifest)):
         pytest.skip("formal structured source, split, or DINO cache is absent")
     config = load_action_conditioned_jepa_config(
-        model_path=root / "configs/belief/action_conditioned_jepa/model.yaml",
-        level_path=root / "configs/belief/action_conditioned_jepa/l3.yaml",
-        temporal_sampling_path=(
-            root
-            / "configs/belief/action_conditioned_jepa/dense_20ms_history_100ms.yaml"
-        ),
+        model_path=root / "configs/models/jepa/model.yaml",
+        level_path=root / "configs/models/jepa/l3.yaml",
+        temporal_sampling_path=(root / "configs/models/jepa/dense_20ms_history_100ms.yaml"),
     )
     inputs = load_verified_jepa_inputs(
         source_root=source_root,

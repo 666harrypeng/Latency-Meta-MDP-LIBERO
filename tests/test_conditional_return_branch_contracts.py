@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_contracts import (
     BranchRollout,
     ControlContinuationSpec,
     ExecutablePrefix,

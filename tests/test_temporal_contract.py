@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.temporal_contract import load_temporal_contract
+from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
-_CONFIG = Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
+_CONFIG = Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml")
 
 
 def test_checked_in_temporal_contract_derives_locked_durations_and_coverage() -> None:

@@ -6,7 +6,7 @@ import pytest
 
 
 def _plan(**updates):
-    from latency_meta_mdp.rtc_protocol import TimedActionPlan
+    from latency_meta_mdp.runtime.rtc_protocol import TimedActionPlan
 
     args = dict(
         origin_tick=100,
@@ -58,7 +58,7 @@ def test_plan_rejects_wrong_alignment_shapes_and_noncontiguous_validity(updates)
 
 
 def test_history_uses_only_completed_observed_delays_and_evicts_old_values():
-    from latency_meta_mdp.rtc_protocol import RollingDelayHistory
+    from latency_meta_mdp.runtime.rtc_protocol import RollingDelayHistory
 
     history = RollingDelayHistory(capacity=2, initial_delays=(4, 8))
     assert history.estimate_ticks() == 8
@@ -78,9 +78,9 @@ def test_history_uses_only_completed_observed_delays_and_evicts_old_values():
 
 
 def test_rtc_config_rejects_incompatible_protocol_and_unusable_history():
-    from latency_meta_mdp.rtc_protocol import load_rtc_client_config
+    from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
-    config = load_rtc_client_config(Path("configs/client/rtc_observation_time_h50_v1.yaml"))
+    config = load_rtc_client_config(Path("configs/runtime/client/rtc_observation_time_h50_v1.yaml"))
     assert config.prediction_horizon == 50
     assert config.maximum_delay_ticks == 20
     with pytest.raises(ValueError):

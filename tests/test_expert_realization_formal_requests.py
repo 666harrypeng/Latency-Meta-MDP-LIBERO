@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
-from latency_meta_mdp.expert_realization.contracts import TaskInstanceId
+from latency_meta_mdp.data.collection.config import load_formal_corpus_config
+from latency_meta_mdp.data.collection.contracts import TaskInstanceId
 
-FORMAL_CONFIG = Path("configs/collection/panda_ball_structured_formal.yaml")
-STRUCTURED_CONFIG = Path("configs/expert_realization/panda_ball_structured.yaml")
+FORMAL_CONFIG = Path("configs/data/collection/panda_ball_structured_formal.yaml")
+STRUCTURED_CONFIG = Path("configs/data/expert_realization/panda_ball_structured.yaml")
 
 
 def _sha(path: Path) -> str:
@@ -19,7 +19,7 @@ def _sha(path: Path) -> str:
 
 
 def _build(config=None):
-    from latency_meta_mdp.expert_realization.contracts import build_formal_request_universe
+    from latency_meta_mdp.data.collection.contracts import build_formal_request_universe
 
     return build_formal_request_universe(
         load_formal_corpus_config(FORMAL_CONFIG) if config is None else config,
@@ -49,7 +49,7 @@ def test_formal_request_universe_is_complete_stable_and_order_independent() -> N
 
 def test_formal_request_universe_round_trip_rejects_mapping_corruption() -> None:
     """Break caught: a stored request can change inventory or hash while remaining loadable."""
-    from latency_meta_mdp.expert_realization.contracts import FormalRequestUniverse
+    from latency_meta_mdp.data.collection.contracts import FormalRequestUniverse
 
     universe = _build()
     mapping = universe.to_mapping()
@@ -68,7 +68,7 @@ def test_formal_request_universe_round_trip_rejects_mapping_corruption() -> None
 
 def test_hidden_family_allocation_is_independent_uniform_and_allows_repeated_modes() -> None:
     """Break caught: each task is forced into a family quota, not sampled behavior."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         StrategyFamily,
         sample_uniform_family_for_slot,
     )
@@ -109,7 +109,7 @@ def test_hidden_family_allocation_is_independent_uniform_and_allows_repeated_mod
 
 def test_formal_realization_requests_bind_task_family_namespace_and_unique_seed() -> None:
     """Break caught: one task's hidden family assignment is not part of its semantic request."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
         build_formal_realization_requests,
     )
@@ -144,7 +144,7 @@ def test_formal_realization_requests_bind_task_family_namespace_and_unique_seed(
 
 def test_success_quota_draw_requests_are_level_aware_stable_and_unbounded_by_quota() -> None:
     """Break caught: replacement draws repeat slots or share identity across levels."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         FormalRealizationDrawRequest,
         build_formal_realization_draw_request,
     )
@@ -164,21 +164,21 @@ def test_success_quota_draw_requests_are_level_aware_stable_and_unbounded_by_quo
     )
 
     l1 = tuple(
-        build_formal_realization_draw_request(universe, task_l1, index)
-        for index in (0, 4, 15)
+        build_formal_realization_draw_request(universe, task_l1, index) for index in (0, 4, 15)
     )
     l3 = tuple(
-        build_formal_realization_draw_request(universe, task_l3, index)
-        for index in (0, 4, 15)
+        build_formal_realization_draw_request(universe, task_l3, index) for index in (0, 4, 15)
     )
 
     assert all(isinstance(row, FormalRealizationDrawRequest) for row in l1 + l3)
     assert [row.realization_draw_index for row in l1] == [0, 4, 15]
     assert len({row.realization_seed for row in l1 + l3}) == 6
-    assert tuple(
-        build_formal_realization_draw_request(universe, task_l1, index)
-        for index in (0, 4, 15)
-    ) == l1
+    assert (
+        tuple(
+            build_formal_realization_draw_request(universe, task_l1, index) for index in (0, 4, 15)
+        )
+        == l1
+    )
     assert tuple(row.assigned_family for row in l1) != tuple(row.assigned_family for row in l3)
     assert all(
         row.to_expert_realization_key().realization_index == row.realization_draw_index
@@ -188,7 +188,7 @@ def test_success_quota_draw_requests_are_level_aware_stable_and_unbounded_by_quo
 
 
 def test_success_quota_draw_request_rejects_invalid_identity() -> None:
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         FormalRealizationDrawRequest,
         build_formal_realization_draw_request,
     )
@@ -225,7 +225,7 @@ def test_success_quota_draw_request_rejects_invalid_identity() -> None:
 )
 def test_corpus_extension_rejects_interval_overlap(existing, requested, valid: bool) -> None:
     """Break caught: a later collection shard silently repeats prior task identities."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         validate_nonoverlapping_extension,
     )
 
@@ -238,7 +238,7 @@ def test_corpus_extension_rejects_interval_overlap(existing, requested, valid: b
 
 def test_formal_request_types_reject_seed_slot_and_inventory_drift() -> None:
     """Break caught: caller-authored rows bypass canonical seed and complete-slot derivation."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         FamilySlotAssignment,
         MasterTaskRequest,
         StrategyFamily,

@@ -19,7 +19,7 @@ def _valid_mapping() -> dict:
 
 
 def _result(point, *, succeeded: bool):
-    from latency_meta_mdp.endpoint_reachability import EndpointReachabilityResult
+    from latency_meta_mdp.envs.endpoint_reachability import EndpointReachabilityResult
 
     return EndpointReachabilityResult(
         point=point,
@@ -36,15 +36,14 @@ def _result(point, *, succeeded: bool):
 
 
 def test_reachability_spec_builds_a_stable_y_major_grid() -> None:
-    from latency_meta_mdp.endpoint_reachability import EndpointReachabilitySpec
+    from latency_meta_mdp.envs.endpoint_reachability import EndpointReachabilitySpec
 
     spec = EndpointReachabilitySpec.from_mapping(_valid_mapping())
 
     points = spec.grid_points()
     assert len(points) == 25
     first_six = [
-        (point.point_id, point.x_index, point.y_index, point.x_m, point.y_m)
-        for point in points[:6]
+        (point.point_id, point.x_index, point.y_index, point.x_m, point.y_m) for point in points[:6]
     ]
     assert first_six == [
         ("x00-y00", 0, 0, -0.08, -0.20),
@@ -71,7 +70,7 @@ def test_reachability_spec_rejects_ambiguous_or_empty_grids(
     value: object,
     message: str,
 ) -> None:
-    from latency_meta_mdp.endpoint_reachability import EndpointReachabilitySpec
+    from latency_meta_mdp.envs.endpoint_reachability import EndpointReachabilitySpec
 
     raw = _valid_mapping()
     raw[field] = value
@@ -81,7 +80,7 @@ def test_reachability_spec_rejects_ambiguous_or_empty_grids(
 
 
 def test_largest_safe_rectangle_uses_only_cells_with_a_success_margin() -> None:
-    from latency_meta_mdp.endpoint_reachability import (
+    from latency_meta_mdp.envs.endpoint_reachability import (
         EndpointReachabilitySpec,
         derive_safe_rectangle,
     )
@@ -109,15 +108,13 @@ def test_largest_safe_rectangle_uses_only_cells_with_a_success_margin() -> None:
 
 
 def test_safe_rectangle_rejects_missing_or_duplicate_grid_results() -> None:
-    from latency_meta_mdp.endpoint_reachability import (
+    from latency_meta_mdp.envs.endpoint_reachability import (
         EndpointReachabilitySpec,
         derive_safe_rectangle,
     )
 
     spec = EndpointReachabilitySpec.from_mapping(_valid_mapping())
-    complete = [
-        _result(point, succeeded=True) for point in spec.grid_points()
-    ]
+    complete = [_result(point, succeeded=True) for point in spec.grid_points()]
 
     with pytest.raises(ValueError, match="exactly one result"):
         derive_safe_rectangle(spec=spec, results=tuple(complete[:-1]))
@@ -126,7 +123,7 @@ def test_safe_rectangle_rejects_missing_or_duplicate_grid_results() -> None:
 
 
 def test_safe_rectangle_excludes_physical_success_after_the_handoff_deadline() -> None:
-    from latency_meta_mdp.endpoint_reachability import (
+    from latency_meta_mdp.envs.endpoint_reachability import (
         EndpointReachabilityResult,
         EndpointReachabilitySpec,
         derive_safe_rectangle,
@@ -158,10 +155,10 @@ def test_safe_rectangle_excludes_physical_success_after_the_handoff_deadline() -
 
 
 def test_checked_in_reachability_config_is_valid() -> None:
-    from latency_meta_mdp.endpoint_reachability import load_endpoint_reachability_spec
+    from latency_meta_mdp.envs.endpoint_reachability import load_endpoint_reachability_spec
 
     spec = load_endpoint_reachability_spec(
-        Path("configs/control/panda_endpoint_reachability_v1.yaml")
+        Path("configs/runtime/control/panda_endpoint_reachability_v1.yaml")
     )
 
     assert spec.calibration_id == "panda_endpoint_reachability_v1"
@@ -170,14 +167,14 @@ def test_checked_in_reachability_config_is_valid() -> None:
 
 
 def test_canonical_endpoint_completes_the_real_grasp_and_lift_stack() -> None:
-    from latency_meta_mdp.endpoint_reachability import (
+    from latency_meta_mdp.envs.endpoint_reachability import (
         EndpointGridPoint,
         load_endpoint_reachability_spec,
         run_endpoint_attempt,
     )
 
     spec = load_endpoint_reachability_spec(
-        Path("configs/control/panda_endpoint_reachability_v1.yaml")
+        Path("configs/runtime/control/panda_endpoint_reachability_v1.yaml")
     )
     result = run_endpoint_attempt(
         project_root=Path.cwd(),

@@ -6,17 +6,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.flow.quality_config import (
+from latency_meta_mdp.legacy.belief.flow.quality_config import (
     load_flow_belief_quality_sample_config,
 )
-from latency_meta_mdp.belief.flow.quality_types import (
+from latency_meta_mdp.legacy.belief.flow.quality_types import (
     QualityContextIdentity,
     QualitySampleBundle,
     QualitySelection,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
-_CONFIG_PATH = Path("configs/analysis/flow_belief_quality_samples_v1.yaml")
+_CONFIG_PATH = Path("configs/legacy/analysis/flow_belief_quality_samples_v1.yaml")
 
 
 def _selection(offset: int = 0) -> QualitySelection:

@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.artifacts import ImplementationProvenance
+from latency_meta_mdp.io.artifacts import ImplementationProvenance
+from latency_meta_mdp.io.paths import repository_root
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = repository_root()
 _SOURCE = (
     _PROJECT_ROOT / "outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json"
 )
@@ -35,13 +36,15 @@ def _run_kwargs(tmp_path: Path) -> dict:
         "cache_run_manifest": _CACHE,
         "flow_run_manifest": _FLOW,
         "evaluation_run_manifest": _EVALUATION,
-        "vision_config_path": _PROJECT_ROOT / "configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml",
-        "temporal_config_path": _PROJECT_ROOT / "configs/temporal/h50_e25_d20_k6_v1.yaml",
-        "latency_law_path": _PROJECT_ROOT / "configs/latency/truncated_beta_5_26_400ms_v1.yaml",
-        "flow_config_path": _PROJECT_ROOT / "configs/belief/dinov3_flow_belief_v1.yaml",
-        "split_config_path": _PROJECT_ROOT / "configs/data/formal_belief_train_val_v1.yaml",
+        "vision_config_path": _PROJECT_ROOT
+        / "configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml",
+        "temporal_config_path": _PROJECT_ROOT / "configs/contracts/temporal/h50_e25_d20_k6_v1.yaml",
+        "latency_law_path": _PROJECT_ROOT
+        / "configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml",
+        "flow_config_path": _PROJECT_ROOT / "configs/legacy/belief/dinov3_flow_belief_v1.yaml",
+        "split_config_path": _PROJECT_ROOT / "configs/legacy/data/formal_belief_train_val_v1.yaml",
         "quality_config_path": _PROJECT_ROOT
-        / "configs/analysis/flow_belief_quality_samples_v1.yaml",
+        / "configs/legacy/analysis/flow_belief_quality_samples_v1.yaml",
         "output_dir": tmp_path / "quality",
         "levels": (1, 2, 3),
         "device": "cuda",
@@ -71,7 +74,7 @@ def test_quality_run_publishes_three_level_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _require_formal_artifacts()
-    from latency_meta_mdp.belief.flow import quality_run
+    from latency_meta_mdp.legacy.belief.flow import quality_run
 
     monkeypatch.setattr(
         quality_run,
@@ -113,7 +116,7 @@ def test_quality_run_removes_staging_after_level_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _require_formal_artifacts()
-    from latency_meta_mdp.belief.flow import quality_run
+    from latency_meta_mdp.legacy.belief.flow import quality_run
 
     monkeypatch.setattr(
         quality_run,
@@ -141,7 +144,7 @@ def test_quality_run_removes_staging_after_level_failure(
 
 
 def test_quality_cli_exposes_only_validation_sample_export() -> None:
-    from latency_meta_mdp.cli.export_flow_belief_quality_samples import build_parser
+    from latency_meta_mdp.legacy.cli.export_flow_belief_quality_samples import build_parser
 
     help_text = build_parser().format_help()
     assert "--evaluation-run-manifest" in help_text

@@ -5,14 +5,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.backend import AppliedControlSample, FormalStepExecutor, RoboSuitePlant
-from latency_meta_mdp.control import ActionRepresentation, load_action_contract
-from latency_meta_mdp.snapshots import BoundarySnapshotter
-from latency_meta_mdp.task import load_task_spec, make_dynamic_grasp_lift_environment
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.envs.backend import AppliedControlSample, FormalStepExecutor, RoboSuitePlant
+from latency_meta_mdp.envs.control import ActionRepresentation, load_action_contract
+from latency_meta_mdp.envs.snapshots import BoundarySnapshotter
+from latency_meta_mdp.envs.task import load_task_spec, make_dynamic_grasp_lift_environment
+from latency_meta_mdp.runtime.timing import ClockLedger
 
-_TASK_CONFIG = Path("configs/task/dynamic_grasp_lift_l0.yaml")
-_CONTROL_CONFIG = Path("configs/control/panda_osc_pose_delta_v1.yaml")
+_TASK_CONFIG = Path("configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml")
+_CONTROL_CONFIG = Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
 
 
 def test_delta_eef_contract_builds_the_seven_dimensional_panda_controller() -> None:
@@ -133,7 +133,7 @@ def test_zero_delta_holds_pose_for_exactly_ten_physics_steps() -> None:
 
 def test_post_step_observer_sees_solved_step_before_ledger_advance() -> None:
     """Break caught: contact force is sampled before mj_step2 solves the completed step."""
-    from latency_meta_mdp.backend import CompletedPhysicsStep
+    from latency_meta_mdp.envs.backend import CompletedPhysicsStep
 
     contract = load_action_contract(_CONTROL_CONFIG)
     env = make_dynamic_grasp_lift_environment(

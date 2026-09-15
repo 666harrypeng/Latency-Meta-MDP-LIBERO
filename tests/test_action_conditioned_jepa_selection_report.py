@@ -119,7 +119,7 @@ def test_report_aggregates_each_fold_equally_instead_of_weighting_source_count(
 ) -> None:
     """Catches silently giving folds with more launch contexts greater selection weight."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.selection_report import (
+    from latency_meta_mdp.belief.jepa.ar.report import (
         build_temporal_selection_report,
     )
 
@@ -139,7 +139,7 @@ def test_report_aggregates_each_fold_equally_instead_of_weighting_source_count(
 def test_report_writes_common_d20_and_native_anchor_curve_tables(tmp_path: Path) -> None:
     """Catches comparing configs on different implicit time axes or dropping native anchors."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.selection_report import (
+    from latency_meta_mdp.belief.jepa.ar.report import (
         write_temporal_selection_report,
     )
 
@@ -174,18 +174,12 @@ def test_report_writes_common_d20_and_native_anchor_curve_tables(tmp_path: Path)
 def test_report_rejects_an_incomplete_fold_inventory(tmp_path: Path) -> None:
     """Catches publishing a comparison after one config silently loses a development fold."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.selection_report import (
+    from latency_meta_mdp.belief.jepa.ar.report import (
         build_temporal_selection_report,
     )
 
     _write_complete_selection(tmp_path)
-    missing = (
-        tmp_path
-        / "stride5_100ms_history_200ms"
-        / "fold-3"
-        / "seed-7"
-        / "manifest.json"
-    )
+    missing = tmp_path / "stride5_100ms_history_200ms" / "fold-3" / "seed-7" / "manifest.json"
     missing.unlink()
 
     with pytest.raises(ValueError, match="complete four-fold inventory"):
@@ -195,18 +189,12 @@ def test_report_rejects_an_incomplete_fold_inventory(tmp_path: Path) -> None:
 def test_report_rejects_noncomparable_input_provenance(tmp_path: Path) -> None:
     """Catches aggregating a candidate trained against a different source or split."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.selection_report import (
+    from latency_meta_mdp.belief.jepa.ar.report import (
         build_temporal_selection_report,
     )
 
     _write_complete_selection(tmp_path)
-    target = (
-        tmp_path
-        / "stride4_80ms_history_160ms"
-        / "fold-2"
-        / "seed-7"
-        / "manifest.json"
-    )
+    target = tmp_path / "stride4_80ms_history_160ms" / "fold-2" / "seed-7" / "manifest.json"
     payload = json.loads(target.read_text(encoding="utf-8"))
     payload["input_sha256"]["source_manifest"] = "different-source"
     target.write_text(json.dumps(payload), encoding="utf-8")
@@ -221,7 +209,9 @@ def test_selection_report_cli_materializes_the_canonical_outputs(
 ) -> None:
     """Catches a CLI that writes ad-hoc filenames or hides the summary location."""
 
-    from latency_meta_mdp.cli.summarize_action_conditioned_jepa_selection import main
+    from latency_meta_mdp.belief.jepa.ar.report_cli import (
+        main,
+    )
 
     source = tmp_path / "runs"
     output = tmp_path / "report"

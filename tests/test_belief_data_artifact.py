@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
-from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.data.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.io.episode_artifacts import write_synchronized_episode_artifact
 
 
 def _source_bulk_manifest(tmp_path: Path) -> Path:
@@ -45,11 +45,9 @@ def _source_bulk_manifest(tmp_path: Path) -> Path:
 
 
 def test_checked_in_belief_data_view_config_is_valid() -> None:
-    from latency_meta_mdp.belief_data_artifact import load_belief_data_view_config
+    from latency_meta_mdp.legacy.belief_data_artifact import load_belief_data_view_config
 
-    config = load_belief_data_view_config(
-        Path("configs/data/belief_data_view_h50_v2.yaml")
-    )
+    config = load_belief_data_view_config(Path("configs/legacy/data/belief_data_view_h50_v2.yaml"))
 
     assert config.view_id == "belief_data_view_h50_v2"
     assert config.history_ticks == 6
@@ -61,7 +59,7 @@ def test_checked_in_belief_data_view_config_is_valid() -> None:
 def test_belief_data_certification_is_atomic_and_preserves_open_design_items(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.belief_data_artifact import certify_belief_data_contract
+    from latency_meta_mdp.legacy.belief_data_artifact import certify_belief_data_contract
 
     source_manifest = _source_bulk_manifest(tmp_path)
     output = tmp_path / "certification"
@@ -69,8 +67,8 @@ def test_belief_data_certification_is_atomic_and_preserves_open_design_items(
     result = certify_belief_data_contract(
         project_root=Path.cwd(),
         source_bulk_manifest=source_manifest,
-        view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
-        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        view_config_path=Path("configs/legacy/data/belief_data_view_h50_v2.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
         output_dir=output,
     )
 
@@ -99,9 +97,7 @@ def test_belief_data_certification_is_atomic_and_preserves_open_design_items(
         certify_belief_data_contract(
             project_root=Path.cwd(),
             source_bulk_manifest=source_manifest,
-            view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
-            latency_law_path=Path(
-                "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
-            ),
+            view_config_path=Path("configs/legacy/data/belief_data_view_h50_v2.yaml"),
+            latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
             output_dir=output,
         )

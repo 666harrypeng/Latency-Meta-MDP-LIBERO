@@ -1,0 +1,37 @@
+# Example asset paths and budget; replace for the frozen policy being scheduled.
+schema_version: 1
+training_config: configs/training/meta/budgeted.yaml
+cost_profile: outputs/meta-inputs/cost-profile.json
+budget: 10.0
+phases: 4
+initial_multiplier: 0.1
+multiplier_step: 0.1
+exploration_epsilon: 0.2
+replica_start: 0
+use_future: true
+record_video: true
+initial_replay: null
+initial_checkpoint: null
+training_python: .venv-jepa/bin/python
+evaluation_python: .venv-policy-eval/bin/python
+gpu_ids: [0, 1, 2, 3, 4, 5, 6, 7]
+evaluation:
+  checkpoint: outputs/meta-inputs/conditioned-policy
+  checkpoint_verification: outputs/meta-inputs/conditioned-verification.json
+  preparation_root: outputs/meta-inputs/policy-preparation
+  forecast_assets: outputs/meta-inputs/forecast-assets.json
+  bootstrap_checkpoint: outputs/meta-inputs/clean-policy
+  bootstrap_verification: outputs/meta-inputs/clean-verification.json
+  rtc_calibration: outputs/meta-inputs/rtc-calibration.json
+  decision_interval_ticks: 4
+  rtc_max_guidance_weight: 5.0
+cohorts:
+  train:
+    nominal: outputs/meta-inputs/cohorts/train-nominal.json
+    family: outputs/meta-inputs/cohorts/train-family.json
+  feedback:
+    nominal: outputs/meta-inputs/cohorts/feedback-nominal.json
+    family: outputs/meta-inputs/cohorts/feedback-family.json
+  validation:
+    nominal: outputs/meta-inputs/cohorts/validation-nominal.json
+    family: outputs/meta-inputs/cohorts/validation-family.json

@@ -9,12 +9,12 @@ from types import MethodType, SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey
-from latency_meta_mdp.expert_realization.shared_prefix import (
+from latency_meta_mdp.data.collection.contracts import ExpertRealizationKey
+from latency_meta_mdp.data.collection.shared_prefix import (
     _compare_shared_prefix_anchors,
     replay_shared_prefix,
 )
-from latency_meta_mdp.expert_realization.task_instance import (
+from latency_meta_mdp.data.collection.task_instance import (
     TaskInstanceReplayMismatch,
     _compare_initial_states,
     materialize_task_instance,
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.parametrize("shadow_lifecycle", ["render", "close_current", "close_other"])
 def test_shadow_runtime_preserves_primary_camera_pixels_and_physics(shadow_lifecycle: str) -> None:
     """GT replay must not alter either deployment camera or the physical trajectory."""
-    from latency_meta_mdp.expert_realization.task_instance import _build_task_instance_runtime
+    from latency_meta_mdp.data.collection.task_instance import _build_task_instance_runtime
 
     task = materialize_task_instance(project_root=Path.cwd(), level=3, task_instance_seed=4000)
     control = _build_task_instance_runtime(task)
@@ -77,7 +77,7 @@ def test_task_instance_and_k6_replay_are_bitwise_same_host_contracts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Gate: fresh EGL runtimes reproduce boundary 0 and K6 exactly, or planning stops."""
-    from latency_meta_mdp.expert_realization import task_instance as module
+    from latency_meta_mdp.data.collection import task_instance as module
 
     project_root = Path.cwd()
     original_factory = module._environment_factory
@@ -161,7 +161,7 @@ def test_task_instance_and_k6_replay_are_bitwise_same_host_contracts(
     )
     assert np.array_equal(replay_one.boundary_formal_ticks, np.arange(6, dtype=np.int64))
 
-    from latency_meta_mdp.expert_realization import shared_prefix as shared_prefix_module
+    from latency_meta_mdp.data.collection import shared_prefix as shared_prefix_module
 
     original_execute = shared_prefix_module._execute_shared_prefix
 
@@ -181,7 +181,9 @@ def test_task_instance_and_k6_replay_are_bitwise_same_host_contracts(
     _assert_all_closed(environments)
     monkeypatch.setattr(shared_prefix_module, "_execute_shared_prefix", original_execute)
 
-    structured_hash = _sha(project_root / "configs/expert_realization/panda_ball_structured.yaml")
+    structured_hash = _sha(
+        project_root / "configs/data/expert_realization/panda_ball_structured.yaml"
+    )
     keys = tuple(
         ExpertRealizationKey(first.task_instance_id, index, structured_hash) for index in range(8)
     )

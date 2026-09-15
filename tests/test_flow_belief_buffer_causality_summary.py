@@ -1,7 +1,7 @@
 import json
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.belief.flow.buffer_causality_summary import (
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.legacy.belief.flow.buffer_causality_summary import (
     summarize_buffer_causality_levels,
 )
 

@@ -18,11 +18,11 @@ def _collection_args(tmp_path: Path, *, planner: Path) -> list[str]:
         "--project-root",
         str(ROOT),
         "--formal-config",
-        "configs/source_corpus/panda_ball_formal_source_pilot.yaml",
+        "configs/data/source_corpus/panda_ball_formal_source_pilot.yaml",
         "--execution-config",
-        "configs/source_corpus/panda_ball_formal_source_execution.yaml",
+        "configs/data/source_corpus/panda_ball_formal_source_execution.yaml",
         "--source-config",
-        "configs/source_corpus/panda_ball_source_parquet.yaml",
+        "configs/data/source_corpus/panda_ball_source_parquet.yaml",
         "--work-root",
         str(tmp_path / "work"),
         "--output-root",
@@ -36,7 +36,7 @@ def test_dry_run_expands_exact_request_without_creating_paths(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Break caught: dry-run changes the reviewed 3x3x4 request or mutates disk."""
-    from latency_meta_mdp.cli.collect_structured_expert_source import main
+    from latency_meta_mdp.data.collection.collect import main
 
     planner = tmp_path / "planner-python"
     planner.write_text("", encoding="utf-8")
@@ -94,7 +94,7 @@ builtins.__import__ = _guarded
         [
             sys.executable,
             "-m",
-            "latency_meta_mdp.cli.collect_structured_expert_source",
+            "latency_meta_mdp.data.collection.collect",
             *_collection_args(tmp_path, planner=planner),
             "--dry-run",
         ],
@@ -115,7 +115,7 @@ def test_actual_mode_preserves_lexical_launcher_and_stream_contract(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Break caught: CLI resolves the venv symlink or pollutes stdout with progress."""
-    from latency_meta_mdp.cli.collect_structured_expert_source import main
+    from latency_meta_mdp.data.collection.collect import main
 
     environment_python = tmp_path / "runtime" / "bin" / "python"
     environment_python.parent.mkdir(parents=True)
@@ -143,7 +143,7 @@ def test_resume_flag_is_explicit_and_forwarded(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Break caught: an existing run is resumed implicitly or --resume is discarded."""
-    from latency_meta_mdp.cli.collect_structured_expert_source import main
+    from latency_meta_mdp.data.collection.collect import main
 
     planner = tmp_path / "planner-python"
     planner.write_text("", encoding="utf-8")
@@ -160,7 +160,7 @@ def test_resume_flag_is_explicit_and_forwarded(
 
 def test_collection_cli_rejects_missing_launcher_and_nested_roots(tmp_path: Path) -> None:
     """Break caught: a malformed operational request reaches the collection runtime."""
-    from latency_meta_mdp.cli.collect_structured_expert_source import main
+    from latency_meta_mdp.data.collection.collect import main
 
     with pytest.raises(FileNotFoundError, match="launcher"):
         main([*_collection_args(tmp_path, planner=tmp_path / "missing"), "--dry-run"])
@@ -176,12 +176,12 @@ def test_collection_cli_rejects_missing_launcher_and_nested_roots(tmp_path: Path
 
 def test_collection_cli_strictly_rejects_unknown_config_fields(tmp_path: Path) -> None:
     """Break caught: misspelled scientific configuration fields are silently ignored."""
-    from latency_meta_mdp.cli.collect_structured_expert_source import main
+    from latency_meta_mdp.data.collection.collect import main
 
     planner = tmp_path / "planner-python"
     planner.write_text("", encoding="utf-8")
     bad = tmp_path / "bad-execution.yaml"
-    source = ROOT / "configs/source_corpus/panda_ball_formal_source_execution.yaml"
+    source = ROOT / "configs/data/source_corpus/panda_ball_formal_source_execution.yaml"
     bad.write_text(source.read_text(encoding="utf-8") + "unexpected: true\n", encoding="utf-8")
     args = _collection_args(tmp_path, planner=planner)
     config_index = args.index("--execution-config") + 1
@@ -194,8 +194,8 @@ def test_inspection_cli_emits_verified_corpus_summary(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Break caught: inspection omits the admitted block and per-level inventory."""
-    from latency_meta_mdp.cli.inspect_structured_expert_source import main
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.inspect import main
+    from latency_meta_mdp.data.source.loader import (
         SourceCorpusManifest,
         VerifiedSourceCorpus,
     )
@@ -248,11 +248,11 @@ def test_inspection_cli_emits_verified_corpus_summary(
 
 def test_formal_config_hash_is_raw_file_sha256(tmp_path: Path) -> None:
     """Break caught: CLI request identity hashes parsed values rather than immutable bytes."""
-    from latency_meta_mdp.cli.collect_structured_expert_source import load_collection_inputs
+    from latency_meta_mdp.data.collection.collect import load_collection_inputs
 
     planner = tmp_path / "planner-python"
     planner.write_text("", encoding="utf-8")
     inputs = load_collection_inputs(_collection_args(tmp_path, planner=planner))
-    path = ROOT / "configs/source_corpus/panda_ball_formal_source_pilot.yaml"
+    path = ROOT / "configs/data/source_corpus/panda_ball_formal_source_pilot.yaml"
     expected = hashlib.sha256(path.read_bytes()).hexdigest()
     assert inputs.formal_request.corpus_config_sha256 == expected

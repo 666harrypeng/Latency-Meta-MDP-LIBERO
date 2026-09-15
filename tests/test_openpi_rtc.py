@@ -3,7 +3,7 @@ import pytest
 
 
 def test_soft_mask_matches_rtc_overlap_rule_and_ignores_model_padding():
-    from latency_meta_mdp.openpi_rtc import build_rtc_weights
+    from latency_meta_mdp.policy.openpi.rtc import build_rtc_weights
 
     weights = build_rtc_weights(
         valid_mask=np.arange(50) < 2,
@@ -18,7 +18,7 @@ def test_soft_mask_matches_rtc_overlap_rule_and_ignores_model_padding():
 
 
 def test_soft_mask_handles_full_prefix_and_rejects_unavailable_controls():
-    from latency_meta_mdp.openpi_rtc import build_rtc_weights
+    from latency_meta_mdp.policy.openpi.rtc import build_rtc_weights
 
     weights = build_rtc_weights(
         valid_mask=np.arange(50) < 20,
@@ -45,7 +45,7 @@ def test_soft_mask_handles_full_prefix_and_rejects_unavailable_controls():
 
 
 def test_clean_estimate_uses_openpi_reverse_time_convention():
-    from latency_meta_mdp.openpi_rtc import estimate_clean_actions
+    from latency_meta_mdp.policy.openpi.rtc import estimate_clean_actions
 
     action = np.array([0.3, -0.5])
     noise = np.array([-0.2, 0.7])
@@ -58,7 +58,7 @@ def test_guidance_vjp_sign_corrects_toward_known_actions_with_negative_dt():
     jax = pytest.importorskip("jax")
     import jax.numpy as jnp
 
-    from latency_meta_mdp.openpi_rtc import rtc_guided_velocity
+    from latency_meta_mdp.policy.openpi.rtc import rtc_guided_velocity
 
     x = jnp.zeros((1, 3, 2))
     target = jnp.ones_like(x)
@@ -83,11 +83,13 @@ def test_guidance_is_finite_at_endpoints_and_zero_weight_is_exact_native():
     jax = pytest.importorskip("jax")
     import jax.numpy as jnp
 
-    from latency_meta_mdp.openpi_rtc import rtc_guided_velocity
+    from latency_meta_mdp.policy.openpi.rtc import rtc_guided_velocity
 
     x = jnp.arange(6, dtype=jnp.float32).reshape(1, 3, 2) / 10
+
     def field(value):
         return 0.2 * value + 0.1
+
     for t in [0, 1e-8, 0.5, 1 - 1e-8, 1]:
         v = rtc_guided_velocity(
             field, x, t, jnp.ones_like(x), jnp.ones_like(x), max_guidance_weight=5
@@ -105,14 +107,16 @@ def test_unweighted_target_values_cannot_change_guidance():
     pytest.importorskip("jax")
     import jax.numpy as jnp
 
-    from latency_meta_mdp.openpi_rtc import rtc_guided_velocity
+    from latency_meta_mdp.policy.openpi.rtc import rtc_guided_velocity
 
     x = jnp.zeros((1, 3, 2))
     weights = jnp.zeros_like(x).at[:, 0, 0].set(1)
     target = jnp.ones_like(x)
     poisoned = target.at[:, 1:, :].set(999).at[:, :, 1].set(-999)
+
     def field(value):
         return 0.2 * value
+
     a = rtc_guided_velocity(field, x, 0.4, target, weights, max_guidance_weight=5)
     b = rtc_guided_velocity(field, x, 0.4, poisoned, weights, max_guidance_weight=5)
     np.testing.assert_array_equal(a, b)

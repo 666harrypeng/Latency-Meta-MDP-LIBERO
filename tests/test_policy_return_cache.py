@@ -9,16 +9,16 @@ from test_action_conditioned_jepa_data import _normalization, _record
 def test_prediction_cache_is_indexed_immutable_and_spawn_safe(tmp_path):
     import torch
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import load_jepa_temporal_sampling
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import FutureLatentRollout
-    from latency_meta_mdp.policy_return_cache import (
+    from latency_meta_mdp.belief.jepa.config import load_jepa_temporal_sampling
+    from latency_meta_mdp.belief.jepa.contracts import FutureLatentRollout
+    from latency_meta_mdp.legacy.policy.policy_return_cache import (
         NominalReturnPredictionCache,
         write_nominal_return_predictions,
     )
 
     record = _record(tmp_path, terminal_tick=13)
     sampling = load_jepa_temporal_sampling(
-        Path("configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml")
+        Path("configs/models/jepa/stride4_80ms_history_160ms.yaml")
     )
 
     class Predictor:

@@ -5,20 +5,16 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.latency_harness import LogicalLatencyHarness
-from latency_meta_mdp.latency_law import CategoricalDelaySampler, load_latency_law
+from latency_meta_mdp.runtime.latency_harness import LogicalLatencyHarness
+from latency_meta_mdp.runtime.latency_law import CategoricalDelaySampler, load_latency_law
 
 
 def _law():
-    return load_latency_law(
-        Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml")
-    )
+    return load_latency_law(Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"))
 
 
 def _earlier_law():
-    return load_latency_law(
-        Path("configs/latency/truncated_beta_8_65_400ms_v1.yaml")
-    )
+    return load_latency_law(Path("configs/runtime/latency/truncated_beta_8_65_400ms_v1.yaml"))
 
 
 def test_truncated_beta_law_builds_twenty_normalized_grid_probabilities() -> None:

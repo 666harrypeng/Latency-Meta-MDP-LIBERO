@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from latency_meta_mdp.cli.publish_sft_milestones import main as publish_main
-from latency_meta_mdp.sft_publish import (
+from latency_meta_mdp.legacy.cli.publish_sft_milestones import main as publish_main
+from latency_meta_mdp.legacy.policy.sft_publish import (
     LICENSE_BYTES,
     README_BYTES,
     MilestonePublishPlan,

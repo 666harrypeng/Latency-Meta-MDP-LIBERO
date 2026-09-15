@@ -55,7 +55,7 @@ def _files(tmp_path, *, requests=None):
 
 
 def test_calibration_extracts_only_bound_completed_requests(tmp_path):
-    from latency_meta_mdp.rtc_calibration import load_rtc_calibration
+    from latency_meta_mdp.runtime.rtc_calibration import load_rtc_calibration
 
     path, _ = _files(tmp_path)
     assert load_rtc_calibration(path, project_root=tmp_path).delay_ticks == (4, 6)
@@ -77,7 +77,7 @@ def test_calibration_extracts_only_bound_completed_requests(tmp_path):
     ],
 )
 def test_calibration_rejects_wrong_clock_path_or_selection(tmp_path, field, value):
-    from latency_meta_mdp.rtc_calibration import load_rtc_calibration
+    from latency_meta_mdp.runtime.rtc_calibration import load_rtc_calibration
 
     path, _ = _files(tmp_path)
     data = json.loads(path.read_text())
@@ -88,7 +88,7 @@ def test_calibration_rejects_wrong_clock_path_or_selection(tmp_path, field, valu
 
 
 def test_calibration_rejects_source_tamper_and_inconsistent_duration(tmp_path):
-    from latency_meta_mdp.rtc_calibration import load_rtc_calibration
+    from latency_meta_mdp.runtime.rtc_calibration import load_rtc_calibration
 
     path, source = _files(tmp_path)
     source.write_text(source.read_text() + " ")

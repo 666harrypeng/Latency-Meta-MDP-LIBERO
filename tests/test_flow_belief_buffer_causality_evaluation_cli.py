@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from latency_meta_mdp.cli.evaluate_flow_belief_buffer_counterfactuals import build_parser
+from latency_meta_mdp.legacy.cli.evaluate_flow_belief_buffer_counterfactuals import build_parser
 
 
 def test_counterfactual_evaluation_cli_has_locked_defaults() -> None:
@@ -25,9 +25,9 @@ def test_counterfactual_evaluation_cli_has_locked_defaults() -> None:
     assert args.simulation_manifest == Path("simulation/manifest.json")
     assert args.checkpoint_dir == Path("checkpoint/L3")
     assert args.analysis_config == Path(
-        "configs/analysis/dinov3_flow_belief_buffer_causality_v1.yaml"
+        "configs/legacy/analysis/dinov3_flow_belief_buffer_causality_v1.yaml"
     )
-    assert args.nominal_law == Path("configs/latency/truncated_beta_8_65_400ms_v1.yaml")
+    assert args.nominal_law == Path("configs/runtime/latency/truncated_beta_8_65_400ms_v1.yaml")
     assert args.family_config == Path(
-        "configs/latency/truncated_beta_family_8_65_400ms_v1.yaml"
+        "configs/runtime/latency/truncated_beta_family_8_65_400ms_v1.yaml"
     )

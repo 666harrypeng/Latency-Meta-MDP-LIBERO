@@ -8,19 +8,19 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.belief.causal_return.motion_aware_run import (
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.legacy.belief.causal_return.motion_aware_run import (
     evaluate_motion_aware_history_run,
     limit_motion_aware_history_corpus,
     train_motion_aware_history_run,
 )
-from latency_meta_mdp.cli.evaluate_motion_aware_history import (
+from latency_meta_mdp.legacy.cli.evaluate_motion_aware_history import (
     build_parser as build_evaluation_parser,
 )
-from latency_meta_mdp.cli.train_motion_aware_history import (
+from latency_meta_mdp.legacy.cli.train_motion_aware_history import (
     build_parser as build_training_parser,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 @dataclass(frozen=True)
@@ -41,13 +41,11 @@ def test_training_cli_uses_versioned_semantic_defaults() -> None:
         ]
     )
     assert args.levels == (1, 2, 3)
-    assert args.vision_config == Path(
-        "configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml"
-    )
-    assert args.temporal_config == Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
-    assert args.split_config == Path("configs/data/formal_belief_train_val_v1.yaml")
+    assert args.vision_config == Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml")
+    assert args.temporal_config == Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml")
+    assert args.split_config == Path("configs/legacy/data/formal_belief_train_val_v1.yaml")
     assert args.motion_aware_config == Path(
-        "configs/belief/causal_return/motion_aware_history.yaml"
+        "configs/legacy/belief/causal_return/motion_aware_history.yaml"
     )
     assert args.max_epochs is None
     assert args.training_context_limit is None
@@ -118,13 +116,11 @@ def _inputs(tmp_path: Path) -> dict[str, Path]:
     return {
         "source_bulk_manifest": source,
         "cache_run_manifest": cache,
-        "vision_config_path": Path(
-            "configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml"
-        ),
-        "temporal_config_path": Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        "split_config_path": Path("configs/data/formal_belief_train_val_v1.yaml"),
+        "vision_config_path": Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
+        "temporal_config_path": Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        "split_config_path": Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
         "motion_aware_config_path": Path(
-            "configs/belief/causal_return/motion_aware_history.yaml"
+            "configs/legacy/belief/causal_return/motion_aware_history.yaml"
         ),
     }
 
@@ -220,9 +216,7 @@ def _baseline(tmp_path: Path, *, source_sha256: str) -> Path:
             "predictions.npz": sha256_file(level / "predictions.npz"),
         },
     }
-    (level / "manifest.json").write_text(
-        json.dumps(level_manifest) + "\n", encoding="utf-8"
-    )
+    (level / "manifest.json").write_text(json.dumps(level_manifest) + "\n", encoding="utf-8")
     top = {
         "format_id": "causal_return_information_state_evaluation_run",
         "levels": [1],

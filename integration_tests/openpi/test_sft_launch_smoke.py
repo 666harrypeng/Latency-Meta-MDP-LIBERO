@@ -10,16 +10,16 @@ import pytest
 
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-from latency_meta_mdp.cli.run_pi05_sft import main as run_sft_main
-from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_worktree
-from latency_meta_mdp.sft_launch import SFTLaunchRequest
-from latency_meta_mdp.sft_profile import load_sft_profile
+from latency_meta_mdp.legacy.cli.run_pi05_sft import main as run_sft_main
+from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_worktree
+from latency_meta_mdp.policy.profile import load_sft_profile
+from latency_meta_mdp.policy.schedule import SFTLaunchRequest
 
 
 def test_level_train_config_preserves_formal_schedule_and_smoke_override(
     tmp_path: Path,
 ) -> None:
-    profile = load_sft_profile(Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
+    profile = load_sft_profile(Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml"))
     with temporary_patched_openpi_worktree(
         openpi_root=Path("third_party/openpi"),
         patch_path=Path("patches/openpi/0001-filter-incomplete-action-chunks.patch"),
@@ -28,7 +28,7 @@ def test_level_train_config_preserves_formal_schedule_and_smoke_override(
     ) as worktree:
         sys.path.insert(0, str(worktree / "src"))
         try:
-            from latency_meta_mdp.openpi_sft import build_level_train_config
+            from latency_meta_mdp.policy.openpi.training import build_level_train_config
 
             smoke = build_level_train_config(
                 profile=profile,
@@ -126,9 +126,9 @@ def test_sft_launcher_stages_assets_and_publishes_terminal_manifest(
                 "--project-root",
                 str(Path.cwd()),
                 "--profile",
-                "configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml",
+                "configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml",
                 "--asset-lock",
-                "configs/data/franka_moving_ball_sft_assets_v1.yaml",
+                "configs/legacy/data/franka_moving_ball_sft_assets_v1.yaml",
                 "--data-patch",
                 "patches/openpi/0001-filter-incomplete-action-chunks.patch",
                 "--training-patch",

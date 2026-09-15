@@ -15,7 +15,7 @@ pytest.importorskip("flax")
 
 @pytest.fixture(scope="module")
 def patched_openpi():
-    from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
 
     patches = tuple(sorted(Path("patches/openpi").glob("000[1-6]-*.patch")))
     assert any(p.name.startswith("0006-") for p in patches)
@@ -48,7 +48,7 @@ def _fields():
 def _encoder():
     import flax.nnx as nnx
 
-    from latency_meta_mdp.openpi_belief_prefix import ReturnBeliefPrefixEncoder
+    from latency_meta_mdp.legacy.policy.openpi_belief_prefix import ReturnBeliefPrefixEncoder
 
     return ReturnBeliefPrefixEncoder(vlm_width=64, queries_per_view=4, rngs=nnx.Rngs(7))
 
@@ -241,7 +241,7 @@ def _prefix_transform(**kwargs):
     from openpi.models.model import ModelType
     from openpi.shared.normalize import NormStats
 
-    from latency_meta_mdp.openpi_belief_data import PrefixReturnBeliefInputs
+    from latency_meta_mdp.legacy.policy.openpi_belief_data import PrefixReturnBeliefInputs
 
     stats = NormStats(mean=np.zeros(16), std=np.ones(16), q01=np.full(16, -2), q99=np.full(16, 2))
     return PrefixReturnBeliefInputs(model_type=ModelType.PI05, state_norm_stats=stats, **kwargs)
@@ -294,11 +294,12 @@ def test_prefix_config_trains_both_native_transformers_and_freezes_only_input_en
 ):
     import flax.nnx as nnx
 
-    from latency_meta_mdp.openpi_sft import _build_config, build_prefix_return_policy_train_config
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.legacy.policy.configs import build_prefix_return_policy_train_config
+    from latency_meta_mdp.policy.openpi.training import _build_config
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
     clean = _build_config(
-        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+        load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml")), 3
     )
     config = build_prefix_return_policy_train_config(
         clean_config=clean,
@@ -333,12 +334,13 @@ def test_real_loss_updates_prefix_vlm_and_action_expert_but_not_frozen_inputs(
     import optax
     from flax.traverse_util import flatten_dict
 
-    from latency_meta_mdp.openpi_sft import _build_config, build_prefix_return_policy_train_config
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.legacy.policy.configs import build_prefix_return_policy_train_config
+    from latency_meta_mdp.policy.openpi.training import _build_config
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
     tiny, model, observation = _tiny_pi05(monkeypatch, prefix=True)
     clean = _build_config(
-        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+        load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml")), 3
     )
     config = build_prefix_return_policy_train_config(
         clean_config=dataclasses.replace(
@@ -484,16 +486,13 @@ def test_prefix_checkpoint_restores_optimizer_ema_and_identical_next_update(
     from openpi.training.config import DataConfig
     from openpi.training.weight_loaders import NoOpWeightLoader
 
-    from latency_meta_mdp.openpi_sft import (
-        _build_config,
-        _load_train_script,
-        build_prefix_return_policy_train_config,
-    )
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.legacy.policy.configs import build_prefix_return_policy_train_config
+    from latency_meta_mdp.policy.openpi.training import _build_config, _load_train_script
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
     tiny, _, observation = _tiny_pi05(monkeypatch, prefix=True)
     clean = _build_config(
-        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+        load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml")), 3
     )
     config = build_prefix_return_policy_train_config(
         clean_config=clean,
@@ -548,7 +547,9 @@ def test_prefix_checkpoint_restores_optimizer_ema_and_identical_next_update(
 def test_clean_loader_allows_only_new_prefix_initialization(patched_openpi):
     import jax.numpy as jnp
 
-    from latency_meta_mdp.openpi_belief_adapter import NativePolicyWithReturnBeliefLoader
+    from latency_meta_mdp.legacy.policy.openpi_belief_adapter import (
+        NativePolicyWithReturnBeliefLoader,
+    )
 
     native = {"native": jnp.ones((2, 3), jnp.bfloat16)}
     prefix = {"law": jnp.ones((22, 64))}
@@ -568,7 +569,7 @@ def test_clean_loader_allows_only_new_prefix_initialization(patched_openpi):
 def test_runtime_bridge_keeps_native_inputs_and_oracle_envelope_separate(patched_openpi):
     from openpi.policies.policy import Policy
 
-    from latency_meta_mdp.policy_execution import InProcessOpenpiPolicy, PolicyObservation
+    from latency_meta_mdp.runtime.policy_execution import InProcessOpenpiPolicy, PolicyObservation
 
     policy = object.__new__(Policy)
     policy.infer = lambda inputs, noise: (inputs, noise)

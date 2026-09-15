@@ -5,17 +5,15 @@ from pathlib import Path
 
 import pytest
 
-MODEL_PATH = Path("configs/belief/action_conditioned_jepa/model.yaml")
-L1_PATH = Path("configs/belief/action_conditioned_jepa/l1.yaml")
-L2_PATH = Path("configs/belief/action_conditioned_jepa/l2.yaml")
-L3_PATH = Path("configs/belief/action_conditioned_jepa/l3.yaml")
-DENSE_TEMPORAL_PATH = Path(
-    "configs/belief/action_conditioned_jepa/dense_20ms_history_100ms.yaml"
-)
+MODEL_PATH = Path("configs/models/jepa/model.yaml")
+L1_PATH = Path("configs/models/jepa/l1.yaml")
+L2_PATH = Path("configs/models/jepa/l2.yaml")
+L3_PATH = Path("configs/models/jepa/l3.yaml")
+DENSE_TEMPORAL_PATH = Path("configs/models/jepa/dense_20ms_history_100ms.yaml")
 
 
 def test_l3_config_resolves_locked_architecture() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
 
@@ -80,7 +78,7 @@ def test_l3_config_resolves_locked_architecture() -> None:
 
 
 def test_level_configs_change_only_level_identity() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
 
@@ -113,7 +111,7 @@ def test_level_configs_change_only_level_identity() -> None:
 
 
 def test_model_config_rejects_latency_law_inside_predictor(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
 
@@ -132,7 +130,7 @@ def test_model_config_rejects_latency_law_inside_predictor(tmp_path: Path) -> No
 
 
 def test_level_config_rejects_training_or_model_fields(tmp_path: Path) -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
 
@@ -153,7 +151,7 @@ def test_level_config_rejects_training_or_model_fields(tmp_path: Path) -> None:
 def test_launch_support_separates_history_readiness_from_buffer_cursor() -> None:
     """Catches using active-buffer cursor as a proxy for model history availability."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import (
+    from latency_meta_mdp.belief.jepa.contracts import (
         JepaLaunchSupportContract,
     )
 
@@ -185,7 +183,7 @@ def test_launch_support_separates_history_readiness_from_buffer_cursor() -> None
 
 
 def test_resolved_config_cannot_drift_from_public_tensor_contract() -> None:
-    from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+    from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )
 

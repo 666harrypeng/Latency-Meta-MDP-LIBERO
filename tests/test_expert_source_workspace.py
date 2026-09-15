@@ -6,8 +6,8 @@ import pytest
 
 
 def _universe(*, corpus_id: str = "panda-ball-source-workspace-test"):
-    from latency_meta_mdp.expert_realization.config import FormalCorpusConfig
-    from latency_meta_mdp.expert_realization.contracts import build_formal_request_universe
+    from latency_meta_mdp.data.collection.config import FormalCorpusConfig
+    from latency_meta_mdp.data.collection.contracts import build_formal_request_universe
 
     config = FormalCorpusConfig(
         schema_version=2,
@@ -35,7 +35,7 @@ def _universe(*, corpus_id: str = "panda-ball-source-workspace-test"):
 
 
 def _advance_success(workspace, *, logical_index: int, level: int, realization: int) -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import (
+    from latency_meta_mdp.data.source.workspace import (
         RealizationRunStatus,
     )
 
@@ -44,12 +44,8 @@ def _advance_success(workspace, *, logical_index: int, level: int, realization: 
         "level": level,
         "realization_index": realization,
     }
-    workspace.record_status(
-        RealizationRunStatus(**identity, status="planned", attempt_index=0)
-    )
-    workspace.record_status(
-        RealizationRunStatus(**identity, status="running", attempt_index=0)
-    )
+    workspace.record_status(RealizationRunStatus(**identity, status="planned", attempt_index=0))
+    workspace.record_status(RealizationRunStatus(**identity, status="running", attempt_index=0))
     workspace.record_status(
         RealizationRunStatus(
             **identity,
@@ -63,7 +59,7 @@ def _advance_success(workspace, *, logical_index: int, level: int, realization: 
 
 def test_workspace_materializes_the_complete_primary_and_reserve_universe(tmp_path: Path) -> None:
     """Break caught: scheduling or a failure creates semantic identities lazily."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import CollectionWorkspace
+    from latency_meta_mdp.data.source.workspace import CollectionWorkspace
 
     universe = _universe()
     workspace = CollectionWorkspace.create(tmp_path / "work", universe)
@@ -82,7 +78,7 @@ def test_workspace_materializes_the_complete_primary_and_reserve_universe(tmp_pa
 
 def test_workspace_resume_requires_the_exact_same_request(tmp_path: Path) -> None:
     """Break caught: resume silently reuses statuses under a different corpus identity."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import CollectionWorkspace
+    from latency_meta_mdp.data.source.workspace import CollectionWorkspace
 
     root = tmp_path / "work"
     first = _universe()
@@ -97,7 +93,7 @@ def test_workspace_resume_requires_the_exact_same_request(tmp_path: Path) -> Non
 
 def test_workspace_enforces_status_transitions_and_same_identity_retry(tmp_path: Path) -> None:
     """Break caught: semantic failure is retried or retry attempt order changes."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import (
+    from latency_meta_mdp.data.source.workspace import (
         CollectionWorkspace,
         RealizationRunStatus,
     )
@@ -114,12 +110,8 @@ def test_workspace_enforces_status_transitions_and_same_identity_retry(tmp_path:
                 terminal_reason="lift_succeeded",
             )
         )
-    workspace.record_status(
-        RealizationRunStatus(**identity, status="planned", attempt_index=0)
-    )
-    workspace.record_status(
-        RealizationRunStatus(**identity, status="running", attempt_index=0)
-    )
+    workspace.record_status(RealizationRunStatus(**identity, status="planned", attempt_index=0))
+    workspace.record_status(RealizationRunStatus(**identity, status="running", attempt_index=0))
     workspace.record_status(
         RealizationRunStatus(
             **identity,
@@ -129,12 +121,8 @@ def test_workspace_enforces_status_transitions_and_same_identity_retry(tmp_path:
         )
     )
     with pytest.raises(ValueError, match="attempt_index"):
-        workspace.record_status(
-            RealizationRunStatus(**identity, status="running", attempt_index=0)
-        )
-    workspace.record_status(
-        RealizationRunStatus(**identity, status="running", attempt_index=1)
-    )
+        workspace.record_status(RealizationRunStatus(**identity, status="running", attempt_index=0))
+    workspace.record_status(RealizationRunStatus(**identity, status="running", attempt_index=1))
     workspace.record_status(
         RealizationRunStatus(
             **identity,
@@ -144,14 +132,12 @@ def test_workspace_enforces_status_transitions_and_same_identity_retry(tmp_path:
         )
     )
     with pytest.raises(ValueError, match="terminal semantic status"):
-        workspace.record_status(
-            RealizationRunStatus(**identity, status="running", attempt_index=2)
-        )
+        workspace.record_status(RealizationRunStatus(**identity, status="running", attempt_index=2))
 
 
 def test_workspace_keeps_only_lightweight_failure_state(tmp_path: Path) -> None:
     """Break caught: failed trajectory payload becomes a durable workspace record."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import (
+    from latency_meta_mdp.data.source.workspace import (
         CollectionWorkspace,
         RealizationRunStatus,
     )
@@ -181,7 +167,7 @@ def test_workspace_keeps_only_lightweight_failure_state(tmp_path: Path) -> None:
 
 def test_complete_blocks_require_every_level_and_realization_success(tmp_path: Path) -> None:
     """Break caught: a partially successful task leaks into formal source publication."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import CollectionWorkspace
+    from latency_meta_mdp.data.source.workspace import CollectionWorkspace
 
     workspace = CollectionWorkspace.create(tmp_path / "work", _universe())
     for level in (1, 2, 3):
@@ -200,13 +186,11 @@ def test_complete_blocks_require_every_level_and_realization_success(tmp_path: P
 
 def test_complete_block_result_is_independent_of_worker_completion_order(tmp_path: Path) -> None:
     """Break caught: parallel completion order changes which semantic task is admitted."""
-    from latency_meta_mdp.expert_realization.source_corpus.workspace import CollectionWorkspace
+    from latency_meta_mdp.data.source.workspace import CollectionWorkspace
 
     forward = CollectionWorkspace.create(tmp_path / "forward", _universe())
     reverse = CollectionWorkspace.create(tmp_path / "reverse", _universe())
-    identities = [
-        (level, realization) for level in (1, 2, 3) for realization in (0, 1)
-    ]
+    identities = [(level, realization) for level in (1, 2, 3) for realization in (0, 1)]
     for level, realization in identities:
         _advance_success(forward, logical_index=0, level=level, realization=realization)
     for level, realization in reversed(identities):

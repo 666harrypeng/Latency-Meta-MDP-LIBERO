@@ -10,13 +10,13 @@ import torch
 from safetensors.torch import save_file as save_safetensors
 from torch import nn
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.belief.causal_return.motion_aware_contracts import (
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.legacy.belief.causal_return.motion_aware_contracts import (
     MotionAwareHistoryEstimate,
     MotionAwareHistorySample,
     load_motion_aware_history_config,
 )
-from latency_meta_mdp.belief.causal_return.motion_aware_evaluation import (
+from latency_meta_mdp.legacy.belief.causal_return.motion_aware_evaluation import (
     benchmark_motion_aware_history_encoder,
     compute_motion_aware_metrics,
     evaluate_level_motion_aware_history,
@@ -24,7 +24,7 @@ from latency_meta_mdp.belief.causal_return.motion_aware_evaluation import (
     match_baseline_contexts,
     paired_episode_bootstrap,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 class _TinyEncoder(nn.Module):
@@ -85,7 +85,7 @@ class _EvaluationCorpus:
 
 def _checkpoint(tmp_path: Path) -> tuple[Path, object]:
     config = load_motion_aware_history_config(
-        Path("configs/belief/causal_return/motion_aware_history.yaml")
+        Path("configs/legacy/belief/causal_return/motion_aware_history.yaml")
     )
     root = tmp_path / "checkpoint"
     root.mkdir()
@@ -155,9 +155,7 @@ def test_signed_transition_metrics_partition_every_l3_context_once() -> None:
     metrics = compute_motion_aware_metrics(
         object_state_prediction=prediction,
         object_state_target=target,
-        source_phase=np.asarray(
-            ["pregrasp", "pregrasp", "approach", "approach", "close", "lift"]
-        ),
+        source_phase=np.asarray(["pregrasp", "pregrasp", "approach", "approach", "close", "lift"]),
         transition_offset_ticks=offsets,
         transition_offset_valid=valid,
     )

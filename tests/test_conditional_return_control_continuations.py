@@ -4,18 +4,18 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.belief.conditional_return_flow.branch_contracts import (
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_contracts import (
     BranchCorpusConfig,
     ExecutablePrefix,
 )
-from latency_meta_mdp.belief.conditional_return_flow.control_continuations import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.control_continuations import (
     build_control_continuations,
 )
-from latency_meta_mdp.control import load_action_contract
 
 
 def _contract():
-    return load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml"))
+    return load_action_contract(Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml"))
 
 
 def _config() -> BranchCorpusConfig:

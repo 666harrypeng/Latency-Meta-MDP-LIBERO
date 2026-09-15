@@ -9,8 +9,8 @@ import pytest
 
 
 def _task_instance(level: int = 1, seed: int = 4000):
-    from latency_meta_mdp.expert_realization.contracts import TaskInstanceId
-    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+    from latency_meta_mdp.data.collection.contracts import TaskInstanceId
+    from latency_meta_mdp.data.collection.task_instance import MaterializedTaskInstance
 
     instance = object.__new__(MaterializedTaskInstance)
     object.__setattr__(
@@ -22,15 +22,15 @@ def _task_instance(level: int = 1, seed: int = 4000):
 
 
 def _strategy_config():
-    from latency_meta_mdp.expert_realization.strategy import StructuredStrategyConfig
+    from latency_meta_mdp.data.collection.strategy import StructuredStrategyConfig
 
     return StructuredStrategyConfig.from_path(
-        Path.cwd() / "configs/expert_realization/panda_ball_structured.yaml"
+        Path.cwd() / "configs/data/expert_realization/panda_ball_structured.yaml"
     )
 
 
 def _keys(instance: object, config: object):
-    from latency_meta_mdp.expert_realization.contracts import ExpertRealizationKey
+    from latency_meta_mdp.data.collection.contracts import ExpertRealizationKey
 
     return tuple(
         ExpertRealizationKey(
@@ -44,7 +44,7 @@ def _keys(instance: object, config: object):
 
 @pytest.fixture(autouse=True)
 def _validated_task_instance(monkeypatch: pytest.MonkeyPatch) -> None:
-    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+    from latency_meta_mdp.data.collection.task_instance import MaterializedTaskInstance
 
     monkeypatch.setattr(
         MaterializedTaskInstance,
@@ -55,8 +55,8 @@ def _validated_task_instance(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_strategy_sampling_has_bounded_approach_diversity_and_canonical_grasp() -> None:
     """Break caught: randomness leaks out of approach intent into grasp or lift."""
-    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
-    from latency_meta_mdp.expert_realization.strategy import sample_strategy
+    from latency_meta_mdp.data.collection.contracts import StrategyFamily
+    from latency_meta_mdp.data.collection.strategy import sample_strategy
 
     instance = _task_instance()
     config = _strategy_config()
@@ -108,12 +108,12 @@ def test_strategy_sampling_has_bounded_approach_diversity_and_canonical_grasp() 
 
 def test_strategy_sampling_is_replayable_and_independent_of_global_rng() -> None:
     """Break caught: collection order or process-global RNG changes a realization strategy."""
-    from latency_meta_mdp.expert_realization.strategy import sample_strategy
+    from latency_meta_mdp.data.collection.strategy import sample_strategy
 
     instance = _task_instance()
     config = _strategy_config()
     key = _keys(instance, config)[5]
-    from latency_meta_mdp.expert_realization.contracts import StrategyFamily
+    from latency_meta_mdp.data.collection.contracts import StrategyFamily
 
     expected = sample_strategy(instance, key, config, assigned_family=StrategyFamily.LATERAL_ARC)
 
@@ -139,11 +139,11 @@ def test_strategy_sampling_is_replayable_and_independent_of_global_rng() -> None
 
 def test_strategy_rejects_key_from_another_task_or_config() -> None:
     """Break caught: a realization key can be reinterpreted under another task/config."""
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
         StrategyFamily,
     )
-    from latency_meta_mdp.expert_realization.strategy import (
+    from latency_meta_mdp.data.collection.strategy import (
         StructuredStrategyConfig,
         sample_strategy,
     )
@@ -163,7 +163,7 @@ def test_strategy_rejects_key_from_another_task_or_config() -> None:
             config,
             assigned_family=StrategyFamily.CANONICAL_DIRECT,
         )
-    raw = Path.cwd() / "configs/expert_realization/panda_ball_structured.yaml"
+    raw = Path.cwd() / "configs/data/expert_realization/panda_ball_structured.yaml"
     assert hashlib.sha256(raw.read_bytes()).hexdigest() == config.source_sha256
     with pytest.raises(ValueError, match="source_sha256"):
         StructuredStrategyConfig(config.expert, "c" * 64, raw.read_bytes())
@@ -185,17 +185,19 @@ def test_formal_request_is_the_only_source_of_formal_family_and_strategy_seed() 
     """Break caught: formal collection reconstructs family or seed outside its request universe."""
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.config import load_formal_corpus_config
+    from latency_meta_mdp.data.collection.contracts import (
         TaskInstanceId,
         build_formal_realization_requests,
         build_formal_request_universe,
     )
-    from latency_meta_mdp.expert_realization.strategy import sample_requested_strategy
+    from latency_meta_mdp.data.collection.strategy import sample_requested_strategy
 
     config = _strategy_config()
     formal = replace(
-        load_formal_corpus_config(Path("configs/collection/panda_ball_structured_formal.yaml")),
+        load_formal_corpus_config(
+            Path("configs/data/collection/panda_ball_structured_formal.yaml")
+        ),
         task_instance_count=1,
         realizations_per_task=3,
         reserve_task_instance_count=0,
@@ -230,17 +232,19 @@ def test_formal_request_is_the_only_source_of_formal_family_and_strategy_seed() 
 def test_success_quota_draw_request_is_the_strategy_source() -> None:
     from dataclasses import replace
 
-    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.config import load_formal_corpus_config
+    from latency_meta_mdp.data.collection.contracts import (
         TaskInstanceId,
         build_formal_realization_draw_request,
         build_formal_request_universe,
     )
-    from latency_meta_mdp.expert_realization.strategy import sample_requested_strategy
+    from latency_meta_mdp.data.collection.strategy import sample_requested_strategy
 
     config = _strategy_config()
     formal = replace(
-        load_formal_corpus_config(Path("configs/collection/panda_ball_structured_formal.yaml")),
+        load_formal_corpus_config(
+            Path("configs/data/collection/panda_ball_structured_formal.yaml")
+        ),
         task_instance_count=1,
         reserve_task_instance_count=0,
     )

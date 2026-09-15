@@ -10,7 +10,7 @@ import pytest
 def test_final_preflight_counts_level_sources_without_l3_fold_reuse(tmp_path, level):
     import pyarrow.parquet as pq
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         build_jepa_admission_preflight,
     )
 
@@ -47,14 +47,14 @@ def test_final_preflight_counts_level_sources_without_l3_fold_reuse(tmp_path, le
 
 
 def test_non_l3_validation_gate_uses_its_own_training_budget():
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         load_jepa_admission_training_config,
         require_jepa_formal_validation_gate,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import JepaAdmissionProgress
+    from latency_meta_mdp.belief.jepa.ar.training import JepaAdmissionProgress
 
     config = load_jepa_admission_training_config(
-        Path("configs/training/action_conditioned_jepa/final_admission.yaml")
+        Path("configs/training/belief/autoregressive.yaml")
     )
     progress = JepaAdmissionProgress(
         level=1,
@@ -76,15 +76,15 @@ def test_non_l3_validation_gate_uses_its_own_training_budget():
 def test_level_checkpoint_roundtrip_rejects_cross_level_resume(tmp_path, level):
     import torch
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         load_jepa_admission_training_checkpoint,
         load_jepa_admission_training_config,
         write_jepa_admission_training_checkpoint,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import JepaAdmissionProgress
+    from latency_meta_mdp.belief.jepa.ar.training import JepaAdmissionProgress
 
     config = load_jepa_admission_training_config(
-        Path("configs/training/action_conditioned_jepa/final_admission.yaml")
+        Path("configs/training/belief/autoregressive.yaml")
     )
     model = torch.nn.Linear(2, 2)
     optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4)
@@ -139,13 +139,11 @@ def test_level_checkpoint_roundtrip_rejects_cross_level_resume(tmp_path, level):
 def test_l3_admission_training_config_locks_the_approved_budget() -> None:
     """Catches silently falling back to the 50-epoch cross-validation budget."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         load_jepa_admission_training_config,
     )
 
-    config = load_jepa_admission_training_config(
-        Path("configs/training/action_conditioned_jepa/l3_admission.yaml")
-    )
+    config = load_jepa_admission_training_config(Path("configs/legacy/training/l3_admission.yaml"))
 
     assert config.config_id == "l3_stride4_admission_jepa_wm_recipe"
     assert config.max_epochs == 75
@@ -163,7 +161,7 @@ def test_l3_admission_preflight_uses_all_train_masters_and_keeps_validation_clos
 ) -> None:
     """Catches a final refit that still uses a 60-master fold or opens validation early."""
 
-    import latency_meta_mdp.belief.action_conditioned_jepa.admission_runner as admission_runner
+    import latency_meta_mdp.belief.jepa.ar.train as admission_runner
 
     def forbid_full_data_verification(**_kwargs):
         raise AssertionError("preflight must not scan source frames or feature payloads")
@@ -208,7 +206,7 @@ def test_l3_admission_preflight_uses_all_train_masters_and_keeps_validation_clos
 def test_l3_admission_preflight_rejects_an_unapproved_seed(tmp_path: Path) -> None:
     """Catches multiplying the final campaign with undeclared random seeds."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         build_jepa_admission_preflight,
     )
 
@@ -230,7 +228,7 @@ def test_l3_admission_cli_preflight_is_read_only(
 ) -> None:
     """Catches launching final training before its complete identity is reviewable."""
 
-    from latency_meta_mdp.cli.train_action_conditioned_jepa_admission import main
+    from latency_meta_mdp.belief.jepa.ar.cli import main
 
     monkeypatch.delenv("WANDB_API_KEY", raising=False)
     output = tmp_path / "seed-7"
@@ -267,19 +265,17 @@ def test_l3_admission_checkpoint_restores_without_a_fold_identity(tmp_path: Path
 
     import torch
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         load_jepa_admission_training_checkpoint,
         load_jepa_admission_training_config,
         write_jepa_admission_training_checkpoint,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         JepaAdmissionProgress,
         build_upstream_aligned_optimizer,
     )
 
-    config = load_jepa_admission_training_config(
-        Path("configs/training/action_conditioned_jepa/l3_admission.yaml")
-    )
+    config = load_jepa_admission_training_config(Path("configs/legacy/training/l3_admission.yaml"))
     model = torch.nn.Sequential(torch.nn.Linear(3, 4), torch.nn.LayerNorm(4))
     optimizer = build_upstream_aligned_optimizer(model=model, config=config)
     model(torch.ones(2, 3)).square().mean().backward()
@@ -341,18 +337,16 @@ def test_l3_admission_rolling_checkpoint_keeps_25_50_75(tmp_path: Path) -> None:
 
     import torch
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         load_jepa_admission_training_config,
         publish_rolling_jepa_admission_checkpoint,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         JepaAdmissionProgress,
         build_upstream_aligned_optimizer,
     )
 
-    config = load_jepa_admission_training_config(
-        Path("configs/training/action_conditioned_jepa/l3_admission.yaml")
-    )
+    config = load_jepa_admission_training_config(Path("configs/legacy/training/l3_admission.yaml"))
     model = torch.nn.Sequential(torch.nn.Linear(3, 4), torch.nn.LayerNorm(4))
     optimizer = build_upstream_aligned_optimizer(model=model, config=config)
     hashes = {
@@ -396,17 +390,15 @@ def test_l3_admission_rolling_checkpoint_keeps_25_50_75(tmp_path: Path) -> None:
 def test_formal_validation_gate_opens_only_at_the_fixed_epoch_75() -> None:
     """Catches reading formal-validation data before the final checkpoint is fixed."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         load_jepa_admission_training_config,
         require_jepa_formal_validation_gate,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         JepaAdmissionProgress,
     )
 
-    config = load_jepa_admission_training_config(
-        Path("configs/training/action_conditioned_jepa/l3_admission.yaml")
-    )
+    config = load_jepa_admission_training_config(Path("configs/legacy/training/l3_admission.yaml"))
 
     def progress(epoch: int) -> JepaAdmissionProgress:
         return JepaAdmissionProgress(
@@ -429,10 +421,10 @@ def test_formal_validation_records_are_not_loaded_before_the_gate(
 ) -> None:
     """Catches a runner that materializes held-out rows and only then checks epoch progress."""
 
-    import latency_meta_mdp.belief.action_conditioned_jepa.admission_runner as admission_runner
+    import latency_meta_mdp.belief.jepa.ar.train as admission_runner
 
     config = admission_runner.load_jepa_admission_training_config(
-        Path("configs/training/action_conditioned_jepa/l3_admission.yaml")
+        Path("configs/legacy/training/l3_admission.yaml")
     )
     calls = []
 
@@ -481,7 +473,7 @@ def test_l3_admission_cli_executes_the_final_runner(
 ) -> None:
     """Catches a non-preflight invocation that silently performs only another preflight."""
 
-    import latency_meta_mdp.cli.train_action_conditioned_jepa_admission as cli
+    import latency_meta_mdp.belief.jepa.ar.cli as cli
 
     output = tmp_path / "seed-27"
     expected = output / "manifest.json"

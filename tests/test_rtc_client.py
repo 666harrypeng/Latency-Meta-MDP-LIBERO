@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.latency_harness import HarnessEventKind, LogicalLatencyHarness
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.runtime.latency_harness import HarnessEventKind, LogicalLatencyHarness
 
 
 def _actions(base=0.0):
@@ -18,8 +18,8 @@ def _actions(base=0.0):
 
 
 def _client(delay, initial=8):
-    from latency_meta_mdp.rtc_client import RtcActionChunkClient
-    from latency_meta_mdp.rtc_protocol import load_rtc_client_config
+    from latency_meta_mdp.runtime.rtc_client import RtcActionChunkClient
+    from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
     clock = SimpleNamespace(tick=0)
     wall = itertools.count(0, 10).__next__
@@ -30,12 +30,14 @@ def _client(delay, initial=8):
         monotonic_ns=wall,
     )
     config = replace(
-        load_rtc_client_config(Path("configs/client/rtc_observation_time_h50_v1.yaml")),
+        load_rtc_client_config(Path("configs/runtime/client/rtc_observation_time_h50_v1.yaml")),
         initial_delay_ticks=(initial,),
         delay_history_capacity=2,
     )
     client = RtcActionChunkClient(
-        action_contract=load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml")),
+        action_contract=load_action_contract(
+            Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+        ),
         config=config,
         harness=harness,
         simulation_time_reader=lambda: clock.tick * 20_000,
@@ -47,7 +49,7 @@ def _client(delay, initial=8):
 
 
 def _infer(context):
-    from latency_meta_mdp.rtc_protocol import TimedActionPlan
+    from latency_meta_mdp.runtime.rtc_protocol import TimedActionPlan
 
     return TimedActionPlan(
         origin_tick=context.origin_tick,
@@ -185,8 +187,8 @@ def test_client_rejects_untyped_legacy_result_and_out_of_range_controls():
 def _runtime(delay, scheduler, *, interval=1, alignment="observation_time"):
     from test_policy_execution import _observation
 
-    from latency_meta_mdp.policy_execution import LogicalPolicyRuntime, PhysicalStepResult
-    from latency_meta_mdp.rtc_protocol import load_rtc_client_config
+    from latency_meta_mdp.runtime.policy_execution import LogicalPolicyRuntime, PhysicalStepResult
+    from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
     clock = SimpleNamespace(tick=0)
     contexts = []
@@ -196,9 +198,11 @@ def _runtime(delay, scheduler, *, interval=1, alignment="observation_time"):
         return _actions(0.5)
 
     runtime = LogicalPolicyRuntime(
-        action_contract=load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml")),
+        action_contract=load_action_contract(
+            Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+        ),
         client_config=load_rtc_client_config(
-            Path("configs/client/rtc_observation_time_h50_v1.yaml")
+            Path("configs/runtime/client/rtc_observation_time_h50_v1.yaml")
         ),
         simulation_time_reader=lambda: clock.tick * 20_000,
         delay_sampler=lambda: delay,
@@ -221,7 +225,7 @@ def _runtime(delay, scheduler, *, interval=1, alignment="observation_time"):
 
 
 def test_runtime_records_rtc_index_and_positive_duration_even_at_zero_delay():
-    from latency_meta_mdp.policy_execution import ImmediateLaunchScheduler
+    from latency_meta_mdp.runtime.policy_execution import ImmediateLaunchScheduler
 
     runtime, clock, contexts, execute, observe = _runtime(0, ImmediateLaunchScheduler())
     for tick in range(4):
@@ -233,7 +237,7 @@ def test_runtime_records_rtc_index_and_positive_duration_even_at_zero_delay():
 
 
 def test_runtime_fixed_scheduler_and_coverage_shield_use_expiration_time():
-    from latency_meta_mdp.policy_execution import FixedCursorScheduler
+    from latency_meta_mdp.runtime.policy_execution import FixedCursorScheduler
 
     runtime, clock, _, execute, observe = _runtime(20, FixedCursorScheduler(25))
     for tick in range(71):
@@ -270,7 +274,7 @@ def test_client_rejects_observation_timestamp_drift():
 
 
 def test_runtime_ledger_records_estimate_separately_from_realized_delay():
-    from latency_meta_mdp.policy_execution import ImmediateLaunchScheduler
+    from latency_meta_mdp.runtime.policy_execution import ImmediateLaunchScheduler
 
     runtime, clock, _, execute, observe = _runtime(4, ImmediateLaunchScheduler())
     for tick in range(5):

@@ -5,18 +5,18 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from latency_meta_mdp.belief.causal_return.contracts import (
+from latency_meta_mdp.legacy.belief.causal_return.contracts import (
     InformationStateSample,
     load_information_state_config,
 )
-from latency_meta_mdp.belief.causal_return.information_training import (
+from latency_meta_mdp.legacy.belief.causal_return.information_training import (
     InformationStateDataset,
     build_information_state_normalization,
     collate_information_state_items,
     heteroscedastic_gaussian_nll,
     train_level_information_state,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 def _sample(*, value: float, seed: int, source_tick: int = 25) -> InformationStateSample:
@@ -59,7 +59,7 @@ def _corpus() -> _Corpus:
             ProbeSplit.TRAIN: (_sample(value=0.0, seed=1000), _sample(value=2.0, seed=1001)),
             ProbeSplit.VALIDATION: (_sample(value=100.0, seed=1180),),
             ProbeSplit.HOLDOUT: (),
-        }
+        },
     )
 
 
@@ -112,7 +112,7 @@ def test_heteroscedastic_loss_has_expected_closed_form() -> None:
 def test_level_training_writes_complete_no_overwrite_checkpoint(tmp_path) -> None:
     config = replace(
         load_information_state_config(
-            Path("configs/belief/causal_return/information_state.yaml")
+            Path("configs/legacy/belief/causal_return/information_state.yaml")
         ),
         temporal_fusion_layer_count=1,
         dropout=0.0,

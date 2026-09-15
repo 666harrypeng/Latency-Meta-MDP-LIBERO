@@ -8,11 +8,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.latency_harness import FixedDelaySampler, LogicalLatencyHarness
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.runtime.latency_harness import FixedDelaySampler, LogicalLatencyHarness
 
-_CONTROL_CONFIG = Path("configs/control/panda_osc_pose_delta_v1.yaml")
-_CLIENT_CONFIG = Path("configs/client/sharp_return_time_h50_e25_v1.yaml")
+_CONTROL_CONFIG = Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+_CLIENT_CONFIG = Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
 
 
 class _SimulationClock:
@@ -24,7 +24,7 @@ class _SimulationClock:
 
 
 def _module():
-    return importlib.import_module("latency_meta_mdp.action_chunk_client")
+    return importlib.import_module("latency_meta_mdp.runtime.action_chunk_client")
 
 
 def _chunk(base: float, *, gripper: float = -1.0, horizon: int = 50) -> np.ndarray:

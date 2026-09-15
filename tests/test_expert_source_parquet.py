@@ -10,26 +10,24 @@ from expert_realization_test_support import make_formal_source_episode
 
 
 def _config():
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.source.config import (
         load_source_corpus_config,
     )
 
     return load_source_corpus_config(
-        Path("configs/source_corpus/panda_ball_source_parquet.yaml")
+        Path("configs/data/source_corpus/panda_ball_source_parquet.yaml")
     )
 
 
 def test_png_serialization_is_deterministic_and_pixel_identical() -> None:
     """Break caught: source image serialization changes pixels or depends on process state."""
-    from latency_meta_mdp.expert_realization.source_corpus.parquet import (
+    from latency_meta_mdp.data.source.parquet import (
         decode_png,
         encode_png,
     )
 
     row, col = np.indices((256, 256))
-    rgb = np.stack(
-        [row % 256, col % 256, (row + col) % 256], axis=-1
-    ).astype(np.uint8)
+    rgb = np.stack([row % 256, col % 256, (row + col) % 256], axis=-1).astype(np.uint8)
     first = encode_png(rgb, compress_level=6)
     second = encode_png(rgb, compress_level=6)
 
@@ -48,7 +46,7 @@ def test_png_serialization_is_deterministic_and_pixel_identical() -> None:
 )
 def test_png_serialization_rejects_noncanonical_source_frames(bad: np.ndarray) -> None:
     """Break caught: resized, grayscale, or coerced pixels enter canonical source storage."""
-    from latency_meta_mdp.expert_realization.source_corpus.parquet import encode_png
+    from latency_meta_mdp.data.source.parquet import encode_png
 
     with pytest.raises((TypeError, ValueError), match=r"uint8\[256,256,3\]"):
         encode_png(bad, compress_level=6)
@@ -56,11 +54,11 @@ def test_png_serialization_rejects_noncanonical_source_frames(bad: np.ndarray) -
 
 def test_episode_table_preserves_fields_and_uses_null_terminal_transition() -> None:
     """Break caught: terminal padding masquerades as a real action or source fields disappear."""
-    from latency_meta_mdp.expert_realization.source_corpus.parquet import (
+    from latency_meta_mdp.data.source.parquet import (
         decode_png,
         episode_to_frame_table,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.schema import SOURCE_FRAME_SCHEMA
+    from latency_meta_mdp.data.source.schema import SOURCE_FRAME_SCHEMA
 
     episode = make_formal_source_episode(camera_height=256, camera_width=256)
     table = episode_to_frame_table(episode, config=_config())
@@ -83,7 +81,7 @@ def test_episode_table_preserves_fields_and_uses_null_terminal_transition() -> N
 
 def test_episode_table_rejects_failed_or_noncanonical_camera_episode() -> None:
     """Break caught: an arbitrary typed-looking object bypasses source admission/shape checks."""
-    from latency_meta_mdp.expert_realization.source_corpus.parquet import episode_to_frame_table
+    from latency_meta_mdp.data.source.parquet import episode_to_frame_table
 
     with pytest.raises(TypeError, match="FormalSourceSynchronizedEpisode"):
         episode_to_frame_table(object(), config=_config())  # type: ignore[arg-type]
@@ -96,7 +94,7 @@ def test_shard_writer_places_each_episode_in_one_row_group_and_publishes_once(
     tmp_path: Path,
 ) -> None:
     """Break caught: an episode crosses row groups or a partial Parquet file looks complete."""
-    from latency_meta_mdp.expert_realization.source_corpus.parquet import (
+    from latency_meta_mdp.data.source.parquet import (
         SourceParquetShardWriter,
     )
 

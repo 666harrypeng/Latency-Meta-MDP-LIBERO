@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.flow.ghost_context_renderer import (
+from latency_meta_mdp.legacy.belief.flow.ghost_context_renderer import (
     GhostContextRenderInput,
 )
 

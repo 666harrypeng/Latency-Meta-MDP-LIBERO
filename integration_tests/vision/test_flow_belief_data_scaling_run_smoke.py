@@ -19,7 +19,7 @@ def test_data_scaling_run_trains_one_bounded_cell(tmp_path: Path) -> None:
     )
     if not source.is_file() or not cache.is_file() or not physical_audit.is_file():
         pytest.skip("Flow data-scaling smoke requires formal local artifacts")
-    from latency_meta_mdp.belief.flow.data_scaling_run import (
+    from latency_meta_mdp.legacy.belief.flow.data_scaling_run import (
         run_flow_belief_data_scaling,
     )
 
@@ -28,12 +28,12 @@ def test_data_scaling_run_trains_one_bounded_cell(tmp_path: Path) -> None:
         source_bulk_manifest=source,
         cache_run_manifest=cache,
         physical_audit_manifest=physical_audit,
-        vision_config_path=Path("configs/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
-        temporal_config_path=Path("configs/temporal/h50_e25_d20_k6_v1.yaml"),
-        latency_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
-        flow_config_path=Path("configs/belief/dinov3_flow_belief_v1.yaml"),
-        split_config_path=Path("configs/data/formal_belief_train_val_v1.yaml"),
-        audit_config_path=Path("configs/analysis/dinov3_flow_belief_data_scaling_v1.yaml"),
+        vision_config_path=Path("configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml"),
+        temporal_config_path=Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        flow_config_path=Path("configs/legacy/belief/dinov3_flow_belief_v1.yaml"),
+        split_config_path=Path("configs/legacy/data/formal_belief_train_val_v1.yaml"),
+        audit_config_path=Path("configs/legacy/analysis/dinov3_flow_belief_data_scaling_v1.yaml"),
         output_dir=tmp_path / "scaling",
         levels=(1,),
         device="cuda",

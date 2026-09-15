@@ -6,7 +6,7 @@ import pytest
 
 
 def _ref(logical: int, level: int, draw: int, slot: int):
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         SourceSuccessPayloadRef,
     )
 
@@ -22,7 +22,7 @@ def _ref(logical: int, level: int, draw: int, slot: int):
 
 
 def test_level_quota_replaces_failed_draws_without_losing_successes() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         DrawRejected,
         fill_level_success_quota,
     )
@@ -73,7 +73,7 @@ def test_level_quota_replaces_failed_draws_without_losing_successes() -> None:
 
 
 def test_level_quota_resume_preserves_dense_slots() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         fill_level_success_quota,
     )
 
@@ -101,7 +101,7 @@ def test_level_quota_resume_preserves_dense_slots() -> None:
 
 
 def test_level_quota_exhaustion_is_typed_and_never_returns_partial() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         DrawRejected,
         LevelQuotaExhausted,
         fill_level_success_quota,
@@ -125,14 +125,12 @@ def test_level_quota_exhaustion_is_typed_and_never_returns_partial() -> None:
 
 
 def test_completed_master_requires_dense_slots_per_level() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         CompletedMasterBlock,
     )
 
     successes = tuple(
-        _ref(0, level, draw=slot + level, slot=slot)
-        for level in (1, 2, 3)
-        for slot in range(4)
+        _ref(0, level, draw=slot + level, slot=slot) for level in (1, 2, 3) for slot in range(4)
     )
     block = CompletedMasterBlock(0, successes)
     assert len(block.successes) == 12
@@ -144,7 +142,7 @@ def test_completed_master_requires_dense_slots_per_level() -> None:
 def test_master_scheduler_uses_reserve_only_after_level_quota_exhaustion(
     tmp_path: Path,
 ) -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         CompletedMasterBlock,
         LevelQuotaExhausted,
         schedule_success_quota_master_blocks,
@@ -179,7 +177,7 @@ def test_master_scheduler_uses_reserve_only_after_level_quota_exhaustion(
 
 
 def test_reserve_exhaustion_never_publishes() -> None:
-    from latency_meta_mdp.expert_realization.source_corpus.formal_collection import (
+    from latency_meta_mdp.data.source.formal_collection import (
         LevelQuotaExhausted,
         schedule_success_quota_master_blocks,
     )

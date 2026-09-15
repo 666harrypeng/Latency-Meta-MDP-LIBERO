@@ -6,7 +6,7 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
-from latency_meta_mdp.control import load_action_contract
+from latency_meta_mdp.envs.control import load_action_contract
 
 
 def _rotation_z(angle: float) -> np.ndarray:
@@ -18,27 +18,27 @@ def _rotation_z(angle: float) -> np.ndarray:
 
 
 def _contract():
-    return load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml"))
+    return load_action_contract(Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml"))
 
 
 @pytest.fixture(scope="module")
 def structured_case():
-    from latency_meta_mdp.expert_realization.contracts import (
+    from latency_meta_mdp.data.collection.contracts import (
         ExpertRealizationKey,
         StrategyFamily,
     )
-    from latency_meta_mdp.expert_realization.selector import SelectedReference
-    from latency_meta_mdp.expert_realization.strategy import (
+    from latency_meta_mdp.data.collection.selector import SelectedReference
+    from latency_meta_mdp.data.collection.strategy import (
         StructuredStrategyConfig,
         sample_strategy,
     )
-    from latency_meta_mdp.expert_realization.task_instance import materialize_task_instance
-    from latency_meta_mdp.expert_realization.trajectory_intent import build_trajectory_intent
+    from latency_meta_mdp.data.collection.task_instance import materialize_task_instance
+    from latency_meta_mdp.data.collection.trajectory_intent import build_trajectory_intent
 
     root = Path.cwd()
     task = materialize_task_instance(project_root=root, level=1, task_instance_seed=4000)
     config = StructuredStrategyConfig.from_path(
-        root / "configs/expert_realization/panda_ball_structured.yaml"
+        root / "configs/data/expert_realization/panda_ball_structured.yaml"
     )
     key = ExpertRealizationKey(task.task_instance_id, 0, config.source_sha256)
     strategy = sample_strategy(
@@ -71,7 +71,7 @@ def structured_case():
 
 
 def _snapshot(*, tick: int, object_position: np.ndarray, eef_position: np.ndarray):
-    from latency_meta_mdp.snapshots import BoundarySnapshot
+    from latency_meta_mdp.envs.snapshots import BoundarySnapshot
 
     zeros = np.zeros
     return BoundarySnapshot(
@@ -105,7 +105,7 @@ def _object_at(intent, tick: int) -> np.ndarray:
 
 
 def _executor(case):
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertExecutor
+    from latency_meta_mdp.data.collection.executor import StructuredExpertExecutor
 
     task, intent, reference = case
     return StructuredExpertExecutor(
@@ -119,7 +119,7 @@ def _executor(case):
 
 def test_zero_pose_error_produces_zero_arm_action() -> None:
     """Break caught: converting an already-achieved reference moves the arm."""
-    from latency_meta_mdp.expert_realization.executor import osc_action_from_reference
+    from latency_meta_mdp.data.collection.executor import osc_action_from_reference
 
     result = osc_action_from_reference(
         achieved_position_world=np.array([0.5, 0.0, 1.0], dtype=np.float64),
@@ -138,7 +138,7 @@ def test_zero_pose_error_produces_zero_arm_action() -> None:
 
 def test_world_translation_and_rotation_use_controller_base_axes() -> None:
     """Break caught: a world-frame pose error is sent on the wrong controller axes."""
-    from latency_meta_mdp.expert_realization.executor import osc_action_from_reference
+    from latency_meta_mdp.data.collection.executor import osc_action_from_reference
 
     world_to_base = np.array(
         [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
@@ -161,8 +161,8 @@ def test_world_translation_and_rotation_use_controller_base_axes() -> None:
 
 def test_source_tick_five_targets_reference_index_one(structured_case) -> None:
     """Break caught: u[5] repeats S[5] instead of advancing the smooth reference."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.handoff import HandoffState
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.runtime.handoff import HandoffState
 
     task, intent, reference = structured_case
     decision = _executor(structured_case).next_action(
@@ -189,8 +189,8 @@ def test_funnel_is_tangent_continuous_then_close_and_lift_are_event_gated(
     structured_case,
 ) -> None:
     """Break caught: approach, descent, close, and lift are disconnected clock-driven primitives."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.handoff import HandoffState
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.runtime.handoff import HandoffState
 
     _task, intent, reference = structured_case
     executor = _executor(structured_case)
@@ -231,13 +231,9 @@ def test_funnel_is_tangent_continuous_then_close_and_lift_are_event_gated(
     assert decisions[entry_tick].phase is StructuredExpertPhase.GRASP_FUNNEL
     assert decisions[close_tick].phase is StructuredExpertPhase.CLOSE_STABILIZE
     assert decisions[close_tick].action[-1] == 1.0
-    close_offset = (
-        decisions[close_tick].target_eef_position_world
-        - _object_at(intent, close_tick)
-    )
-    follow_offset = (
-        decisions[close_tick + 1].target_eef_position_world
-        - _object_at(intent, close_tick + 1)
+    close_offset = decisions[close_tick].target_eef_position_world - _object_at(intent, close_tick)
+    follow_offset = decisions[close_tick + 1].target_eef_position_world - _object_at(
+        intent, close_tick + 1
     )
     np.testing.assert_allclose(
         close_offset,
@@ -260,8 +256,8 @@ def test_unilateral_contact_must_become_bilateral_inside_acquisition_window(
     structured_case,
 ) -> None:
     """Break caught: a one-pad push is admitted as a valid grasp realization."""
-    from latency_meta_mdp.expert_realization.executor import SemanticExecutionFailure
-    from latency_meta_mdp.handoff import HandoffState
+    from latency_meta_mdp.data.collection.executor import SemanticExecutionFailure
+    from latency_meta_mdp.runtime.handoff import HandoffState
 
     _task, intent, reference = structured_case
     executor = _executor(structured_case)
@@ -300,8 +296,8 @@ def test_post_target_funnel_tracks_current_object_until_geometry_is_ready(
     structured_case,
 ) -> None:
     """Break caught: a late arm keeps chasing the stale nominal capture point."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.handoff import HandoffState
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.runtime.handoff import HandoffState
 
     _task, intent, reference = structured_case
     executor = _executor(structured_case)
@@ -341,11 +337,11 @@ def test_funnel_transition_waits_for_achieved_entry_and_fails_at_entry_deadline(
     structured_case,
 ) -> None:
     """Break caught: nominal time advances into the funnel while the real EEF is still behind."""
-    from latency_meta_mdp.expert_realization.executor import (
+    from latency_meta_mdp.data.collection.executor import (
         SemanticExecutionFailure,
         StructuredExpertPhase,
     )
-    from latency_meta_mdp.handoff import HandoffState
+    from latency_meta_mdp.runtime.handoff import HandoffState
 
     _task, intent, reference = structured_case
     executor = _executor(structured_case)
@@ -384,17 +380,15 @@ def test_funnel_endpoint_is_reanchored_to_observed_object_at_actual_entry(
     structured_case,
 ) -> None:
     """Break caught: a delayed funnel still descends to the stale nominal capture point."""
-    from latency_meta_mdp.expert_realization.executor import StructuredExpertPhase
-    from latency_meta_mdp.handoff import HandoffState
+    from latency_meta_mdp.data.collection.executor import StructuredExpertPhase
+    from latency_meta_mdp.runtime.handoff import HandoffState
 
     _task, intent, reference = structured_case
     executor = _executor(structured_case)
     shift = np.array([0.02, -0.01, 0.0], dtype=np.float64)
     eef = np.array(reference.eef_positions_world[0], copy=True)
     decisions = {}
-    maximum_tick = (
-        intent.approach.funnel_entry_deadline_tick + intent.strategy.funnel_descent_ticks
-    )
+    maximum_tick = intent.approach.funnel_entry_deadline_tick + intent.strategy.funnel_descent_ticks
     for tick in range(5, maximum_tick):
         decisions[tick] = executor.next_action(
             snapshot=_snapshot(
@@ -429,7 +423,7 @@ def test_funnel_endpoint_is_reanchored_to_observed_object_at_actual_entry(
 
 def test_funnel_centers_xy_at_safe_height_before_final_descent(structured_case) -> None:
     """Break caught: the gripper descends while still laterally offset and hits one pad first."""
-    from latency_meta_mdp.handoff import HandoffState
+    from latency_meta_mdp.runtime.handoff import HandoffState
 
     _task, intent, reference = structured_case
     executor = _executor(structured_case)
@@ -458,7 +452,7 @@ def test_funnel_centers_xy_at_safe_height_before_final_descent(structured_case) 
 
 def test_k6_motion_fit_predicts_a_quadratic_object_path_without_future_input() -> None:
     """Break caught: curved L2 motion is forced through a constant-velocity extrapolator."""
-    from latency_meta_mdp.expert_realization.executor import fit_causal_object_motion
+    from latency_meta_mdp.data.collection.executor import fit_causal_object_motion
 
     times = np.arange(6, dtype=np.float64) * 0.02
     velocity0 = np.array([0.04, -0.03, 0.0], dtype=np.float64)
@@ -471,11 +465,7 @@ def test_k6_motion_fit_predicts_a_quadratic_object_path_without_future_input() -
     estimate = fit_causal_object_motion(times, positions, prediction_horizon_seconds=0.20)
     current_time = times[-1]
     expected_velocity = velocity0 + acceleration * current_time
-    expected_position = (
-        positions[-1]
-        + expected_velocity * 0.20
-        + 0.5 * acceleration * 0.20**2
-    )
+    expected_position = positions[-1] + expected_velocity * 0.20 + 0.5 * acceleration * 0.20**2
 
     np.testing.assert_allclose(estimate.velocity_world, expected_velocity, atol=1.0e-12)
     np.testing.assert_allclose(estimate.acceleration_world, acceleration, atol=1.0e-12)
@@ -484,7 +474,7 @@ def test_k6_motion_fit_predicts_a_quadratic_object_path_without_future_input() -
 
 def test_expert_lookahead_stops_at_the_known_driven_motion_boundary() -> None:
     """Break caught: late close targets extrapolate the ball beyond its tick-150 hold state."""
-    from latency_meta_mdp.expert_realization.executor import bounded_prediction_horizon
+    from latency_meta_mdp.data.collection.executor import bounded_prediction_horizon
 
     assert bounded_prediction_horizon(source_tick=100, requested_seconds=0.20) == 0.20
     assert bounded_prediction_horizon(source_tick=146, requested_seconds=0.20) == 0.08

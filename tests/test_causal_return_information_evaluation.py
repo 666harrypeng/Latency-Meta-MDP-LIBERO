@@ -4,18 +4,18 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.belief.causal_return.contracts import (
+from latency_meta_mdp.legacy.belief.causal_return.contracts import (
     InformationStateSample,
     load_information_state_config,
 )
-from latency_meta_mdp.belief.causal_return.information_evaluation import (
+from latency_meta_mdp.legacy.belief.causal_return.information_evaluation import (
     compute_information_state_metrics,
     evaluate_level_information_state,
 )
-from latency_meta_mdp.belief.causal_return.information_training import (
+from latency_meta_mdp.legacy.belief.causal_return.information_training import (
     train_level_information_state,
 )
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 def _sample(value: float, seed: int) -> InformationStateSample:
@@ -115,7 +115,7 @@ def test_information_metrics_reject_nonfinite_predictions() -> None:
 def test_level_evaluation_reloads_checkpoint_and_writes_physical_artifact(tmp_path) -> None:
     config = replace(
         load_information_state_config(
-            Path("configs/belief/causal_return/information_state.yaml")
+            Path("configs/legacy/belief/causal_return/information_state.yaml")
         ),
         temporal_fusion_layer_count=1,
         dropout=0.0,

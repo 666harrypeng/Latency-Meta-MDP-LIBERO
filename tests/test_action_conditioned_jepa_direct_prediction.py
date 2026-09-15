@@ -6,13 +6,13 @@ import pytest
 import torch
 from test_action_conditioned_jepa_rollout import _normalization
 
-from latency_meta_mdp.belief.action_conditioned_jepa.config import (
+from latency_meta_mdp.belief.jepa.config import (
     load_action_conditioned_jepa_config,
 )
 
 
 def _query(q=7, batch=1):
-    from latency_meta_mdp.belief.action_conditioned_jepa.contracts import ForecastQuery
+    from latency_meta_mdp.belief.jepa.contracts import ForecastQuery
 
     return ForecastQuery(
         vision_history=torch.randn(batch, 3, 2, 196, 384).half(),
@@ -27,16 +27,14 @@ def _query(q=7, batch=1):
 
 @pytest.fixture(scope="module")
 def model():
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction import (
+    from latency_meta_mdp.belief.jepa.model import (
         DirectJepaPredictor,
     )
 
     config = load_action_conditioned_jepa_config(
-        model_path=Path("configs/belief/action_conditioned_jepa/model.yaml"),
-        level_path=Path("configs/belief/action_conditioned_jepa/l3.yaml"),
-        temporal_sampling_path=Path(
-            "configs/belief/action_conditioned_jepa/stride4_80ms_history_160ms.yaml"
-        ),
+        model_path=Path("configs/models/jepa/model.yaml"),
+        level_path=Path("configs/models/jepa/l3.yaml"),
+        temporal_sampling_path=Path("configs/models/jepa/stride4_80ms_history_160ms.yaml"),
     )
     normalization = replace(
         _normalization(),
@@ -129,7 +127,7 @@ def test_ordered_controls_and_horizon_change_prediction_in_one_pass(model):
 
 
 def test_loss_normalizes_proprio_and_detaches_supervision(model):
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_training import (
+    from latency_meta_mdp.belief.jepa.optimization import (
         direct_prediction_loss,
     )
 
@@ -154,7 +152,7 @@ def test_loss_normalizes_proprio_and_detaches_supervision(model):
 def test_old_ar_checkpoint_cannot_load_as_direct(model, tmp_path):
     from safetensors.torch import save_file
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction import (
+    from latency_meta_mdp.belief.jepa.model import (
         load_direct_prediction_weights,
         save_direct_prediction_weights,
     )
@@ -171,7 +169,7 @@ def test_old_ar_checkpoint_cannot_load_as_direct(model, tmp_path):
 
 
 def test_training_preflight_config_requires_exact_balanced_exposure():
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_training import (
+    from latency_meta_mdp.belief.jepa.optimization import (
         DirectTrainingConfig,
     )
 
@@ -188,10 +186,10 @@ def test_training_preflight_config_requires_exact_balanced_exposure():
 def test_training_accumulation_matches_full_logical_batch():
     import copy
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_data import (
+    from latency_meta_mdp.belief.jepa.data import (
         DirectPredictionSample,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.direct_prediction_training import (
+    from latency_meta_mdp.belief.jepa.optimization import (
         DirectTrainingConfig,
         train_direct_epoch,
     )

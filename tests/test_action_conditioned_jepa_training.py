@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 import torch
 
-from latency_meta_mdp.belief.action_conditioned_jepa.contracts import LaunchContextBatch
-from latency_meta_mdp.belief.action_conditioned_jepa.temporal_view import (
+from latency_meta_mdp.belief.jepa.ar.temporal_view import (
     SharedJepaSampleIndex,
     TemporalJepaBatch,
 )
+from latency_meta_mdp.belief.jepa.contracts import LaunchContextBatch
 
 
 class _TinyPredictor(torch.nn.Module):
@@ -65,7 +65,7 @@ def _batch() -> TemporalJepaBatch:
 def test_training_loss_uses_teacher_forced_d1_and_k2_normalized_targets() -> None:
     """Catches random long rollout loss or accidental physical-unit proprio supervision."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         compute_temporal_jepa_loss,
     )
 
@@ -85,7 +85,7 @@ def test_training_loss_uses_teacher_forced_d1_and_k2_normalized_targets() -> Non
 def test_training_loss_rejects_nonfinite_predictions() -> None:
     """Catches publishing a training step after latent or proprio loss becomes nonfinite."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         compute_temporal_jepa_loss,
     )
 
@@ -103,12 +103,12 @@ def test_training_loss_rejects_nonfinite_predictions() -> None:
 def test_training_config_matches_upstream_metaworld_optimizer_semantics() -> None:
     """Catches changing model-quality settings to accommodate one hardware target."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         load_temporal_jepa_training_config,
     )
 
     config = load_temporal_jepa_training_config(
-        Path("configs/training/action_conditioned_jepa/temporal_selection_l3.yaml")
+        Path("configs/legacy/training/temporal_selection_l3.yaml")
     )
 
     assert config.max_epochs == 50
@@ -135,14 +135,14 @@ def test_training_config_matches_upstream_metaworld_optimizer_semantics() -> Non
 def test_optimizer_excludes_bias_and_norm_and_reproduces_upstream_schedules() -> None:
     """Catches applying weight decay to bias/norm or a hardware-dependent learning rate."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         apply_upstream_optimizer_schedule,
         build_upstream_aligned_optimizer,
         load_temporal_jepa_training_config,
     )
 
     config = load_temporal_jepa_training_config(
-        Path("configs/training/action_conditioned_jepa/temporal_selection_l3.yaml")
+        Path("configs/legacy/training/temporal_selection_l3.yaml")
     )
     model = torch.nn.Sequential(
         torch.nn.Linear(3, 4),
@@ -184,7 +184,7 @@ def test_optimizer_excludes_bias_and_norm_and_reproduces_upstream_schedules() ->
 def test_epoch_microbatches_preserve_logical_batch_and_resume_order() -> None:
     """Catches hardware microbatch changes that alter the logical sample order."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         build_epoch_microbatch_indices,
     )
 
@@ -232,7 +232,7 @@ def test_epoch_microbatches_preserve_logical_batch_and_resume_order() -> None:
 def test_epoch_checkpoint_restores_model_optimizer_and_progress_exactly(tmp_path: Path) -> None:
     """Catches resume that restores weights but loses Adam moments or progress counters."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         JepaTrainingProgress,
         build_upstream_aligned_optimizer,
         load_temporal_jepa_training_checkpoint,
@@ -241,7 +241,7 @@ def test_epoch_checkpoint_restores_model_optimizer_and_progress_exactly(tmp_path
     )
 
     config = load_temporal_jepa_training_config(
-        Path("configs/training/action_conditioned_jepa/temporal_selection_l3.yaml")
+        Path("configs/legacy/training/temporal_selection_l3.yaml")
     )
     model = torch.nn.Sequential(torch.nn.Linear(3, 4), torch.nn.LayerNorm(4))
     optimizer = build_upstream_aligned_optimizer(model=model, config=config)
@@ -360,14 +360,14 @@ def test_epoch_checkpoint_restores_model_optimizer_and_progress_exactly(tmp_path
 def test_one_epoch_accumulates_to_logical_global_batch_independent_of_microbatch() -> None:
     """Catches stepping Adam once per hardware microbatch instead of per logical batch."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         JepaTrainingProgress,
         load_temporal_jepa_training_config,
         run_temporal_jepa_epoch,
     )
 
     config = load_temporal_jepa_training_config(
-        Path("configs/training/action_conditioned_jepa/temporal_selection_l3.yaml")
+        Path("configs/legacy/training/temporal_selection_l3.yaml")
     )
     model = _TinyPredictor()
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate_reference)
@@ -406,17 +406,15 @@ def test_one_epoch_accumulates_to_logical_global_batch_independent_of_microbatch
 def test_admission_epoch_updates_stage_progress_without_fabricating_a_fold() -> None:
     """Catches representing the all-80-master final refit as a nonexistent fifth fold."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.admission_runner import (
+    from latency_meta_mdp.belief.jepa.ar.train import (
         load_jepa_admission_training_config,
     )
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         JepaAdmissionProgress,
         run_temporal_jepa_epoch,
     )
 
-    config = load_jepa_admission_training_config(
-        Path("configs/training/action_conditioned_jepa/l3_admission.yaml")
-    )
+    config = load_jepa_admission_training_config(Path("configs/legacy/training/l3_admission.yaml"))
     model = _TinyPredictor()
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate_reference)
     batch = _batch()
@@ -450,7 +448,7 @@ def test_admission_epoch_updates_stage_progress_without_fabricating_a_fold() -> 
 def test_rolling_checkpoint_keeps_only_latest_and_20_40_50_milestones(tmp_path: Path) -> None:
     """Catches retaining every epoch or deleting a declared permanent milestone."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         JepaTrainingProgress,
         build_upstream_aligned_optimizer,
         load_temporal_jepa_training_config,
@@ -458,7 +456,7 @@ def test_rolling_checkpoint_keeps_only_latest_and_20_40_50_milestones(tmp_path: 
     )
 
     config = load_temporal_jepa_training_config(
-        Path("configs/training/action_conditioned_jepa/temporal_selection_l3.yaml")
+        Path("configs/legacy/training/temporal_selection_l3.yaml")
     )
     model = torch.nn.Sequential(torch.nn.Linear(3, 4), torch.nn.LayerNorm(4))
     optimizer = build_upstream_aligned_optimizer(model=model, config=config)
@@ -501,7 +499,7 @@ def test_rolling_checkpoint_keeps_only_latest_and_20_40_50_milestones(tmp_path: 
 def test_resume_history_loads_every_completed_epoch_in_order(tmp_path: Path) -> None:
     """Catches a resumed final manifest silently dropping pre-resume epoch metrics."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.training import (
+    from latency_meta_mdp.belief.jepa.ar.training import (
         load_completed_temporal_jepa_history,
     )
 

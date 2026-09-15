@@ -10,9 +10,11 @@ import numpy as np
 
 def test_review_request_is_exactly_three_by_three_by_three_and_nontraining() -> None:
     """Break caught: the requested review silently becomes a family-balanced or training corpus."""
-    from latency_meta_mdp.expert_realization.review_collection import load_review_request
+    from latency_meta_mdp.data.collection.review_collection import load_review_request
 
-    request = load_review_request(Path("configs/collection/panda_ball_smooth_review_3x3x3.yaml"))
+    request = load_review_request(
+        Path("configs/data/collection/panda_ball_smooth_review_3x3x3.yaml")
+    )
 
     assert request.levels == (1, 2, 3)
     assert request.task_instance_count == 3
@@ -27,7 +29,7 @@ def test_review_request_is_exactly_three_by_three_by_three_and_nontraining() -> 
 
 def test_real_ffmpeg_review_video_contains_both_views_and_all_frames(tmp_path: Path) -> None:
     """Break caught: review publication writes an unreadable or single-view video."""
-    from latency_meta_mdp.expert_realization.review_collection import encode_review_video
+    from latency_meta_mdp.data.collection.review_collection import encode_review_video
 
     agentview = np.zeros((4, 16, 20, 3), dtype=np.uint8)
     wrist = np.zeros((4, 16, 20, 3), dtype=np.uint8)
@@ -75,7 +77,7 @@ def test_real_ffmpeg_review_video_contains_both_views_and_all_frames(tmp_path: P
 
 def test_final_manifest_assembles_exactly_three_complete_groups_per_level(tmp_path: Path) -> None:
     """Break caught: successful rows from incomplete task groups enter the final 27-video view."""
-    from latency_meta_mdp.expert_realization.review_collection import assemble_review_manifest
+    from latency_meta_mdp.data.collection.review_collection import assemble_review_manifest
 
     for level in (1, 2, 3):
         for task_index in range(3):
@@ -110,7 +112,7 @@ def test_final_manifest_assembles_exactly_three_complete_groups_per_level(tmp_pa
 
     manifest_path = assemble_review_manifest(
         target=tmp_path,
-        config_path=Path("configs/collection/panda_ball_smooth_review_3x3x3.yaml"),
+        config_path=Path("configs/data/collection/panda_ball_smooth_review_3x3x3.yaml"),
     )
     manifest = json.loads(manifest_path.read_text())
 
@@ -122,7 +124,7 @@ def test_final_manifest_assembles_exactly_three_complete_groups_per_level(tmp_pa
 
 def test_phase_timeline_covers_prefix_decisions_and_terminal_frame() -> None:
     """Break caught: video labels are shifted one tick relative to recorded actions."""
-    from latency_meta_mdp.expert_realization.review_collection import phase_timeline
+    from latency_meta_mdp.data.collection.review_collection import phase_timeline
 
     decisions = tuple(
         SimpleNamespace(

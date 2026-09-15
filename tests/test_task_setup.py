@@ -7,11 +7,11 @@ import mujoco
 import numpy as np
 import pytest
 
-from latency_meta_mdp.snapshots import BoundarySnapshotter
-from latency_meta_mdp.task import load_task_spec, make_dynamic_grasp_lift_environment
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.envs.snapshots import BoundarySnapshotter
+from latency_meta_mdp.envs.task import load_task_spec, make_dynamic_grasp_lift_environment
+from latency_meta_mdp.runtime.timing import ClockLedger
 
-_TASK_CONFIG = Path("configs/task/dynamic_grasp_lift_l0.yaml")
+_TASK_CONFIG = Path("configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml")
 _CAMERA_RESOURCE = Path("assets/camera/libero_tabletop_agentview_v1.json")
 _LIBERO_AGENTVIEW_POS = np.array([0.6586131746834771, 0.0, 1.6103500240372423])
 _LIBERO_AGENTVIEW_QUAT = np.array(

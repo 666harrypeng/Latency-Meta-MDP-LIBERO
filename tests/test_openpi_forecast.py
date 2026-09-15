@@ -8,7 +8,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from test_forecast_policy_cache import built_cache as built_cache
+
+pytest_plugins = ("test_forecast_policy_cache",)
 
 pytest.importorskip("jax")
 pytest.importorskip("flax")
@@ -16,7 +17,7 @@ pytest.importorskip("flax")
 
 @pytest.fixture(scope="module")
 def forecast_openpi():
-    from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
 
     with temporary_patched_openpi_copy(
         openpi_root=Path("third_party/openpi"),
@@ -61,7 +62,7 @@ def test_forecast_transform_preserves_native_inputs_and_masks_tail(forecast_open
     from openpi.models.model import ModelType
     from openpi.shared.normalize import NormStats
 
-    from latency_meta_mdp.openpi_forecast import ForecastPolicyInputs
+    from latency_meta_mdp.policy.openpi.forecast import ForecastPolicyInputs
 
     raw = _inputs()
     raw["actions"][:2] = 0.2
@@ -118,8 +119,11 @@ def test_real_attention_uses_all_views_and_is_independent_of_dict_order(
     from flax.traverse_util import flatten_dict
     from test_openpi_belief_prefix import _tiny_pi05
 
-    from latency_meta_mdp.openpi_sft import _build_config, build_forecast_policy_train_config
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.policy.openpi.training import (
+        _build_config,
+        build_forecast_policy_train_config,
+    )
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
     cfg, _, _ = _tiny_pi05(monkeypatch, prefix=False)
     cfg = dataclasses.replace(cfg, use_rtc_forecast=True)
@@ -141,7 +145,7 @@ def test_real_attention_uses_all_views_and_is_independent_of_dict_order(
     obs = dataclasses.replace(obs, action_loss_mask=mask)
     actions = jnp.where(mask, 0.1, jnp.nan)
     clean = _build_config(
-        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+        load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml")), 3
     )
     train = build_forecast_policy_train_config(
         clean_config=clean,
@@ -218,9 +222,12 @@ def test_production_loader_uses_forecast_sampler_and_native_loss_masks(
     from openpi.shared import normalize
     from openpi.training import data_loader
 
-    from latency_meta_mdp.openpi_sft import _build_config, build_forecast_policy_train_config
-    from latency_meta_mdp.policy_forecast_dataset import ForecastPolicyDataset
-    from latency_meta_mdp.sft_profile import load_sft_profile
+    from latency_meta_mdp.data.forecast.dataset import ForecastPolicyDataset
+    from latency_meta_mdp.policy.openpi.training import (
+        _build_config,
+        build_forecast_policy_train_config,
+    )
+    from latency_meta_mdp.policy.profile import load_sft_profile
 
     cache, record, bindings = built_cache
 
@@ -242,7 +249,7 @@ def test_production_loader_uses_forecast_sampler_and_native_loss_masks(
         Native(), episode_rows=list(cache.episodes.values()), cache=cache
     )
     clean = _build_config(
-        load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml")), 3
+        load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml")), 3
     )
     clean = dataclasses.replace(
         clean, assets_base_dir=str(tmp_path / "assets"), batch_size=20, num_workers=0
@@ -296,10 +303,13 @@ def test_rtc_bridge_transports_forecast_and_normalizes_buffer_once(forecast_open
     from openpi.policies.policy import Policy
     from openpi.shared.normalize import NormStats
 
-    from latency_meta_mdp.openpi_forecast import ForecastPolicyInputs, ForecastTokenizePrompt
-    from latency_meta_mdp.policy_execution import InProcessRtcOpenpiPolicy, PolicyObservation
-    from latency_meta_mdp.policy_forecast import DecodedForecast
-    from latency_meta_mdp.rtc_protocol import RtcInferenceContext
+    from latency_meta_mdp.data.forecast.samples import DecodedForecast
+    from latency_meta_mdp.policy.openpi.forecast import ForecastPolicyInputs, ForecastTokenizePrompt
+    from latency_meta_mdp.runtime.policy_execution import (
+        InProcessRtcOpenpiPolicy,
+        PolicyObservation,
+    )
+    from latency_meta_mdp.runtime.rtc_protocol import RtcInferenceContext
 
     class Tokenizer:
         def tokenize_forecast(self, prompt, state, *, future_state, query_ticks):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from latency_meta_mdp.calibration import run_g1_calibration, validate_g1_report
+from latency_meta_mdp.runtime.calibration import run_g1_calibration, validate_g1_report
 
 _G0_REFERENCE = {
     "manifest": "certification/g0/g0_runtime/manifest.json",

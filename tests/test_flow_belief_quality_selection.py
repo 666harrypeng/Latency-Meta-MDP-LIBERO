@@ -7,21 +7,21 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.flow.quality_config import (
+from latency_meta_mdp.legacy.belief.flow.quality_config import (
     FlowBeliefQualitySampleConfig,
     load_flow_belief_quality_sample_config,
 )
-from latency_meta_mdp.belief.flow.quality_selection import (
+from latency_meta_mdp.legacy.belief.flow.quality_selection import (
     FormalFlowSummary,
     score_validation_contexts,
     select_quality_contexts,
 )
-from latency_meta_mdp.belief.flow.quality_types import (
+from latency_meta_mdp.legacy.belief.flow.quality_types import (
     QualityContextIdentity,
     QualityContextScore,
 )
-from latency_meta_mdp.belief.flow.training_data import FlowBeliefNormalization
-from latency_meta_mdp.vision_probe_data import ProbeSplit
+from latency_meta_mdp.legacy.belief.flow.training_data import FlowBeliefNormalization
+from latency_meta_mdp.legacy.vision_probe_data import ProbeSplit
 
 
 class _FakeCorpus:
@@ -97,7 +97,7 @@ def _summary() -> FormalFlowSummary:
 
 def _config() -> FlowBeliefQualitySampleConfig:
     return load_flow_belief_quality_sample_config(
-        Path("configs/analysis/flow_belief_quality_samples_v1.yaml")
+        Path("configs/legacy/analysis/flow_belief_quality_samples_v1.yaml")
     )
 
 

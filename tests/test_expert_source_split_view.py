@@ -12,7 +12,7 @@ MANIFEST_SHA256 = "c7a295e9b687af1e8faf5eb8250306fc625d60307a2c0f7567636a446a34d
 
 
 def _corpus(tmp_path: Path, *, omit: tuple[int, int, int] | None = None):
-    from latency_meta_mdp.expert_realization.source_corpus.loader import (
+    from latency_meta_mdp.data.source.loader import (
         SourceCorpusManifest,
         VerifiedSourceCorpus,
     )
@@ -54,7 +54,7 @@ def _corpus(tmp_path: Path, *, omit: tuple[int, int, int] | None = None):
 
 def test_external_split_is_deterministic_complete_and_master_grouped(tmp_path: Path) -> None:
     """Break caught: related levels or realizations leak across train and validation."""
-    from latency_meta_mdp.expert_realization.source_corpus.split_view import (
+    from latency_meta_mdp.data.source.split_view import (
         build_source_split,
     )
 
@@ -88,7 +88,7 @@ def test_external_split_is_deterministic_complete_and_master_grouped(tmp_path: P
 
 def test_external_split_rejects_incomplete_master_block(tmp_path: Path) -> None:
     """Break caught: a split is generated after one level/realization silently disappears."""
-    from latency_meta_mdp.expert_realization.source_corpus.split_view import (
+    from latency_meta_mdp.data.source.split_view import (
         build_source_split,
     )
 
@@ -106,7 +106,7 @@ def test_split_publication_round_trips_and_rejects_tamper_or_overwrite(
     tmp_path: Path,
 ) -> None:
     """Break caught: a split can detach from its exact source or be replaced in place."""
-    from latency_meta_mdp.expert_realization.source_corpus.split_view import (
+    from latency_meta_mdp.data.source.split_view import (
         build_source_split,
         load_verified_source_split,
         write_source_split,
@@ -135,7 +135,7 @@ def test_split_publication_round_trips_and_rejects_tamper_or_overwrite(
 
 def test_split_loader_rejects_source_manifest_drift(tmp_path: Path) -> None:
     """Break caught: a valid split is reused after the source manifest changes."""
-    from latency_meta_mdp.expert_realization.source_corpus.split_view import (
+    from latency_meta_mdp.data.source.split_view import (
         build_source_split,
         load_verified_source_split,
         write_source_split,
@@ -164,7 +164,7 @@ def test_split_cli_writes_only_the_final_path_to_stdout(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Break caught: operational logs pollute the derived split artifact path contract."""
-    from latency_meta_mdp.cli.split_structured_expert_source import main
+    from latency_meta_mdp.data.source.split_cli import main
 
     corpus = _corpus(tmp_path)
     target = tmp_path / "derived" / "split.json"

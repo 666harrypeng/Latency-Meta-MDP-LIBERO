@@ -10,7 +10,9 @@ __pycache__/
 htmlcov/
 
 # Local research planning, decision logs, and development evidence.
-docs/
+docs/*
+!docs/usage/
+!docs/usage/**
 
 outputs/
 datasets/

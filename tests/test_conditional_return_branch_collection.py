@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from latency_meta_mdp.belief.conditional_return_flow.branch_artifacts import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_artifacts import (
     load_verified_control_branch_corpus,
 )
-from latency_meta_mdp.belief.conditional_return_flow.branch_collection import (
+from latency_meta_mdp.legacy.belief.conditional_return_flow.branch_collection import (
     collect_control_branch_corpus,
 )
 
@@ -21,10 +21,10 @@ def test_bounded_real_l1_collection_publishes_complete_branch_inventory(
         project_root=project_root,
         source_bulk_manifest=project_root
         / "outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json",
-        split_config_path=project_root / "configs/data/formal_belief_train_val_v1.yaml",
-        temporal_config_path=project_root / "configs/temporal/h50_e25_d20_k6_v1.yaml",
+        split_config_path=project_root / "configs/legacy/data/formal_belief_train_val_v1.yaml",
+        temporal_config_path=project_root / "configs/contracts/temporal/h50_e25_d20_k6_v1.yaml",
         branch_config_path=project_root
-        / "configs/belief/conditional_return_flow/branch_corpus.yaml",
+        / "configs/legacy/belief/conditional_return_flow/branch_corpus.yaml",
         output_dir=output,
         levels=(1,),
         maximum_contexts_per_level=1,
@@ -64,10 +64,10 @@ def test_seed_scoped_collection_is_bounded_without_context_limit(tmp_path: Path)
         project_root=project_root,
         source_bulk_manifest=project_root
         / "outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json",
-        split_config_path=project_root / "configs/data/formal_belief_train_val_v1.yaml",
-        temporal_config_path=project_root / "configs/temporal/h50_e25_d20_k6_v1.yaml",
+        split_config_path=project_root / "configs/legacy/data/formal_belief_train_val_v1.yaml",
+        temporal_config_path=project_root / "configs/contracts/temporal/h50_e25_d20_k6_v1.yaml",
         branch_config_path=project_root
-        / "configs/belief/conditional_return_flow/branch_corpus.yaml",
+        / "configs/legacy/belief/conditional_return_flow/branch_corpus.yaml",
         output_dir=tmp_path / "seed-scoped-branches",
         levels=(1,),
         allowed_scene_seed_ranges=((1000, 1001),),

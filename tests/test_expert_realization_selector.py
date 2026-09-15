@@ -9,7 +9,7 @@ from test_expert_realization_planner import _candidate, _key
 
 
 def _task_instance():
-    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+    from latency_meta_mdp.data.collection.task_instance import MaterializedTaskInstance
 
     value = object.__new__(MaterializedTaskInstance)
     object.__setattr__(value, "task_instance_id", _key().task_instance_id)
@@ -23,7 +23,7 @@ def _task_instance():
 
 @pytest.fixture(autouse=True)
 def _validated_task(monkeypatch: pytest.MonkeyPatch) -> None:
-    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+    from latency_meta_mdp.data.collection.task_instance import MaterializedTaskInstance
 
     monkeypatch.setattr(
         MaterializedTaskInstance,
@@ -44,7 +44,7 @@ def _candidate_map():
 
 def test_complete_selection_is_input_order_invariant_and_50hz() -> None:
     """Break caught: worker completion order changes selected plans or reference timing."""
-    from latency_meta_mdp.expert_realization.selector import select_task_instance_plan_set
+    from latency_meta_mdp.data.collection.selector import select_task_instance_plan_set
 
     candidates = _candidate_map()
     expected = select_task_instance_plan_set(
@@ -73,7 +73,7 @@ def test_complete_selection_is_input_order_invariant_and_50hz() -> None:
 
 def test_selection_accepts_any_positive_contiguous_realization_count() -> None:
     """Break caught: a general R-realization request is forced back to the old eight-slot pilot."""
-    from latency_meta_mdp.expert_realization.selector import select_task_instance_plan_set
+    from latency_meta_mdp.data.collection.selector import select_task_instance_plan_set
 
     candidates = {
         _key(key_index): tuple(
@@ -93,7 +93,7 @@ def test_selection_accepts_any_positive_contiguous_realization_count() -> None:
 
 def test_selection_rejects_incomplete_candidate_universe() -> None:
     """Break caught: a missing realization/candidate silently receives canonical fallback."""
-    from latency_meta_mdp.expert_realization.selector import select_task_instance_plan_set
+    from latency_meta_mdp.data.collection.selector import select_task_instance_plan_set
 
     candidates = _candidate_map()
     del candidates[_key(3)]
@@ -106,12 +106,12 @@ def test_selection_rejects_incomplete_candidate_universe() -> None:
 
 def test_all_eight_planner_failures_do_not_fallback_to_canonical() -> None:
     """Break caught: a failed realization is silently replaced by a canonical plan."""
-    from latency_meta_mdp.expert_realization.planner import (
+    from latency_meta_mdp.data.collection.planner import (
         PlannerCandidate,
         PlannerCandidateStatus,
         planner_candidate_seed,
     )
-    from latency_meta_mdp.expert_realization.selector import select_task_instance_plan_set
+    from latency_meta_mdp.data.collection.selector import select_task_instance_plan_set
 
     candidates = _candidate_map()
     key = _key(3)
@@ -136,7 +136,7 @@ def test_all_eight_planner_failures_do_not_fallback_to_canonical() -> None:
 
 def test_near_duplicate_eef_candidates_cannot_fill_distinct_realization_slots() -> None:
     """Break caught: different joint paths masquerade as distinct task-space behaviors."""
-    from latency_meta_mdp.expert_realization.selector import (
+    from latency_meta_mdp.data.collection.selector import (
         DiversitySelectionError,
         select_task_instance_plan_set,
     )

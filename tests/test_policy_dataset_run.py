@@ -6,19 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
-from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.policy_dataset_run import (
+from latency_meta_mdp.data.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.data.policy_export import (
     convert_formal_corpus_to_lerobot,
     convert_pilot_run_to_lerobot,
 )
-from latency_meta_mdp.recording import RecordProfile
-from latency_meta_mdp.sft_certification import (
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.io.episode_artifacts import write_synchronized_episode_artifact
+from latency_meta_mdp.legacy.policy.sft_certification import (
     certify_lerobot_formal_run,
     certify_lerobot_pilot_run,
 )
-from latency_meta_mdp.sft_profile import load_sft_profile
+from latency_meta_mdp.policy.profile import load_sft_profile
 
 
 class _FakeLeRobotDataset:
@@ -159,7 +159,7 @@ def test_convert_pilot_run_writes_three_atomic_level_specific_datasets(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     source_manifest = _source_pilot(tmp_path)
-    profile_path = Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
+    profile_path = Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
     profile = load_sft_profile(profile_path)
     output = tmp_path / "derived"
     factory = _FakeDatasetFactory()
@@ -188,7 +188,7 @@ def test_convert_pilot_run_writes_three_atomic_level_specific_datasets(
         assert dataset_manifest.is_file()
         assert row["dataset_manifest_sha256"] == sha256_file(dataset_manifest)
 
-    cli = importlib.import_module("latency_meta_mdp.cli.convert_sft_pilot")
+    cli = importlib.import_module("latency_meta_mdp.legacy.cli.convert_sft_pilot")
     cli_output = tmp_path / "derived-cli"
     result = cli.main(
         [
@@ -233,9 +233,7 @@ def test_convert_pilot_run_writes_three_atomic_level_specific_datasets(
     assert certification["eligible"] is (not certification["implementation_dirty"])
     assert [row["level"] for row in certification["levels"]] == [1, 2, 3]
 
-    certification_cli = importlib.import_module(
-        "latency_meta_mdp.cli.certify_sft_pilot"
-    )
+    certification_cli = importlib.import_module("latency_meta_mdp.legacy.cli.certify_sft_pilot")
     cli_certification_dir = tmp_path / "certification-cli"
     result = certification_cli.main(
         [
@@ -260,7 +258,7 @@ def test_convert_formal_corpus_streams_three_verified_level_datasets(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     source_manifest = _source_formal(tmp_path)
-    profile_path = Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
+    profile_path = Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
     output = tmp_path / "formal-derived"
     factory = _FakeDatasetFactory()
 
@@ -283,7 +281,7 @@ def test_convert_formal_corpus_streams_three_verified_level_datasets(
     assert "[sft-data][L1] progress=1/1" in output_text
     assert "[sft-data][L1] done episodes=1" in output_text
 
-    cli = importlib.import_module("latency_meta_mdp.cli.convert_sft_formal")
+    cli = importlib.import_module("latency_meta_mdp.legacy.cli.convert_sft_formal")
     cli_output = tmp_path / "formal-derived-cli"
     result = cli.main(
         [
@@ -329,7 +327,7 @@ def test_convert_formal_corpus_streams_three_verified_level_datasets(
     assert certification["derived_manifest_sha256"] == sha256_file(manifest_path)
     assert [row["level"] for row in certification["levels"]] == [1, 2, 3]
 
-    certification_cli = importlib.import_module("latency_meta_mdp.cli.certify_sft_formal")
+    certification_cli = importlib.import_module("latency_meta_mdp.legacy.cli.certify_sft_formal")
     cli_certification_dir = tmp_path / "formal-certification-cli"
     result = certification_cli.main(
         [
@@ -363,7 +361,7 @@ def test_convert_formal_corpus_rejects_a_bad_episode_inventory_hash(
         convert_formal_corpus_to_lerobot(
             source_manifest=source_manifest,
             output_dir=output,
-            profile_path=Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml"),
+            profile_path=Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml"),
             dataset_factory=_FakeDatasetFactory(),
         )
 

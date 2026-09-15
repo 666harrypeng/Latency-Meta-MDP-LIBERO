@@ -5,7 +5,7 @@ import numpy as np
 
 def test_cartesian_reference_is_one_smooth_curve_through_soft_approach_geometry() -> None:
     """Break caught: semantic guides are executed as separate point-to-point robot segments."""
-    from latency_meta_mdp.expert_realization.trajectory_smoothing import (
+    from latency_meta_mdp.data.collection.trajectory_smoothing import (
         build_cartesian_approach_reference,
     )
 

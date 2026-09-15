@@ -6,13 +6,13 @@ from pathlib import Path
 def test_wandb_config_and_run_identity_are_deterministic_and_secret_free(monkeypatch) -> None:
     """Catches unstable resume IDs or credentials leaking into logged config."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.tracking import (
+    from latency_meta_mdp.belief.jepa.tracking import (
         build_wandb_run_spec,
         credential_environment_status,
         load_jepa_wandb_config,
     )
 
-    config = load_jepa_wandb_config(Path("configs/training/action_conditioned_jepa/wandb.yaml"))
+    config = load_jepa_wandb_config(Path("configs/training/belief/wandb.yaml"))
     first = build_wandb_run_spec(
         config=config,
         selection_id="l3-trainpool-four-configs-v1",
@@ -53,12 +53,12 @@ def test_wandb_config_and_run_identity_are_deterministic_and_secret_free(monkeyp
 def test_l3_admission_wandb_identity_has_no_fold_and_cannot_collide_with_selection() -> None:
     """Catches final seeds resuming or overwriting a cross-validation W&B run."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.tracking import (
+    from latency_meta_mdp.belief.jepa.tracking import (
         build_jepa_admission_wandb_run_spec,
         load_jepa_wandb_config,
     )
 
-    config = load_jepa_wandb_config(Path("configs/training/action_conditioned_jepa/wandb.yaml"))
+    config = load_jepa_wandb_config(Path("configs/training/belief/wandb.yaml"))
     first = build_jepa_admission_wandb_run_spec(
         config=config,
         stage_id="l3-stride4-final-admission-v1",
@@ -85,12 +85,12 @@ def test_l3_admission_wandb_identity_has_no_fold_and_cannot_collide_with_selecti
 
 
 def test_final_runs_with_same_seed_on_different_levels_have_distinct_wandb_ids():
-    from latency_meta_mdp.belief.action_conditioned_jepa.tracking import (
+    from latency_meta_mdp.belief.jepa.tracking import (
         build_jepa_admission_wandb_run_spec,
         load_jepa_wandb_config,
     )
 
-    config = load_jepa_wandb_config(Path("configs/training/action_conditioned_jepa/wandb.yaml"))
+    config = load_jepa_wandb_config(Path("configs/training/belief/wandb.yaml"))
     runs = [
         build_jepa_admission_wandb_run_spec(
             config=config,

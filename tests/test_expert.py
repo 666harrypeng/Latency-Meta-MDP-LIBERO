@@ -7,36 +7,36 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
-import latency_meta_mdp.expert as expert_module
-from latency_meta_mdp.backend import FormalStepExecutor, RoboSuitePlant
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.expert import (
+import latency_meta_mdp.envs.expert as expert_module
+from latency_meta_mdp.envs.backend import FormalStepExecutor, RoboSuitePlant
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.envs.expert import (
     ExpertObservation,
     ExpertPhase,
     ScriptedBallExpert,
     load_expert_config,
 )
-from latency_meta_mdp.handoff import (
-    HandoffAwareBallWorld,
-    HandoffState,
-    OneWayHandoff,
-    PandaBallContactDetector,
-)
-from latency_meta_mdp.motion import (
+from latency_meta_mdp.envs.motion import (
     DrivenBallWorld,
     StationaryProfile,
     build_motion_profile,
     load_motion_config,
 )
-from latency_meta_mdp.outcomes import EpisodeOutcomeTracker, OutcomeCriteria, OutcomeStatus
-from latency_meta_mdp.snapshots import BoundarySnapshotter
-from latency_meta_mdp.task import load_task_spec, make_dynamic_grasp_lift_environment
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.envs.outcomes import EpisodeOutcomeTracker, OutcomeCriteria, OutcomeStatus
+from latency_meta_mdp.envs.snapshots import BoundarySnapshotter
+from latency_meta_mdp.envs.task import load_task_spec, make_dynamic_grasp_lift_environment
+from latency_meta_mdp.runtime.handoff import (
+    HandoffAwareBallWorld,
+    HandoffState,
+    OneWayHandoff,
+    PandaBallContactDetector,
+)
+from latency_meta_mdp.runtime.timing import ClockLedger
 
-_CONTROL_CONFIG = Path("configs/control/panda_osc_pose_delta_v1.yaml")
-_EXPERT_CONFIG = Path("configs/expert/panda_ball_feedback_v1.yaml")
-_MOTION_ROOT = Path("configs/motion")
-_TASK_CONFIG = Path("configs/task/dynamic_grasp_lift_l0.yaml")
+_CONTROL_CONFIG = Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
+_EXPERT_CONFIG = Path("configs/data/expert/panda_ball_feedback_v1.yaml")
+_MOTION_ROOT = Path("configs/tasks/moving_ball/motion")
+_TASK_CONFIG = Path("configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml")
 
 
 def _run_episode(*, level: int, seed: int):
@@ -71,9 +71,7 @@ def _run_episode(*, level: int, seed: int):
         )
     else:
         profile = build_motion_profile(
-            config=load_motion_config(
-                _MOTION_ROOT / f"dynamic_grasp_lift_l{level}.yaml"
-            ),
+            config=load_motion_config(_MOTION_ROOT / f"dynamic_grasp_lift_l{level}.yaml"),
             seed=seed,
             workspace_z=task_spec.ball_initial_position[2],
         )

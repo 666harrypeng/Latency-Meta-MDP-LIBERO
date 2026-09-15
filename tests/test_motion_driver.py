@@ -5,14 +5,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.backend import FormalStepExecutor, RoboSuitePlant
-from latency_meta_mdp.motion import DrivenBallWorld, build_motion_profile, load_motion_config
-from latency_meta_mdp.snapshots import BoundarySnapshotter
-from latency_meta_mdp.task import load_task_spec, make_dynamic_grasp_lift_environment
-from latency_meta_mdp.timing import ClockLedger
+from latency_meta_mdp.envs.backend import FormalStepExecutor, RoboSuitePlant
+from latency_meta_mdp.envs.motion import DrivenBallWorld, build_motion_profile, load_motion_config
+from latency_meta_mdp.envs.snapshots import BoundarySnapshotter
+from latency_meta_mdp.envs.task import load_task_spec, make_dynamic_grasp_lift_environment
+from latency_meta_mdp.runtime.timing import ClockLedger
 
-_TASK_CONFIG = Path("configs/task/dynamic_grasp_lift_l0.yaml")
-_MOTION_ROOT = Path("configs/motion")
+_TASK_CONFIG = Path("configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml")
+_MOTION_ROOT = Path("configs/tasks/moving_ball/motion")
 
 
 @pytest.mark.parametrize("level", [0, 1, 2, 3])

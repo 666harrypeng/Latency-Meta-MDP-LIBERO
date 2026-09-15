@@ -2,19 +2,19 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from latency_meta_mdp.belief.causal_return.information_data import (
+from latency_meta_mdp.data.vision.cache import EpisodeVisionFeatureCache
+from latency_meta_mdp.legacy.belief.causal_return.information_data import (
     build_information_state_corpus,
 )
-from latency_meta_mdp.temporal_contract import TemporalContract
-from latency_meta_mdp.vision_feature_cache import EpisodeVisionFeatureCache
-from latency_meta_mdp.vision_probe_corpus import (
+from latency_meta_mdp.legacy.vision_probe_corpus import (
     VisionProbeCorpus,
     VisionProbeEpisodeRecord,
 )
-from latency_meta_mdp.vision_probe_data import (
+from latency_meta_mdp.legacy.vision_probe_data import (
     ProbeSplit,
     build_probe_sample_indices,
 )
+from latency_meta_mdp.runtime.temporal_contract import TemporalContract
 
 
 def _episode(*, level: int, seed: int, count: int = 81):
@@ -61,11 +61,15 @@ def _episode(*, level: int, seed: int, count: int = 81):
 def _record(*, level: int, seed: int, split: ProbeSplit) -> VisionProbeEpisodeRecord:
     episode = _episode(level=level, seed=seed)
     size = episode.boundary_count * 2 * 196 * 384
-    features = (np.arange(size, dtype=np.int32) % 1024).astype(np.float16).reshape(
-        episode.boundary_count,
-        2,
-        196,
-        384,
+    features = (
+        (np.arange(size, dtype=np.int32) % 1024)
+        .astype(np.float16)
+        .reshape(
+            episode.boundary_count,
+            2,
+            196,
+            384,
+        )
     )
     indices = build_probe_sample_indices(
         episode=episode,

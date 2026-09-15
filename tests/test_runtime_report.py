@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from latency_meta_mdp.resources import load_resource_manifest
-from latency_meta_mdp.runtime import (
+from latency_meta_mdp.envs.resources import load_resource_manifest
+from latency_meta_mdp.runtime.loop import (
     _git_revision,
     _sha256,
     _source_sha256,
@@ -147,7 +147,9 @@ class RuntimeReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with (
-                patch("latency_meta_mdp.runtime._write_json", side_effect=OSError("disk failure")),
+                patch(
+                    "latency_meta_mdp.runtime.loop._write_json", side_effect=OSError("disk failure")
+                ),
                 self.assertRaisesRegex(OSError, "disk failure"),
             ):
                 publish_g0_run(root, "write_failure", valid_report())
@@ -161,7 +163,9 @@ class RuntimeReportTest(unittest.TestCase):
             original_index = {"gates": {}, "schema_version": 1}
             index_path.write_text(json.dumps(original_index))
             with (
-                patch("latency_meta_mdp.runtime.os.replace", side_effect=OSError("disk failure")),
+                patch(
+                    "latency_meta_mdp.runtime.loop.os.replace", side_effect=OSError("disk failure")
+                ),
                 self.assertRaisesRegex(OSError, "disk failure"),
             ):
                 publish_g0_run(root, "index_failure", valid_report())

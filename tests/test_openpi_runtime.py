@@ -3,11 +3,11 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_worktree
+from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_worktree
 
 
 def test_patched_source_copy_does_not_create_worktrees() -> None:
-    from latency_meta_mdp.openpi_runtime import temporary_patched_openpi_copy
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
 
     root = Path("third_party/openpi").resolve()
     before = _git(root, "worktree", "list", "--porcelain")

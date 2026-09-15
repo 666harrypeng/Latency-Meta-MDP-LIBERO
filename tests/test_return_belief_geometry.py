@@ -5,13 +5,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief_data import (
+from latency_meta_mdp.legacy.belief_data import (
     BeliefDeploymentStream,
     BeliefEpisodeView,
     BeliefSupervisionStream,
 )
-from latency_meta_mdp.latency_law import load_latency_law
-from latency_meta_mdp.temporal_contract import load_temporal_contract
+from latency_meta_mdp.runtime.latency_law import load_latency_law
+from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
 
 def _episode(*, transition_count: int = 100) -> BeliefEpisodeView:
@@ -27,10 +27,7 @@ def _episode(*, transition_count: int = 100) -> BeliefEpisodeView:
     object_velocity = np.zeros((boundary_count, 6), dtype=float)
     object_velocity[:, :3] = np.stack((4 * tick, 5 * tick, 6 * tick), axis=1)
     phases = np.asarray(
-        ["pregrasp"] * 30
-        + ["approach"] * 25
-        + ["close"] * 15
-        + ["lift"] * (transition_count - 70),
+        ["pregrasp"] * 30 + ["approach"] * 25 + ["close"] * 15 + ["lift"] * (transition_count - 70),
     )
     actions = np.arange(transition_count * 7, dtype=float).reshape(transition_count, 7)
     return BeliefEpisodeView(
@@ -50,9 +47,7 @@ def _episode(*, transition_count: int = 100) -> BeliefEpisodeView:
             gripper_qpos=gripper_qpos,
             gripper_qvel=gripper_qvel,
             eef_position_world=np.zeros((boundary_count, 3)),
-            eef_orientation_matrix_world=np.repeat(
-                np.eye(3)[None, :, :], boundary_count, axis=0
-            ),
+            eef_orientation_matrix_world=np.repeat(np.eye(3)[None, :, :], boundary_count, axis=0),
         ),
         supervision=BeliefSupervisionStream(
             object_pose=object_pose,
@@ -65,9 +60,7 @@ def _episode(*, transition_count: int = 100) -> BeliefEpisodeView:
             right_pad_contact=tick >= 56,
             handoff_state=np.where(tick >= 70, "physical", "driven"),
             relative_geometry=np.stack((7 * tick, 8 * tick, 9 * tick), axis=1),
-            boundary_outcome_status=np.asarray(
-                ["running"] * transition_count + ["success"]
-            ),
+            boundary_outcome_status=np.asarray(["running"] * transition_count + ["success"]),
         ),
         transition_source_tick=np.arange(transition_count, dtype=np.int64),
         transition_target_tick=np.arange(1, transition_count + 1, dtype=np.int64),
@@ -78,10 +71,10 @@ def _episode(*, transition_count: int = 100) -> BeliefEpisodeView:
 
 
 def test_checked_in_return_belief_audit_config_is_valid() -> None:
-    from latency_meta_mdp.return_belief_geometry import load_return_belief_audit_config
+    from latency_meta_mdp.legacy.return_belief_geometry import load_return_belief_audit_config
 
     config = load_return_belief_audit_config(
-        Path("configs/analysis/return_belief_geometry_v1.yaml")
+        Path("configs/legacy/analysis/return_belief_geometry_v1.yaml")
     )
 
     assert config.analysis_id == "return_belief_geometry_v1"
@@ -91,7 +84,7 @@ def test_checked_in_return_belief_audit_config_is_valid() -> None:
 
 
 def test_return_state_stream_uses_joint_gripper_width_and_ball_state() -> None:
-    from latency_meta_mdp.return_belief_geometry import build_return_state_stream
+    from latency_meta_mdp.legacy.return_belief_geometry import build_return_state_stream
 
     episode = _episode()
     states = build_return_state_stream(episode)
@@ -101,32 +94,22 @@ def test_return_state_stream_uses_joint_gripper_width_and_ball_state() -> None:
     np.testing.assert_array_equal(states[:, 7:14], episode.deployment.robot_qvel)
     np.testing.assert_allclose(
         states[:, 14],
-        episode.deployment.gripper_qpos[:, 0]
-        - episode.deployment.gripper_qpos[:, 1],
+        episode.deployment.gripper_qpos[:, 0] - episode.deployment.gripper_qpos[:, 1],
     )
     np.testing.assert_allclose(
         states[:, 15],
-        episode.deployment.gripper_qvel[:, 0]
-        - episode.deployment.gripper_qvel[:, 1],
+        episode.deployment.gripper_qvel[:, 0] - episode.deployment.gripper_qvel[:, 1],
     )
-    np.testing.assert_array_equal(
-        states[:, 16:19], episode.supervision.object_pose[:, :3]
-    )
-    np.testing.assert_array_equal(
-        states[:, 19:22], episode.supervision.object_velocity[:, :3]
-    )
+    np.testing.assert_array_equal(states[:, 16:19], episode.supervision.object_pose[:, :3])
+    np.testing.assert_array_equal(states[:, 19:22], episode.supervision.object_velocity[:, :3])
 
 
 def test_return_contexts_preserve_delay_cloud_and_only_complete_action_bundles() -> None:
-    from latency_meta_mdp.return_belief_geometry import build_return_contexts
+    from latency_meta_mdp.legacy.return_belief_geometry import build_return_contexts
 
     episode = _episode()
-    contract = load_temporal_contract(
-        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
-    )
-    law = load_latency_law(
-        Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml")
-    )
+    contract = load_temporal_contract(Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"))
+    law = load_latency_law(Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"))
 
     contexts = build_return_contexts(
         episode=episode,
@@ -145,12 +128,8 @@ def test_return_contexts_preserve_delay_cloud_and_only_complete_action_bundles()
     assert first.relative_positions.shape == (20, 3)
     assert first.action_targets is not None
     assert first.action_targets.shape == (20, 50, 7)
-    np.testing.assert_array_equal(
-        first.action_targets[0], episode.expert_actions[26:76]
-    )
-    np.testing.assert_array_equal(
-        first.action_targets[-1], episode.expert_actions[45:95]
-    )
+    np.testing.assert_array_equal(first.action_targets[0], episode.expert_actions[26:76])
+    np.testing.assert_array_equal(first.action_targets[-1], episode.expert_actions[45:95])
 
     assert contexts[5].source_tick == 30
     assert contexts[5].action_targets is not None
@@ -170,14 +149,10 @@ def _context(
     absorbing: np.ndarray | None = None,
     actions: np.ndarray | None = None,
 ):
-    from latency_meta_mdp.return_belief_geometry import ReturnContext
+    from latency_meta_mdp.legacy.return_belief_geometry import ReturnContext
 
     branch_count = len(states)
-    weights = (
-        np.full(branch_count, 1.0 / branch_count)
-        if probabilities is None
-        else probabilities
-    )
+    weights = np.full(branch_count, 1.0 / branch_count) if probabilities is None else probabilities
     return ReturnContext(
         episode_id="geometry",
         level=2,
@@ -188,12 +163,8 @@ def _context(
         target_ticks=25 + np.arange(1, branch_count + 1),
         future_states=states,
         relative_positions=states[:, 16:19],
-        return_phases=(
-            np.asarray(["pregrasp"] * branch_count) if phases is None else phases
-        ),
-        return_contact=(
-            np.zeros(branch_count, dtype=np.bool_) if contacts is None else contacts
-        ),
+        return_phases=(np.asarray(["pregrasp"] * branch_count) if phases is None else phases),
+        return_contact=(np.zeros(branch_count, dtype=np.bool_) if contacts is None else contacts),
         return_physical_handoff=(
             np.zeros(branch_count, dtype=np.bool_) if handoffs is None else handoffs
         ),
@@ -205,7 +176,7 @@ def _context(
 
 
 def test_state_geometry_distinguishes_zero_straight_and_curved_clouds() -> None:
-    from latency_meta_mdp.return_belief_geometry import (
+    from latency_meta_mdp.legacy.return_belief_geometry import (
         StateNormalization,
         measure_state_geometry,
     )
@@ -253,7 +224,7 @@ def test_state_geometry_distinguishes_zero_straight_and_curved_clouds() -> None:
 
 
 def test_state_geometry_reports_physical_spread_and_transition_probabilities() -> None:
-    from latency_meta_mdp.return_belief_geometry import (
+    from latency_meta_mdp.legacy.return_belief_geometry import (
         StateNormalization,
         measure_state_geometry,
     )
@@ -283,7 +254,7 @@ def test_state_geometry_reports_physical_spread_and_transition_probabilities() -
 
 
 def test_action_compatibility_distinguishes_identical_and_opposite_strategies() -> None:
-    from latency_meta_mdp.return_belief_geometry import measure_action_compatibility
+    from latency_meta_mdp.legacy.return_belief_geometry import measure_action_compatibility
 
     states = np.zeros((2, 22))
     identical_actions = np.zeros((2, 50, 7))
@@ -315,34 +286,33 @@ def test_action_compatibility_distinguishes_identical_and_opposite_strategies() 
     assert opposite.prefix_opposite_direction_rate == 1.0
     assert opposite.effective_rank == pytest.approx(1.0)
 
-    assert measure_action_compatibility(
-        _context(states, actions=None),
-        prefix_ticks=5,
-    ) is None
+    assert (
+        measure_action_compatibility(
+            _context(states, actions=None),
+            prefix_ticks=5,
+        )
+        is None
+    )
 
 
 def test_absorbing_contexts_cover_every_real_source_and_preserve_v1_behavior() -> None:
-    from latency_meta_mdp.control import load_action_contract
-    from latency_meta_mdp.return_belief_geometry import (
+    from latency_meta_mdp.envs.control import load_action_contract
+    from latency_meta_mdp.legacy.return_belief_geometry import (
         build_absorbing_return_contexts,
         build_return_contexts,
     )
-    from latency_meta_mdp.terminal_absorbing_tail import (
+    from latency_meta_mdp.legacy.terminal_absorbing_tail import (
         build_terminal_absorbing_tail,
     )
 
     episode = _episode()
-    contract = load_temporal_contract(
-        Path("configs/temporal/h50_e25_d20_k6_v1.yaml")
-    )
-    law = load_latency_law(
-        Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml")
-    )
+    contract = load_temporal_contract(Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"))
+    law = load_latency_law(Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"))
     tail = build_terminal_absorbing_tail(
         episode=episode,
         temporal_contract=contract,
         action_contract=load_action_contract(
-            Path("configs/control/panda_osc_pose_delta_v1.yaml")
+            Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml")
         ),
     )
 

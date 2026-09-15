@@ -12,7 +12,7 @@ from test_action_conditioned_jepa_data import _record
 def test_j4_control_branches_preserve_direction_and_prefix_causality() -> None:
     """Catches arbitrary action noise, changed gripper semantics, or a wrong prefix boundary."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.action_effect import (
+    from latency_meta_mdp.belief.jepa.diagnostics.action_effect import (
         build_j4_control_branches,
     )
 
@@ -36,7 +36,7 @@ def test_j4_control_branches_preserve_direction_and_prefix_causality() -> None:
 
 
 def _phase_episode(tmp_path: Path):
-    from latency_meta_mdp.belief.action_conditioned_jepa.temporal_signal_audit import (
+    from latency_meta_mdp.belief.jepa.diagnostics.history_signal import (
         TemporalSignalEpisode,
     )
 
@@ -69,7 +69,7 @@ def _phase_episode(tmp_path: Path):
 def test_j4_context_selection_uses_one_d20_ready_center_per_phase(tmp_path: Path) -> None:
     """Catches selecting edge/terminal ticks or overweighting a long phase."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.action_effect import (
+    from latency_meta_mdp.belief.jepa.diagnostics.action_effect import (
         select_j4_source_contexts,
     )
 
@@ -93,8 +93,10 @@ def test_j4_collection_cli_exposes_only_formal_l3_bank_inputs(
 ) -> None:
     """Catches adding training mixtures or arbitrary branch knobs to formal J4 collection."""
 
-    import latency_meta_mdp.belief.action_conditioned_jepa.action_effect_run as module
-    from latency_meta_mdp.cli.collect_action_conditioned_jepa_l3_action_effect import main
+    import latency_meta_mdp.belief.jepa.diagnostics.action_effect_run as module
+    from latency_meta_mdp.belief.jepa.diagnostics.collect_action_effect import (
+        main,
+    )
 
     output = tmp_path / "bank"
     observed = {}
@@ -130,7 +132,7 @@ def test_j4_collection_cli_exposes_only_formal_l3_bank_inputs(
 def test_j4_source_replay_gate_uses_lossless_source_precision() -> None:
     """Catches comparing float64 simulator replay against a quantized float32 model view."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.action_effect_run import (
+    from latency_meta_mdp.belief.jepa.diagnostics.action_effect_run import (
         _source_replay_max_abs,
     )
 
@@ -160,7 +162,7 @@ def test_j4_source_replay_gate_uses_lossless_source_precision() -> None:
 def test_j4_replay_equivalence_allows_only_float64_scale_drift() -> None:
     """Catches both a bitwise-only gate and a physically meaningful replay mismatch."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.action_effect_run import (
+    from latency_meta_mdp.belief.jepa.diagnostics.action_effect_run import (
         replay_is_numerically_equivalent,
     )
 
@@ -173,7 +175,7 @@ def test_j4_replay_equivalence_allows_only_float64_scale_drift() -> None:
 def test_j4_nominal_future_equivalence_is_bounded_at_float32_scale() -> None:
     """Catches requiring bitwise float32 replay or accepting physical future drift."""
 
-    from latency_meta_mdp.belief.action_conditioned_jepa.action_effect_run import (
+    from latency_meta_mdp.belief.jepa.diagnostics.action_effect_run import (
         nominal_future_is_numerically_equivalent,
     )
 

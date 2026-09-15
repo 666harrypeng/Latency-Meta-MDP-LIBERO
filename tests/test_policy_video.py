@@ -5,14 +5,14 @@ import subprocess
 import numpy as np
 import pytest
 
-from latency_meta_mdp.policy_execution import PolicyObservation
+from latency_meta_mdp.runtime.policy_execution import PolicyObservation
 
 
 @pytest.mark.skipif(
     not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="ffmpeg required"
 )
 def test_two_camera_video_keeps_formal_frame_count_and_both_views(tmp_path):
-    from latency_meta_mdp.policy_video import DualCameraVideoWriter
+    from latency_meta_mdp.io.policy_video import DualCameraVideoWriter
 
     destination = tmp_path / "episode.mp4"
     main = np.zeros((32, 32, 3), np.uint8)

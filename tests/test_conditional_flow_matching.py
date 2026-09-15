@@ -5,7 +5,7 @@ import pytest
 
 def test_straight_flow_path_matches_hand_derived_state_and_velocity() -> None:
     torch = pytest.importorskip("torch")
-    from latency_meta_mdp.belief.flow.model import build_flow_matching_batch
+    from latency_meta_mdp.legacy.belief.flow.model import build_flow_matching_batch
 
     target = torch.full((1, 1, 22), 2.0)
     noise = torch.full((1, 1, 22), -1.0)
@@ -25,7 +25,7 @@ def test_straight_flow_path_matches_hand_derived_state_and_velocity() -> None:
 
 def test_flow_path_rejects_malformed_time_or_noise() -> None:
     torch = pytest.importorskip("torch")
-    from latency_meta_mdp.belief.flow.model import build_flow_matching_batch
+    from latency_meta_mdp.legacy.belief.flow.model import build_flow_matching_batch
 
     target = torch.zeros(2, 4, 22)
     with pytest.raises(ValueError, match="Flow time"):

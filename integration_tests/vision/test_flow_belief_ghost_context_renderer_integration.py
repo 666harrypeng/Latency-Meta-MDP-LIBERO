@@ -6,19 +6,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.flow.ghost_config import load_flow_belief_ghost_config
-from latency_meta_mdp.belief.flow.ghost_context_renderer import (
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.envs.task import load_task_spec, make_dynamic_grasp_lift_environment
+from latency_meta_mdp.io.paths import repository_root
+from latency_meta_mdp.legacy.belief.flow.ghost_config import load_flow_belief_ghost_config
+from latency_meta_mdp.legacy.belief.flow.ghost_context_renderer import (
     GhostContextRenderInput,
     render_flow_belief_ghost_context,
 )
-from latency_meta_mdp.belief.flow.ghost_environment import GhostEnvironmentAdapter
-from latency_meta_mdp.belief_data import load_belief_episode
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.task import load_task_spec, make_dynamic_grasp_lift_environment
-from latency_meta_mdp.temporal_contract import load_temporal_contract
-from latency_meta_mdp.terminal_absorbing_tail import build_terminal_absorbing_tail
+from latency_meta_mdp.legacy.belief.flow.ghost_environment import GhostEnvironmentAdapter
+from latency_meta_mdp.legacy.belief_data import load_belief_episode
+from latency_meta_mdp.legacy.terminal_absorbing_tail import build_terminal_absorbing_tail
+from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = repository_root()
 _EPISODE = (
     _PROJECT_ROOT
     / "outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/episodes/L1/seed_001180"
@@ -56,9 +57,11 @@ def test_context_renderer_preserves_real_l1_future_state_metrics(tmp_path: Path)
         absorbing=samples["absorbing"],
     )
     episode = load_belief_episode(_EPISODE)
-    temporal = load_temporal_contract(_PROJECT_ROOT / "configs/temporal/h50_e25_d20_k6_v1.yaml")
+    temporal = load_temporal_contract(
+        _PROJECT_ROOT / "configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"
+    )
     action_contract = load_action_contract(
-        _PROJECT_ROOT / "configs/control/panda_osc_pose_delta_v1.yaml"
+        _PROJECT_ROOT / "configs/runtime/control/panda_osc_pose_delta_v1.yaml"
     )
     tail = build_terminal_absorbing_tail(
         episode=episode,
@@ -66,10 +69,12 @@ def test_context_renderer_preserves_real_l1_future_state_metrics(tmp_path: Path)
         action_contract=action_contract,
     )
     config = load_flow_belief_ghost_config(
-        _PROJECT_ROOT / "configs/analysis/flow_belief_agentview_ghost_v1.yaml"
+        _PROJECT_ROOT / "configs/legacy/analysis/flow_belief_agentview_ghost_v1.yaml"
     )
     env = make_dynamic_grasp_lift_environment(
-        spec=load_task_spec(_PROJECT_ROOT / "configs/task/dynamic_grasp_lift_l0.yaml"),
+        spec=load_task_spec(
+            _PROJECT_ROOT / "configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml"
+        ),
         seed=episode.scene_seed,
         offscreen=True,
         controller_config=action_contract.to_robosuite_config(),

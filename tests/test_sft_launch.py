@@ -6,17 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.sft_asset_lock import load_sft_asset_lock
-from latency_meta_mdp.sft_launch import (
-    SFTLaunchRequest,
-    resolve_sft_schedule,
-    stage_level_dataset,
-    stage_level_norm_stats,
-)
-from latency_meta_mdp.sft_profile import load_sft_profile
+from latency_meta_mdp.legacy.policy.assets import stage_level_dataset, stage_level_norm_stats
+from latency_meta_mdp.legacy.policy.sft_asset_lock import load_sft_asset_lock
+from latency_meta_mdp.policy.profile import load_sft_profile
+from latency_meta_mdp.policy.schedule import SFTLaunchRequest, resolve_sft_schedule
 
-_PROFILE_PATH = Path("configs/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
-_LOCK_PATH = Path("configs/data/franka_moving_ball_sft_assets_v1.yaml")
+_PROFILE_PATH = Path("configs/legacy/policy/pi05_panda_ball_full_sft_h50_v2.yaml")
+_LOCK_PATH = Path("configs/legacy/data/franka_moving_ball_sft_assets_v1.yaml")
 
 
 def test_stage_level_norm_stats_downloads_locked_assets_to_openpi_path(
@@ -170,7 +166,7 @@ def test_launch_request_preserves_existing_modes_and_experiment_identity() -> No
 
 @pytest.mark.parametrize("devices,batch,steps", [(2, 64, 11997), (4, 128, 6000), (4, 192, 3999)])
 def test_data_parallel_schedule_preserves_sample_budget(devices, batch, steps):
-    profile = load_sft_profile(Path("configs/policy/pi05_structured_state16_h50_v1.yaml"))
+    profile = load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml"))
     request = SFTLaunchRequest(3, "l3-ddp", "formal", False, devices, batch)
     schedule = resolve_sft_schedule(profile=profile, request=request)
     assert schedule.batch_size == batch

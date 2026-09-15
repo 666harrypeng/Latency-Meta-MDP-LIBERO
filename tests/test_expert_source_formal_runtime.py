@@ -6,14 +6,14 @@ from pathlib import Path
 def _request():
     import hashlib
 
-    from latency_meta_mdp.expert_realization.config import load_formal_corpus_config
-    from latency_meta_mdp.expert_realization.contracts import build_formal_request_universe
-    from latency_meta_mdp.expert_realization.strategy import StructuredStrategyConfig
+    from latency_meta_mdp.data.collection.config import load_formal_corpus_config
+    from latency_meta_mdp.data.collection.contracts import build_formal_request_universe
+    from latency_meta_mdp.data.collection.strategy import StructuredStrategyConfig
 
     root = Path.cwd()
-    path = root / "configs/source_corpus/panda_ball_formal_source_pilot.yaml"
+    path = root / "configs/data/source_corpus/panda_ball_formal_source_pilot.yaml"
     structured = StructuredStrategyConfig.from_path(
-        root / "configs/expert_realization/panda_ball_structured.yaml"
+        root / "configs/data/expert_realization/panda_ball_structured.yaml"
     )
     return build_formal_request_universe(
         load_formal_corpus_config(path),
@@ -24,12 +24,12 @@ def _request():
 
 def test_formal_collection_identity_binds_every_scientific_input() -> None:
     """Break caught: resume accepts changed execution, gate, lock, or implementation."""
-    from latency_meta_mdp.expert_realization.recording_contracts import ImplementationIdentity
-    from latency_meta_mdp.expert_realization.source_corpus.config import (
+    from latency_meta_mdp.data.collection.recording_contracts import ImplementationIdentity
+    from latency_meta_mdp.data.source.config import (
         load_source_corpus_config,
         load_source_execution_config,
     )
-    from latency_meta_mdp.expert_realization.source_corpus.formal_runtime import (
+    from latency_meta_mdp.data.source.formal_runtime import (
         build_formal_collection_identity,
     )
 
@@ -37,10 +37,10 @@ def test_formal_collection_identity_binds_every_scientific_input() -> None:
     identity = build_formal_collection_identity(
         formal_request=_request(),
         source_config=load_source_corpus_config(
-            root / "configs/source_corpus/panda_ball_source_parquet.yaml"
+            root / "configs/data/source_corpus/panda_ball_source_parquet.yaml"
         ),
         execution_config=load_source_execution_config(
-            root / "configs/source_corpus/panda_ball_formal_source_execution.yaml"
+            root / "configs/data/source_corpus/panda_ball_formal_source_execution.yaml"
         ),
         qualification_gate_sha256="a" * 64,
         planner_environment_sha256="b" * 64,
@@ -63,13 +63,11 @@ def test_formal_collection_identity_binds_every_scientific_input() -> None:
 
 def test_planner_launcher_keeps_venv_symlink_lexically() -> None:
     """Break caught: Path.resolve changes the venv launcher into the bare uv interpreter."""
-    from latency_meta_mdp.expert_realization.source_corpus.formal_runtime import (
+    from latency_meta_mdp.data.source.formal_runtime import (
         lexical_planner_launcher,
     )
 
     root = Path.cwd()
-    launcher = lexical_planner_launcher(
-        root, Path(".venv-expert-realization/bin/python")
-    )
+    launcher = lexical_planner_launcher(root, Path(".venv-expert-realization/bin/python"))
     assert launcher == (root / ".venv-expert-realization/bin/python").absolute()
     assert launcher != launcher.resolve()

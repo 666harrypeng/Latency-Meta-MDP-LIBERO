@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.action_chunk_parity import run_action_chunk_zero_delay_parity
+from latency_meta_mdp.runtime.action_chunk_parity import run_action_chunk_zero_delay_parity
 
 
 def _module():
-    return importlib.import_module("latency_meta_mdp.action_chunk_parity_artifact")
+    return importlib.import_module("latency_meta_mdp.runtime.action_chunk_parity_artifact")
 
 
 def test_action_chunk_parity_artifact_is_exact_versioned_and_no_overwrite(
@@ -36,9 +36,7 @@ def test_action_chunk_parity_artifact_is_exact_versioned_and_no_overwrite(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["format_id"] == "sharp_return_time_chunk_parity_v2"
     assert manifest["eligible"] is (not manifest["implementation_dirty"])
-    assert manifest["blockers"] == (
-        [] if manifest["eligible"] else ["implementation_dirty"]
-    )
+    assert manifest["blockers"] == ([] if manifest["eligible"] else ["implementation_dirty"])
     assert set(manifest["config_sha256"]) == {
         "runtime",
         "task",

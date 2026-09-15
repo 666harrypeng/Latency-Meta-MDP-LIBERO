@@ -9,7 +9,7 @@ from test_expert_realization_robot_bridge import _bridge
 
 def test_fk_request_and_result_round_trip_exact_schemas(tmp_path: Path) -> None:
     """Break caught: worker request/result shapes or hashes can drift silently."""
-    from latency_meta_mdp.expert_realization.planner_protocol import (
+    from latency_meta_mdp.data.collection.planner_protocol import (
         FkBatch,
         load_fk_request,
         load_fk_result,
@@ -51,13 +51,11 @@ def test_fk_request_and_result_round_trip_exact_schemas(tmp_path: Path) -> None:
         "bool_count",
     ),
 )
-def test_fk_protocol_rejects_malformed_or_corrupted_payloads(
-    tmp_path: Path, mutation: str
-) -> None:
+def test_fk_protocol_rejects_malformed_or_corrupted_payloads(tmp_path: Path, mutation: str) -> None:
     """Break caught: malformed worker artifacts cross the process trust boundary."""
     import json
 
-    from latency_meta_mdp.expert_realization.planner_protocol import (
+    from latency_meta_mdp.data.collection.planner_protocol import (
         FkBatch,
         load_fk_request,
         load_fk_result,
@@ -131,7 +129,7 @@ def test_fk_protocol_rejects_malformed_or_corrupted_payloads(
 
 def test_fk_batch_rejects_non_rotation_matrices() -> None:
     """Break caught: finite 3x3 arrays are accepted even when they are not SO(3)."""
-    from latency_meta_mdp.expert_realization.planner_protocol import FkBatch
+    from latency_meta_mdp.data.collection.planner_protocol import FkBatch
 
     with pytest.raises(ValueError, match="rotation"):
         FkBatch(

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from latency_meta_mdp.meta_transitions import DecisionStageAccumulator
+from latency_meta_mdp.meta.transitions import DecisionStageAccumulator
 
 
 def state(tick, remaining=30):
@@ -27,7 +27,7 @@ def state(tick, remaining=30):
 
 
 def test_replay_stores_public_features_once_and_preserves_smdp_targets(tmp_path):
-    from latency_meta_mdp.meta_replay import MetaEpisodeReplay
+    from latency_meta_mdp.meta.replay import MetaEpisodeReplay
 
     writer = MetaEpisodeReplay()
     c = DecisionStageAccumulator(gamma=0.9)
@@ -54,7 +54,7 @@ def test_replay_stores_public_features_once_and_preserves_smdp_targets(tmp_path)
 
 
 def test_behavior_is_reproducible_and_covers_both_actions():
-    from latency_meta_mdp.meta_replay import ExploratoryCursorScheduler
+    from latency_meta_mdp.meta.replay import ExploratoryCursorScheduler
 
     a = ExploratoryCursorScheduler(seed=7)
     b = ExploratoryCursorScheduler(seed=7)
@@ -65,7 +65,7 @@ def test_behavior_is_reproducible_and_covers_both_actions():
 
 
 def test_stratified_scheduler_visits_late_opportunities_and_resets_on_buffer():
-    from latency_meta_mdp.meta_replay import StratifiedLaunchScheduler
+    from latency_meta_mdp.meta.replay import StratifiedLaunchScheduler
 
     s = StratifiedLaunchScheduler(seed=7, master_ordinal=0, replica_index=2)
     b = state(10, remaining=40)["buffer"]
@@ -85,7 +85,7 @@ def test_stratified_scheduler_visits_late_opportunities_and_resets_on_buffer():
 
 
 def test_q_exploration_preserves_legal_actions_and_q_logging():
-    from latency_meta_mdp.meta_replay import ExploratoryQScheduler
+    from latency_meta_mdp.meta.replay import ExploratoryQScheduler
 
     class Greedy:
         last_q_values = [0.8, 0.2]
@@ -102,7 +102,7 @@ def test_q_exploration_preserves_legal_actions_and_q_logging():
 
 
 def test_one_probability_supplier_has_uniform_first_launch_support():
-    from latency_meta_mdp.meta_replay import ProbabilisticLaunchScheduler
+    from latency_meta_mdp.meta.replay import ProbabilisticLaunchScheduler
 
     scheduler = ProbabilisticLaunchScheduler(seed=27)
     survival = 1.0
@@ -117,17 +117,17 @@ def test_one_probability_supplier_has_uniform_first_launch_support():
 
 
 def test_probability_supplier_mixes_q_with_same_exploration_hazard():
-    from latency_meta_mdp.meta_replay import ProbabilisticLaunchScheduler
+    from latency_meta_mdp.meta.replay import ProbabilisticLaunchScheduler
 
     class Q:
-        last_q_values = [.2, .8]
+        last_q_values = [0.2, 0.8]
 
         def __call__(self, *args):
             return True
 
-    s = ProbabilisticLaunchScheduler(Q(), seed=27, epsilon=.2)
+    s = ProbabilisticLaunchScheduler(Q(), seed=27, epsilon=0.2)
     s(state(10, 40)["buffer"], None, None)
-    assert np.isclose(s.launch_probability, .8 + .2 / 6)
-    assert s.last_q_values == [.2, .8]
+    assert np.isclose(s.launch_probability, 0.8 + 0.2 / 6)
+    assert s.last_q_values == [0.2, 0.8]
     assert s(state(30, 20)["buffer"], None, None)
     assert s.launch_probability == 1

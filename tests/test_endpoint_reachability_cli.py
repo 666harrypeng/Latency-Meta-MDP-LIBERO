@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_meta_mdp.endpoint_reachability import (
+from latency_meta_mdp.envs.endpoint_reachability import (
     EndpointReachabilityResult,
     EndpointReachabilitySpec,
     build_endpoint_reachability_report,
@@ -86,7 +86,7 @@ def test_svg_contains_one_labeled_cell_per_raw_result() -> None:
 
 
 def test_publish_is_atomic_and_refuses_to_overwrite(tmp_path: Path) -> None:
-    from latency_meta_mdp.cli.calibrate_endpoint_reachability import _publish
+    from latency_meta_mdp.runtime.diagnostics.calibrate_endpoint_reachability import _publish
 
     spec = _spec()
     report = build_endpoint_reachability_report(

@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.artifacts import sha256_file
-from latency_meta_mdp.episode_artifacts import write_synchronized_episode_artifact
-from latency_meta_mdp.expert_collection import ExpertEpisodeSpec, collect_expert_episode
-from latency_meta_mdp.recording import RecordProfile
+from latency_meta_mdp.data.expert_collection import ExpertEpisodeSpec, collect_expert_episode
+from latency_meta_mdp.data.recording import RecordProfile
+from latency_meta_mdp.io.artifacts import sha256_file
+from latency_meta_mdp.io.episode_artifacts import write_synchronized_episode_artifact
 
 
 def _source_bulk_manifest(tmp_path: Path) -> Path:
@@ -54,9 +54,7 @@ def _source_bulk_manifest(tmp_path: Path) -> Path:
 
 
 def _module():
-    return importlib.import_module(
-        "latency_meta_mdp.return_belief_geometry_artifact"
-    )
+    return importlib.import_module("latency_meta_mdp.legacy.return_belief_geometry_artifact")
 
 
 def test_return_belief_geometry_artifact_is_atomic_numeric_and_stratified(
@@ -69,13 +67,9 @@ def test_return_belief_geometry_artifact_is_atomic_numeric_and_stratified(
     manifest_path = module.write_return_belief_geometry_artifact(
         project_root=Path.cwd(),
         source_bulk_manifest=source,
-        audit_config_path=Path(
-            "configs/analysis/return_belief_geometry_v1.yaml"
-        ),
-        view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
-        latency_law_path=Path(
-            "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
-        ),
+        audit_config_path=Path("configs/legacy/analysis/return_belief_geometry_v1.yaml"),
+        view_config_path=Path("configs/legacy/data/belief_data_view_h50_v2.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
         output_dir=output,
     )
 
@@ -125,13 +119,9 @@ def test_return_belief_geometry_artifact_is_atomic_numeric_and_stratified(
         module.write_return_belief_geometry_artifact(
             project_root=Path.cwd(),
             source_bulk_manifest=source,
-            audit_config_path=Path(
-                "configs/analysis/return_belief_geometry_v1.yaml"
-            ),
-            view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
-            latency_law_path=Path(
-                "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
-            ),
+            audit_config_path=Path("configs/legacy/analysis/return_belief_geometry_v1.yaml"),
+            view_config_path=Path("configs/legacy/data/belief_data_view_h50_v2.yaml"),
+            latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
             output_dir=output,
         )
 
@@ -150,13 +140,9 @@ def test_return_belief_geometry_rejects_ineligible_source_before_output(
         module.write_return_belief_geometry_artifact(
             project_root=Path.cwd(),
             source_bulk_manifest=source,
-            audit_config_path=Path(
-                "configs/analysis/return_belief_geometry_v1.yaml"
-            ),
-            view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
-            latency_law_path=Path(
-                "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
-            ),
+            audit_config_path=Path("configs/legacy/analysis/return_belief_geometry_v1.yaml"),
+            view_config_path=Path("configs/legacy/data/belief_data_view_h50_v2.yaml"),
+            latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
             output_dir=output,
         )
     assert not output.exists()
@@ -172,13 +158,9 @@ def test_absorbing_v2_artifact_adds_close_and_lift_action_contexts(
     manifest_path = module.write_return_belief_geometry_artifact(
         project_root=Path.cwd(),
         source_bulk_manifest=source,
-        audit_config_path=Path(
-            "configs/analysis/return_belief_geometry_absorbing_v2.yaml"
-        ),
-        view_config_path=Path("configs/data/belief_data_view_h50_v2.yaml"),
-        latency_law_path=Path(
-            "configs/latency/truncated_beta_5_26_400ms_v1.yaml"
-        ),
+        audit_config_path=Path("configs/legacy/analysis/return_belief_geometry_absorbing_v2.yaml"),
+        view_config_path=Path("configs/legacy/data/belief_data_view_h50_v2.yaml"),
+        latency_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
         output_dir=output,
     )
 
@@ -194,7 +176,4 @@ def test_absorbing_v2_artifact_adds_close_and_lift_action_contexts(
     assert level["action_context_count"] == level["state_context_count"]
     assert level["phases"]["close"]["action_context_count"] > 0
     assert level["phases"]["lift"]["action_context_count"] > 0
-    assert (
-        level["state_metrics"]["absorbing_target_probability"]["q1000"]
-        > 0.0
-    )
+    assert level["state_metrics"]["absorbing_target_probability"]["q1000"] > 0.0

@@ -2,12 +2,12 @@ import numpy as np
 import pytest
 from test_meta_replay import state
 
-from latency_meta_mdp.meta_replay import MetaEpisodeReplay
-from latency_meta_mdp.meta_transitions import DecisionStageAccumulator
+from latency_meta_mdp.meta.replay import MetaEpisodeReplay
+from latency_meta_mdp.meta.transitions import DecisionStageAccumulator
 
 
 def write_episode(path, master, partition):
-    from latency_meta_mdp.cli.train_meta_q import BINDING_KEYS
+    from latency_meta_mdp.meta.train import BINDING_KEYS
 
     writer = MetaEpisodeReplay()
     c = DecisionStageAccumulator(gamma=0.999)
@@ -28,7 +28,7 @@ def write_episode(path, master, partition):
 
 
 def test_loader_offsets_episode_indices_without_crossing_boundaries(tmp_path):
-    from latency_meta_mdp.cli.train_meta_q import load_replay
+    from latency_meta_mdp.meta.train import load_replay
 
     write_episode(tmp_path / "a.npz", 1, "train")
     write_episode(tmp_path / "b.npz", 2, "validation")
@@ -41,7 +41,7 @@ def test_loader_offsets_episode_indices_without_crossing_boundaries(tmp_path):
 
 
 def test_loader_rejects_task_instance_leakage_between_fit_and_validation(tmp_path):
-    from latency_meta_mdp.cli.train_meta_q import load_replay
+    from latency_meta_mdp.meta.train import load_replay
 
     write_episode(tmp_path / "a.npz", 1, "train")
     write_episode(tmp_path / "b.npz", 1, "validation")

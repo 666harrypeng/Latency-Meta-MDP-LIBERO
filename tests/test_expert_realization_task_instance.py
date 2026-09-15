@@ -73,14 +73,14 @@ def _initial_state_values() -> dict[str, np.ndarray]:
 
 
 def _state():
-    from latency_meta_mdp.expert_realization.task_instance import InitialStateSnapshot
+    from latency_meta_mdp.data.collection.task_instance import InitialStateSnapshot
 
     return InitialStateSnapshot(**_initial_state_values())
 
 
 def test_canonical_json_encoder_has_locked_sorted_pretty_bytes() -> None:
     """Break caught: task identity JSON changes formatting or permits noncanonical key order."""
-    from latency_meta_mdp.expert_realization.task_instance import _canonical_json_bytes
+    from latency_meta_mdp.data.collection.task_instance import _canonical_json_bytes
 
     assert _canonical_json_bytes({"z": 1, "a": [2, 3]}) == (
         b'{\n  "a": [\n    2,\n    3\n  ],\n  "z": 1\n}\n'
@@ -91,7 +91,7 @@ def test_canonical_json_encoder_has_locked_sorted_pretty_bytes() -> None:
 
 def test_initial_state_npz_is_repeatable_sorted_and_object_free() -> None:
     """Break caught: ZIP metadata, member order, or object arrays destabilize task IDs."""
-    from latency_meta_mdp.expert_realization.task_instance import (
+    from latency_meta_mdp.data.collection.task_instance import (
         decode_initial_state_npz,
         encode_initial_state_npz,
     )
@@ -135,7 +135,7 @@ def test_initial_state_contract_has_every_locked_member_and_detaches_arrays() ->
 )
 def test_initial_state_rejects_wrong_shape_or_dtype(field: str, bad: np.ndarray) -> None:
     """Break caught: malformed state can be hashed as if it satisfied the replay contract."""
-    from latency_meta_mdp.expert_realization.task_instance import InitialStateSnapshot
+    from latency_meta_mdp.data.collection.task_instance import InitialStateSnapshot
 
     values = _initial_state_values()
     values[field] = bad
@@ -145,7 +145,7 @@ def test_initial_state_rejects_wrong_shape_or_dtype(field: str, bad: np.ndarray)
 
 def test_same_seed_has_exact_shared_endpoint_bytes_across_l1_l2_l3() -> None:
     """Break caught: level-specific path construction changes the committed shared endpoints."""
-    from latency_meta_mdp.expert_realization.task_instance import _materialize_motion_profile
+    from latency_meta_mdp.data.collection.task_instance import _materialize_motion_profile
 
     rows = [
         _materialize_motion_profile(project_root=Path.cwd(), level=level, task_instance_seed=4000)
@@ -162,7 +162,7 @@ def test_same_seed_has_exact_shared_endpoint_bytes_across_l1_l2_l3() -> None:
 
 def test_materialized_task_instance_has_no_realization_or_planning_identity() -> None:
     """Break caught: a realization seed/index contaminates one shared task instance."""
-    from latency_meta_mdp.expert_realization.task_instance import MaterializedTaskInstance
+    from latency_meta_mdp.data.collection.task_instance import MaterializedTaskInstance
 
     names = {field.name for field in dataclasses.fields(MaterializedTaskInstance)}
     forbidden_fragments = ("realization", "strategy", "planner", "attempt")
@@ -171,7 +171,7 @@ def test_materialized_task_instance_has_no_realization_or_planning_identity() ->
 
 def test_initial_state_mismatch_reports_first_named_field() -> None:
     """Break caught: exact replay is weakened or a mismatch cannot block on the first field."""
-    from latency_meta_mdp.expert_realization.task_instance import (
+    from latency_meta_mdp.data.collection.task_instance import (
         TaskInstanceReplayMismatch,
         _compare_initial_states,
     )
@@ -190,15 +190,15 @@ def test_task4_import_graph_excludes_historical_high_level_modules() -> None:
     """Break caught: Task 4 silently depends on old expert, collection, or recording stacks."""
     code = """
 import sys
-import latency_meta_mdp.expert_realization.task_instance
-import latency_meta_mdp.expert_realization.shared_prefix
+import latency_meta_mdp.data.collection.task_instance
+import latency_meta_mdp.data.collection.shared_prefix
 forbidden = {
-    'latency_meta_mdp.expert',
-    'latency_meta_mdp.expert_collection',
-    'latency_meta_mdp.recording',
-    'latency_meta_mdp.episode_artifacts',
-    'latency_meta_mdp.bulk_collection',
-    'latency_meta_mdp.pilot_collection',
+    'latency_meta_mdp.envs.expert',
+    'latency_meta_mdp.data.expert_collection',
+    'latency_meta_mdp.data.recording',
+    'latency_meta_mdp.io.episode_artifacts',
+    'latency_meta_mdp.data.bulk_collection',
+    'latency_meta_mdp.data.pilot_collection',
 }
 loaded = sorted(forbidden.intersection(sys.modules))
 assert not loaded, loaded

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from latency_meta_mdp.cli.calibrate_control import main
+from latency_meta_mdp.runtime.diagnostics.calibrate_control import main
 
 
 def test_control_calibration_cli_preflights_before_running_simulation() -> None:
@@ -17,7 +17,7 @@ def test_control_calibration_cli_preflights_before_running_simulation() -> None:
 
         with (
             patch(
-                "latency_meta_mdp.cli.calibrate_control.run_control_calibration",
+                "latency_meta_mdp.runtime.diagnostics.calibrate_control.run_control_calibration",
                 side_effect=AssertionError("calibration must not start"),
             ),
             pytest.raises(FileExistsError, match="control calibration run already exists"),

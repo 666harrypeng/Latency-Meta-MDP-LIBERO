@@ -7,7 +7,7 @@ from test_policy_return_data import _NativeRows, _Predictions
 
 
 def _prefix_dataset(tmp_path, mode="predicted_mixture"):
-    from latency_meta_mdp.policy_return_data import MatchedReturnPolicyDataset
+    from latency_meta_mdp.legacy.policy.policy_return_data import MatchedReturnPolicyDataset
 
     record = _record(tmp_path, terminal_tick=60)
     pmf = np.arange(1, 21, dtype=float)

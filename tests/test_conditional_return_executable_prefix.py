@@ -5,20 +5,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from latency_meta_mdp.belief.conditional_return_flow.executable_prefix import (
+from latency_meta_mdp.envs.control import load_action_contract
+from latency_meta_mdp.legacy.belief.conditional_return_flow.executable_prefix import (
     materialize_executable_prefix,
     materialize_teacher_executable_prefix,
 )
-from latency_meta_mdp.control import load_action_contract
-from latency_meta_mdp.temporal_contract import load_temporal_contract
+from latency_meta_mdp.runtime.temporal_contract import load_temporal_contract
 
 
 def _contract():
-    return load_action_contract(Path("configs/control/panda_osc_pose_delta_v1.yaml"))
+    return load_action_contract(Path("configs/runtime/control/panda_osc_pose_delta_v1.yaml"))
 
 
 def _temporal():
-    return load_temporal_contract(Path("configs/temporal/h50_e25_d20_k6_v1.yaml"))
+    return load_temporal_contract(Path("configs/contracts/temporal/h50_e25_d20_k6_v1.yaml"))
 
 
 def test_hold_uses_last_executed_gripper_not_future_expert() -> None:

@@ -10,15 +10,15 @@ def test_latency_law_family_certifies_formal_episode_assignments(tmp_path: Path)
     source = Path("outputs/bulk/expert/panda-ball-formal-train-1000-1199-7571a4c/manifest.json")
     if not source.is_file():
         pytest.skip("latency-law family artifact requires the formal expert corpus")
-    from latency_meta_mdp.latency_law_family_artifact import (
+    from latency_meta_mdp.runtime.latency_law_family_artifact import (
         certify_episode_latency_law_family,
     )
 
     manifest_path = certify_episode_latency_law_family(
         project_root=Path.cwd(),
         source_bulk_manifest=source,
-        nominal_law_path=Path("configs/latency/truncated_beta_5_26_400ms_v1.yaml"),
-        family_config_path=Path("configs/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
+        nominal_law_path=Path("configs/runtime/latency/truncated_beta_5_26_400ms_v1.yaml"),
+        family_config_path=Path("configs/runtime/latency/truncated_beta_family_5_26_400ms_v1.yaml"),
         output_dir=tmp_path / "family",
     )
 
