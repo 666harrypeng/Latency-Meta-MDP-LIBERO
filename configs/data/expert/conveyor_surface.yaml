@@ -1,0 +1,11 @@
+schema_version: 1
+expert_id: conveyor_feedback_v2
+workspace_y: [-0.45, 0.32]
+pregrasp_height_m: 0.08
+carry_height_m: 0.20
+tracking_lead_s: 0.085
+position_tolerance_m: 0.012
+translation_clip_m: 0.05
+close_timeout_ticks: 50
+release_timeout_ticks: 40
+lost_grasp_ticks: 6

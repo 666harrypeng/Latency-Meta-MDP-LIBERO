@@ -1,0 +1,3 @@
+# Unselected overview preview; use surface.yaml for the chosen main-camera view.
+agentview_retreat_m: 0.95
+agentview_upstream_shift_m: 0.25

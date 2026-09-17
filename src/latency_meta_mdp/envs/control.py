@@ -56,7 +56,11 @@ class ActionContract:
     def __post_init__(self) -> None:
         if self.schema_version != 1:
             raise ValueError("control schema_version must be 1")
-        if self.contract_id != "panda_osc_pose_delta_v1":
+        if self.contract_id not in {
+            "panda_osc_pose_delta_v1",
+            "panda_osc_pose_delta_conveyor_v1",
+            "panda_osc_pose_delta_conveyor_v2",
+        }:
             raise ValueError("unsupported action contract_id")
         if self.representation is not ActionRepresentation.DELTA_EEF_POSE:
             raise ValueError("the Panda v1 contract must use delta EEF pose actions")
