@@ -11,6 +11,11 @@ environment paths; use the equivalent local Python environments outside Docker. 
 python scripts/train_clean_policy.py --config "$CONFIG" --output-dir "$RUN_DIR"
 ```
 
+Use `--check-data-only` to validate a real batch on available devices, or
+`--check-only` to also require the job's GPU topology. Neither performs a training
+step. For task data collection, packaging and generated jobs, see the
+[conveyor workflow](conveyor.md).
+
 ## JEPA belief
 
 ```bash
