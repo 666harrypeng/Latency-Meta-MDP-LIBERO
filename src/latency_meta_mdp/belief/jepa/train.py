@@ -61,6 +61,7 @@ def run(args):
         evidence["status"] != "preflight_passed"
         or evidence["microbatch_size"] != job.microbatch_size
         or evidence["level"] != job.level
+        or evidence.get("task_id") != job.task_id
         or evidence["training_config"] != asdict(cfg)
         or evidence["normalization_sha256"] != digest(job.normalization)
     ):
@@ -76,7 +77,7 @@ def run(args):
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
     norm_path = job.normalization
-    print(f"Preparing L{job.level} train records with metadata/size validation", flush=True)
+    print(f"Preparing {job.label} train records with metadata/size validation", flush=True)
     backbone_config, normalization, corpus, dataset = load_direct_data(job, split="train")
     identity = dict(
         training_config=asdict(cfg),
@@ -145,6 +146,8 @@ def run(args):
             identity=identity,
             initialization="scratch",
             level=job.level,
+            task_id=job.task_id,
+            action_contract_id=backbone_config.action_contract.contract_id,
             seed=cfg.seed,
             microbatch_size=job.microbatch_size,
             accumulation_steps=cfg.global_batch_size // job.microbatch_size,
@@ -171,7 +174,7 @@ def run(args):
         project="latency-meta-mdp-action-conditioned-jepa",
         id=run_id,
         resume="must" if args.resume else "never",
-        name=f"rtc-forecast-l{job.level}-direct-q20-s{cfg.seed}-v1",
+        name=f"rtc-forecast-{job.label.lower()}-direct-q20-s{cfg.seed}-v1",
         group="rtc-forecast-direct-query-v1",
         config=manifest,
         dir=str(args.output_dir),

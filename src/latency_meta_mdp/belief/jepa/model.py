@@ -113,6 +113,12 @@ class DirectJepaPredictor(nn.Module):
 def save_direct_prediction_weights(model: DirectJepaPredictor, path: Path) -> None:
     """Immutable inference weights with an explicit incompatible-architecture guard."""
     metadata = {"architecture_id": model.architecture_id, "level": str(model.trunk.config.level)}
+    if model.trunk.config.task_id is not None:
+        metadata = {
+            "architecture_id": model.architecture_id,
+            "task_id": model.trunk.config.task_id,
+            "action_contract_id": model.trunk.config.action_contract.contract_id,
+        }
     tensors = {
         key: tensor.detach().cpu().contiguous() for key, tensor in model.state_dict().items()
     }
@@ -126,8 +132,15 @@ def load_direct_prediction_weights(model: DirectJepaPredictor, path: Path) -> No
         metadata = stream.metadata() or {}
     if metadata.get("architecture_id") != model.architecture_id:
         raise ValueError("incompatible direct predictor architecture")
-    if metadata.get("level") != str(model.trunk.config.level):
-        raise ValueError("direct predictor checkpoint level mismatch")
+    if model.trunk.config.task_id is None:
+        if metadata.get("level") != str(model.trunk.config.level) or "task_id" in metadata:
+            raise ValueError("direct predictor checkpoint level mismatch")
+    elif (
+        metadata.get("task_id") != model.trunk.config.task_id
+        or metadata.get("action_contract_id") != model.trunk.config.action_contract.contract_id
+        or "level" in metadata
+    ):
+        raise ValueError("direct predictor checkpoint task/controller mismatch")
     state = load_file(str(path))
     for name in ("proprio_mean", "proprio_scale"):
         if not torch.equal(state[f"trunk.{name}"], getattr(model.trunk, name).cpu()):

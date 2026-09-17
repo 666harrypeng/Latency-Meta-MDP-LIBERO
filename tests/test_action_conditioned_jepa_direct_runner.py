@@ -63,6 +63,8 @@ def test_training_entry_builds_identity_before_model_initialization(tmp_path, mo
         training_config=config,
         normalization=norm,
         level=2,
+        task_id=None,
+        label="L2",
         microbatch_size=16,
         device="cpu",
     )

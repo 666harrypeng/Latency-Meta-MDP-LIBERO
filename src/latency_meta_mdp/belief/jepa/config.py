@@ -285,7 +285,7 @@ class _LevelIdentity:
 class ActionConditionedJepaConfig:
     model_config_id: str
     level_config_id: str
-    level: int
+    level: int | None
     temporal_sampling: JepaTemporalSampling
     source_protocol: JepaSourceProtocol
     action_contract: ActionContract
@@ -321,6 +321,7 @@ class ActionConditionedJepaConfig:
     public_latent_dtype: str
     internal_compute_dtype: str
     launch_support: JepaLaunchSupportContract
+    task_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.source_protocol.formal_tick_us != self.action_contract.formal_tick_us:
@@ -431,24 +432,38 @@ def _resolve(model_path: Path, relative: str) -> Path:
 def load_action_conditioned_jepa_config(
     *,
     model_path: Path,
-    level_path: Path,
+    level_path: Path | None = None,
     temporal_sampling_path: Path,
+    task_id: str | None = None,
+    control_path: Path | None = None,
 ) -> ActionConditionedJepaConfig:
     model_path = Path(model_path).resolve()
-    level_path = Path(level_path).resolve()
     raw_model = _load_exact(model_path, _ModelSemantics, name="JEPA model config")
     raw_model["camera_order"] = tuple(raw_model["camera_order"])
     raw_model["camera_sources"] = tuple(raw_model["camera_sources"])
     model = _ModelSemantics(**raw_model)
-    level = _LevelIdentity(**_load_exact(level_path, _LevelIdentity, name="JEPA level config"))
+    if task_id is None:
+        if level_path is None or control_path is not None:
+            raise ValueError("legacy JEPA config requires its level and model controller")
+        level = _LevelIdentity(
+            **_load_exact(Path(level_path), _LevelIdentity, name="JEPA level config")
+        )
+        level_id, level_number = level.config_id, level.level
+    else:
+        if task_id != "conveyor_sort" or level_path is not None or control_path is None:
+            raise ValueError("invalid task-specific JEPA config")
+        level_id, level_number = "action_conditioned_jepa_conveyor_sort", None
     temporal_sampling = load_jepa_temporal_sampling(Path(temporal_sampling_path).resolve())
     source_protocol = load_jepa_source_protocol(_resolve(model_path, model.source_protocol_config))
-    action = load_action_contract(_resolve(model_path, model.control_config))
+    action = load_action_contract(control_path or _resolve(model_path, model.control_config))
     vision = load_vision_encoder_spec(_resolve(model_path, model.vision_config))
     upstream = load_upstream_reference(_resolve(model_path, model.upstream_reference_config))
     identities = (
         (source_protocol.protocol_id, model.source_protocol_id),
-        (action.contract_id, model.control_contract_id),
+        (
+            action.contract_id,
+            model.control_contract_id if task_id is None else "panda_osc_pose_delta_conveyor_v2",
+        ),
         (vision.encoder_id, model.vision_encoder_id),
         (upstream.reference_id, model.upstream_reference_id),
     )
@@ -479,8 +494,9 @@ def load_action_conditioned_jepa_config(
     }
     return ActionConditionedJepaConfig(
         model_config_id=model.config_id,
-        level_config_id=level.config_id,
-        level=level.level,
+        level_config_id=level_id,
+        level=level_number,
+        task_id=task_id,
         temporal_sampling=temporal_sampling,
         source_protocol=source_protocol,
         action_contract=action,

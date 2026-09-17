@@ -105,7 +105,14 @@ class ActionConditionedJepaPredictor(nn.Module):
             raise TypeError("config must be an ActionConditionedJepaConfig")
         if not isinstance(proprio_normalization, JepaProprioNormalization):
             raise TypeError("proprio_normalization must be JepaProprioNormalization")
-        if proprio_normalization.level != config.level:
+        if (
+            proprio_normalization.level != config.level
+            or proprio_normalization.task_id != config.task_id
+            or (
+                config.task_id is not None
+                and proprio_normalization.action_contract_id != config.action_contract.contract_id
+            )
+        ):
             raise ValueError("predictor and proprio normalization levels disagree")
         if primitives is None:
             primitives = load_upstream_primitives(

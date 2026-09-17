@@ -18,7 +18,7 @@ from latency_meta_mdp.belief.jepa.optimization import (
 class DirectJob:
     project_root: Path
     config_path: Path
-    level: int
+    level: int | None
     training_config: Path
     source_root: Path
     vision_cache_manifest: Path
@@ -28,13 +28,29 @@ class DirectJob:
     num_workers: int
     device: str
     training: DirectTrainingConfig
+    task_id: str | None = None
+    control_config: Path | None = None
+
+    @property
+    def label(self):
+        return self.task_id or f"L{self.level}"
 
 
 def load_direct_job(path: Path, *, project_root: Path) -> DirectJob:
     root = project_root.resolve()
     value = yaml.safe_load(path.read_text())
-    if value.pop("schema_version") != 1 or value["level"] not in (1, 2, 3):
-        raise ValueError("Invalid Direct job schema/level")
+    schema = value.pop("schema_version")
+    if schema == 1:
+        if value["level"] not in (1, 2, 3) or "task_id" in value:
+            raise ValueError("Invalid Direct job schema/level")
+    elif schema == 2:
+        if value.get("task_id") != "conveyor_sort" or "level" in value or "split_manifest" in value:
+            raise ValueError("Invalid Direct task job identity")
+        value["level"] = None
+        value["split_manifest"] = str(Path(value["source_root"]) / "manifest.json")
+        value["control_config"] = (root / value["control_config"]).resolve()
+    else:
+        raise ValueError("Invalid Direct job schema")
     for key in (
         "training_config",
         "source_root",
@@ -52,6 +68,10 @@ def load_direct_job(path: Path, *, project_root: Path) -> DirectJob:
 
 
 def load_direct_data(job: DirectJob, *, split: str):
+    if job.task_id is not None:
+        from latency_meta_mdp.belief.jepa.conveyor import load_conveyor_direct_data
+
+        return load_conveyor_direct_data(job, split=split)
     from latency_meta_mdp.belief.jepa.config import (
         load_action_conditioned_jepa_config,
     )

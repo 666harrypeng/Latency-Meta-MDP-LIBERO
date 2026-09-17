@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
             job.device,
         )
         norm_path = job.normalization
-        print(f"Preparing L{job.level} train records", flush=True)
+        print(f"Preparing {job.label} train records", flush=True)
         config, normalization, corpus, dataset = load_direct_data(job, split="train")
     else:
         config_path = root / "configs/legacy/training/direct_query_l3_v1.yaml"
@@ -238,6 +238,8 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "status": "preflight_passed",
         "level": config.level,
+        "task_id": config.task_id,
+        "action_contract_id": config.action_contract.contract_id,
         "scientific_admission": False,
         "initialization": "scratch",
         "weights_saved": False,

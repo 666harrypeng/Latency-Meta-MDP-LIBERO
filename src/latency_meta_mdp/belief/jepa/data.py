@@ -14,6 +14,7 @@ from latency_meta_mdp.belief.jepa.corpus import (
     JepaEpisodeRecord,
     JepaProprioNormalization,
 )
+from latency_meta_mdp.belief.jepa.identity import data_domain
 
 FIRST_SOURCE_TICK = 10  # Matches the admitted stride4 training source start.
 
@@ -80,8 +81,8 @@ def materialize_direct_query(
         or not 0 <= query_ticks <= 20
     ):
         raise ValueError("direct query requires real history and a supported query horizon")
-    if normalization.level != record.level:
-        raise ValueError("direct sample normalization level mismatch")
+    if data_domain(normalization) != data_domain(record):
+        raise ValueError("direct sample normalization domain identity mismatch")
     if executable_controls is None:
         if source_tick + query_ticks > record.terminal_tick:
             raise ValueError("query beyond the recording requires an explicit executable buffer")
@@ -117,14 +118,14 @@ class DirectPredictionDataset(Dataset):
     def __init__(
         self, *, records: tuple[JepaEpisodeRecord, ...], normalization: JepaProprioNormalization
     ):
-        if not records or len({(r.level, r.split) for r in records}) != 1:
+        if not records or len({(data_domain(r), r.split) for r in records}) != 1:
             raise ValueError("direct dataset requires one nonempty level/split")
         if len({r.episode_id for r in records}) != len(records):
             raise ValueError("direct dataset episode IDs must be unique")
         self.records = tuple(sorted(records, key=lambda r: r.episode_id))
         self.normalization = normalization
-        if normalization.level != records[0].level:
-            raise ValueError("direct dataset normalization level mismatch")
+        if data_domain(normalization) != data_domain(records[0]):
+            raise ValueError("direct dataset normalization domain identity mismatch")
         if records[0].split == "train" and normalization.episode_ids != tuple(
             r.episode_id for r in self.records
         ):

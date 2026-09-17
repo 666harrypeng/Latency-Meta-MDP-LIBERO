@@ -22,6 +22,7 @@ from latency_meta_mdp.belief.jepa.contracts import (
     FutureLatentRollout,
     LaunchContextBatch,
 )
+from latency_meta_mdp.belief.jepa.identity import data_domain
 from latency_meta_mdp.data.collection.artifacts import (
     _fsync_directory,
     _hash_file,
@@ -107,7 +108,7 @@ class JepaEpisodeRecord:
     episode_id: str
     task_instance_id: str
     logical_master_task_index: int
-    level: int
+    level: int | None
     split: str
     terminal_tick: int
     cache: EpisodeVisionFeatureCache
@@ -115,6 +116,8 @@ class JepaEpisodeRecord:
     controls: np.ndarray
     phases: tuple[str | None, ...]
     statuses: tuple[str, ...]
+    task_id: str | None = None
+    action_contract_id: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.episode_id) is not str or not self.episode_id:
@@ -123,8 +126,7 @@ class JepaEpisodeRecord:
             raise ValueError("JEPA task_instance_id cannot be empty")
         if type(self.logical_master_task_index) is not int or self.logical_master_task_index < 0:
             raise ValueError("JEPA logical master-task index is invalid")
-        if type(self.level) is not int or self.level not in (1, 2, 3):
-            raise ValueError("JEPA episode level must be 1, 2, or 3")
+        data_domain(self)
         if self.split not in {"train", "validation"}:
             raise ValueError("JEPA episode split must be train or validation")
         if type(self.terminal_tick) is not int or self.terminal_tick < _HISTORY_TICKS:
@@ -188,6 +190,20 @@ def _indices_for_records(records: tuple[JepaEpisodeRecord, ...]) -> tuple[JepaSa
 
 
 def _sample_index_sha256(records: tuple[JepaEpisodeRecord, ...]) -> str:
+    if records[0].task_id is not None:
+        # Compact description of the complete Direct pair support, not millions of rows.
+        payload = [
+            {
+                "episode_id": r.episode_id,
+                "domain": data_domain(r),
+                "split": r.split,
+                "first_source_tick": 10,
+                "terminal_tick": r.terminal_tick,
+                "query_ticks": [1, 20],
+            }
+            for r in records
+        ]
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     payload = [
         {
             "episode_id": index.episode_id,
@@ -203,7 +219,7 @@ def _sample_index_sha256(records: tuple[JepaEpisodeRecord, ...]) -> str:
 
 @dataclass(frozen=True)
 class JepaProprioNormalization:
-    level: int
+    level: int | None
     mean: np.ndarray
     scale: np.ndarray
     constant_dimension_mask: np.ndarray
@@ -212,10 +228,11 @@ class JepaProprioNormalization:
     source_manifest_sha256: str
     split_manifest_sha256: str
     sample_index_sha256: str
+    task_id: str | None = None
+    action_contract_id: str | None = None
 
     def __post_init__(self) -> None:
-        if type(self.level) is not int or self.level not in (1, 2, 3):
-            raise ValueError("normalization level must be 1, 2, or 3")
+        data_domain(self)
         mean = _readonly(self.mean, dtype=np.dtype(np.float32))
         scale = _readonly(self.scale, dtype=np.dtype(np.float32))
         mask = _readonly(self.constant_dimension_mask, dtype=np.dtype(np.bool_))
@@ -260,10 +277,15 @@ class JepaProprioNormalization:
         return np.asarray(value * self.scale + self.mean, dtype=np.float32)
 
     def to_mapping(self) -> dict[str, Any]:
+        identity = (
+            {"level": self.level}
+            if self.task_id is None
+            else {"task_id": self.task_id, "action_contract_id": self.action_contract_id}
+        )
         return {
-            "schema_version": 1,
+            "schema_version": 1 if self.task_id is None else 2,
             "format_id": _NORMALIZATION_FORMAT,
-            "level": self.level,
+            **identity,
             "mean": self.mean.tolist(),
             "scale": self.scale.tolist(),
             "constant_dimension_mask": self.constant_dimension_mask.tolist(),
@@ -289,9 +311,11 @@ class JepaProprioNormalization:
             "split_manifest_sha256",
             "sample_index_sha256",
         }
+        if isinstance(value, dict) and value.get("schema_version") == 2:
+            expected = (expected - {"level"}) | {"task_id", "action_contract_id"}
         if type(value) is not dict or set(value) != expected:
             raise ValueError("JEPA proprio normalization fields are invalid")
-        if value["schema_version"] != 1 or value["format_id"] != _NORMALIZATION_FORMAT:
+        if value["schema_version"] not in (1, 2) or value["format_id"] != _NORMALIZATION_FORMAT:
             raise ValueError("unsupported JEPA proprio normalization format")
         for name in ("mean", "scale"):
             values = value[name]
@@ -312,7 +336,9 @@ class JepaProprioNormalization:
         if type(episode_ids) is not list or any(type(item) is not str for item in episode_ids):
             raise ValueError("normalization episode_ids are invalid")
         return cls(
-            level=value["level"],
+            level=value.get("level"),
+            task_id=value.get("task_id"),
+            action_contract_id=value.get("action_contract_id"),
             mean=np.asarray(value["mean"], dtype=np.float32),
             scale=np.asarray(value["scale"], dtype=np.float32),
             constant_dimension_mask=np.asarray(mask, dtype=np.bool_),
@@ -338,7 +364,7 @@ def compute_jepa_proprio_normalization(
         raise ValueError("normalization records must be a non-empty tuple")
     if any(record.split != "train" for record in records):
         raise ValueError("proprio normalization may use only train records")
-    levels = {record.level for record in records}
+    levels = {data_domain(record) for record in records}
     if len(levels) != 1:
         raise ValueError("proprio normalization must be level-specific")
     ordered = tuple(sorted(records, key=lambda record: record.episode_id))
@@ -354,6 +380,8 @@ def compute_jepa_proprio_normalization(
     scale[constant] = 1.0
     return JepaProprioNormalization(
         level=ordered[0].level,
+        task_id=ordered[0].task_id,
+        action_contract_id=ordered[0].action_contract_id,
         mean=mean.astype(np.float32),
         scale=scale.astype(np.float32),
         constant_dimension_mask=constant,
