@@ -12,15 +12,18 @@ _EXPERIMENT_NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 
 @dataclass(frozen=True)
 class SFTLaunchRequest:
-    level: int
+    level: int | None
     experiment_name: str
     mode: str
     resume: bool
     device_count: int
     batch_size_override: int | None = None
+    task_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.level not in (1, 2, 3):
+        if self.level is None and self.task_id == "conveyor_sort":
+            pass
+        elif self.level not in (1, 2, 3):
             raise ValueError("SFT launch level must be 1, 2, or 3")
         if _EXPERIMENT_NAME.fullmatch(self.experiment_name) is None:
             raise ValueError("SFT experiment name is invalid")

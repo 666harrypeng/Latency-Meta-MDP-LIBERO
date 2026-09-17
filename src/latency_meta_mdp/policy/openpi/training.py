@@ -1,4 +1,4 @@
-"""Registration of level-specific Meta-MDP configs into pinned OpenPI."""
+"""Shared task and legacy level configurations for pinned OpenPI."""
 
 from __future__ import annotations
 
@@ -16,6 +16,27 @@ from latency_meta_mdp.policy.schedule import SFTLaunchRequest, resolve_sft_sched
 
 
 def _build_config(profile: SFTProfile, level: int) -> Any:
+    level_profile = profile.levels[level]
+    return build_task_train_config(
+        profile,
+        config_name=level_profile.config_name,
+        repo_id=level_profile.repo_id,
+        task_id="dynamic_grasp_lift",
+        action_contract_id="panda_osc_pose_delta_v1",
+        extra_metadata={"level": level},
+    )
+
+
+def build_task_train_config(
+    profile: SFTProfile,
+    *,
+    config_name: str,
+    repo_id: str,
+    task_id: str,
+    action_contract_id: str,
+    extra_metadata: dict | None = None,
+) -> Any:
+    """Shared native model/training construction with explicit task identity."""
     if profile.fsdp_devices != 1:
         raise ValueError("SFT currently requires replicated data parallelism (fsdp_devices=1)")
     import openpi.models.pi0_config as pi0_config
@@ -23,7 +44,6 @@ def _build_config(profile: SFTProfile, level: int) -> Any:
     import openpi.training.weight_loaders as weight_loaders
     from openpi.training.config import DataConfig, LeRobotLiberoDataConfig, TrainConfig
 
-    level_profile = profile.levels[level]
     model = pi0_config.Pi0Config(
         pi05=True,
         action_horizon=profile.action_horizon,
@@ -36,11 +56,11 @@ def _build_config(profile: SFTProfile, level: int) -> Any:
 
         data_factory = StructuredPolicyDataConfig
     return TrainConfig(
-        name=level_profile.config_name,
+        name=config_name,
         project_name="latency-meta-mdp-robosuite",
         model=model,
         data=data_factory(
-            repo_id=level_profile.repo_id,
+            repo_id=repo_id,
             base_config=DataConfig(
                 prompt_from_task=True,
                 drop_n_last_frames=profile.drop_n_last_frames,
@@ -68,8 +88,8 @@ def _build_config(profile: SFTProfile, level: int) -> Any:
         wandb_enabled=True,
         policy_metadata={
             "profile_id": profile.profile_id,
-            "task_id": "dynamic_grasp_lift",
-            "level": level,
+            "task_id": task_id,
+            **(extra_metadata or {}),
             "fps": profile.fps,
             "state_dim": profile.state_dim,
             "discrete_state_input": profile.discrete_state_input,
@@ -78,7 +98,7 @@ def _build_config(profile: SFTProfile, level: int) -> Any:
             "temporal_contract_id": profile.temporal_contract.contract_id,
             "prediction_horizon": profile.action_horizon,
             "launch_trigger_horizon": profile.launch_trigger_horizon,
-            "action_contract_id": "panda_osc_pose_delta_v1",
+            "action_contract_id": action_contract_id,
         },
     )
 
@@ -229,7 +249,42 @@ def build_level_train_config(
 ) -> Any:
     """Build one explicit smoke or formal TrainConfig from the canonical profile."""
 
-    base = _build_config(profile, request.level)
+    return build_launch_train_config(
+        profile=profile,
+        request=request,
+        assets_root=assets_root,
+        checkpoint_root=checkpoint_root,
+        wandb_enabled=wandb_enabled,
+    )
+
+
+def build_launch_train_config(
+    *,
+    profile: SFTProfile,
+    request: SFTLaunchRequest,
+    assets_root: Path,
+    checkpoint_root: Path,
+    wandb_enabled: bool,
+    task_parameters: dict | None = None,
+) -> Any:
+    if task_parameters is None:
+        base = _build_config(profile, request.level)
+    else:
+        if request.level is not None or request.task_id != task_parameters["task_id"]:
+            raise ValueError("launch request and task identity disagree")
+        base = build_task_train_config(profile, **task_parameters)
+    if task_parameters is not None:
+        from openpi.training.config import AssetsConfig
+
+        base = dataclasses.replace(
+            base,
+            data=dataclasses.replace(
+                base.data,
+                assets=AssetsConfig(
+                    assets_dir=str(assets_root.resolve()), asset_id=task_parameters["repo_id"]
+                ),
+            ),
+        )
     schedule = resolve_sft_schedule(profile=profile, request=request)
     return dataclasses.replace(
         base,

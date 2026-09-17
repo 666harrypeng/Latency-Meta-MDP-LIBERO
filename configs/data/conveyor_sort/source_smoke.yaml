@@ -1,0 +1,11 @@
+schema_version: 1
+task_id: conveyor_sort
+corpus_id: conveyor-surface-source-smoke-v1
+purpose: development_smoke
+scene: ../../tasks/conveyor_sort/surface.yaml
+expert: ../expert/conveyor_surface.yaml
+splits:
+  train: [1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007]
+  validation: [2000, 2001]
+  test: [3000, 3001]
+collect_splits: [train]

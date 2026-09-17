@@ -180,7 +180,7 @@ def prepare(
             os.environ["HF_LEROBOT_HOME"] = previous_home
 
 
-def main() -> None:
+def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset-manifest", type=Path, required=True)
     parser.add_argument("--level", type=int, choices=(1, 2, 3), required=True)
@@ -189,7 +189,7 @@ def main() -> None:
         "--profile", type=Path, default=Path("configs/contracts/policy/pi05_state16_h50.yaml")
     )
     parser.add_argument("--openpi-root", type=Path, default=Path("third_party/openpi"))
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     print(
         prepare(
             dataset_manifest=args.dataset_manifest,

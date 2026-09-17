@@ -1,0 +1,11 @@
+schema_version: 1
+task_id: conveyor_sort
+corpus_id: conveyor-surface-source-v1
+purpose: training_source
+scene: ../../tasks/conveyor_sort/surface.yaml
+expert: ../expert/conveyor_surface.yaml
+splits:
+  train: {start: 1000, stop: 1200}
+  validation: {start: 2000, stop: 2020}
+  test: {start: 3000, stop: 3020}
+collect_splits: [train, validation]
