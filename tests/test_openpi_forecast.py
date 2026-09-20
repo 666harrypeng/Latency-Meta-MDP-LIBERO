@@ -42,6 +42,52 @@ def test_forecast_config_has_four_explicit_views_and_rejects_old_conditioning(fo
         dataclasses.replace(config, discrete_state_input=False)
 
 
+@pytest.mark.parametrize("fsdp_devices", [1, 2, 4])
+def test_forecast_fsdp_preserves_native_model_and_frozen_encoder_scope(
+    forecast_openpi, fsdp_devices
+):
+    from latency_meta_mdp.policy.openpi.training import (
+        _build_config,
+        build_forecast_policy_train_config,
+    )
+    from latency_meta_mdp.policy.profile import load_sft_profile
+
+    profile = load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml"))
+    clean = _build_config(dataclasses.replace(profile, fsdp_devices=fsdp_devices), 3)
+    identity = dict(
+        predictor_architecture="direct",
+        predictor_sha256="a" * 64,
+        decoder_sha256="b" * 64,
+        jepa_normalization_sha256="c" * 64,
+    )
+    config = build_forecast_policy_train_config(
+        clean_config=clean,
+        clean_checkpoint=Path("/unused/params"),
+        forecast_identity=identity,
+        experiment_name="fsdp-check",
+    )
+    assert config.fsdp_devices == fsdp_devices
+    assert config.ema_decay == clean.ema_decay
+    assert config.model.action_horizon == 50 and len(config.model.image_keys) == 4
+    assert config.freeze_filter(("PaliGemma", "img", "embedding", "kernel"), None)
+    assert config.freeze_filter(("PaliGemma", "llm", "embedder", "input_embedding"), None)
+    assert not config.freeze_filter(("PaliGemma", "llm", "layers", "attn", "q_einsum"), None)
+
+    lora = dataclasses.replace(
+        clean,
+        model=dataclasses.replace(
+            clean.model, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ),
+    )
+    with pytest.raises(ValueError, match="LoRA"):
+        build_forecast_policy_train_config(
+            clean_config=lora,
+            clean_checkpoint=Path("/unused/params"),
+            forecast_identity=identity,
+            experiment_name="wrong-scope",
+        )
+
+
 def _inputs():
     return {
         "observation/image": np.full((224, 224, 3), 20, np.uint8),

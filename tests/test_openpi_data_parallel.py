@@ -28,14 +28,14 @@ def patched_openpi():
         sys.path.remove(str(root / "src"))
 
 
-def _config(tmp_path, devices=4, batch=128):
+def _config(tmp_path, devices=4, batch=128, fsdp_devices=1):
     from latency_meta_mdp.policy.openpi.training import build_level_train_config
     from latency_meta_mdp.policy.profile import load_sft_profile
     from latency_meta_mdp.policy.schedule import SFTLaunchRequest
 
     profile = load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml"))
     return build_level_train_config(
-        profile=profile,
+        profile=dataclasses.replace(profile, fsdp_devices=fsdp_devices),
         request=SFTLaunchRequest(3, "ddp-check", "formal", False, devices, batch),
         assets_root=tmp_path / "assets",
         checkpoint_root=tmp_path / "checkpoints",
@@ -58,7 +58,7 @@ def test_data_parallel_config_scales_lr_clock_and_keeps_native_contract(tmp_path
     assert config.policy_metadata["training_examples"] == 768000
 
 
-def test_training_rejects_unexpected_devices_and_model_sharding(
+def test_training_rejects_unexpected_devices_and_invalid_sharding(
     tmp_path, patched_openpi, monkeypatch
 ):
     import jax
@@ -66,17 +66,19 @@ def test_training_rejects_unexpected_devices_and_model_sharding(
     from latency_meta_mdp.policy.openpi.training import run_openpi_training
 
     config = _config(tmp_path)
-    with pytest.raises(ValueError, match="replicated"):
+    monkeypatch.setattr(jax, "device_count", lambda: 4)
+    with pytest.raises(ValueError, match="FSDP"):
         run_openpi_training(
-            config=dataclasses.replace(config, fsdp_devices=2), openpi_root=patched_openpi
+            config=dataclasses.replace(config, fsdp_devices=3), openpi_root=patched_openpi
         )
     monkeypatch.setattr(jax, "device_count", lambda: 2)
     with pytest.raises(ValueError, match="visible devices"):
         run_openpi_training(config=config, openpi_root=patched_openpi)
 
 
-def test_pinned_training_step_matches_single_device_and_replicates_optimizer(
-    tmp_path, patched_openpi
+@pytest.mark.parametrize("fsdp_devices", [1, 2])
+def test_pinned_training_step_matches_single_device_including_optimizer_and_ema(
+    tmp_path, patched_openpi, fsdp_devices
 ):
     import flax.nnx as nnx
     import jax
@@ -90,11 +92,13 @@ def test_pinned_training_step_matches_single_device_and_replicates_optimizer(
     if jax.default_backend() != "cpu" or jax.device_count() != 4:
         pytest.skip("requires four logical CPU devices; this is not a GPU throughput benchmark")
 
+    width = 2 if fsdp_devices == 1 else 1024
+
     class RegressionPolicy(BaseModel):
         """Unequal sample weights/mask lengths expose incorrect replica averaging."""
 
         def __init__(self, rng):
-            self.linear = nnx.Linear(2, 2, rngs=nnx.Rngs(rng))
+            self.linear = nnx.Linear(width, width, rngs=nnx.Rngs(rng))
 
         def compute_loss(self, rng, observation, actions, *, train=False):
             del rng, train
@@ -113,24 +117,27 @@ def test_pinned_training_step_matches_single_device_and_replicates_optimizer(
 
     trainer = _load_train_script(patched_openpi)
     config = dataclasses.replace(
-        _config(tmp_path, batch=8), model=RegressionConfig(), weight_loader=NoOpWeightLoader()
+        _config(tmp_path, batch=8, fsdp_devices=fsdp_devices),
+        model=RegressionConfig(),
+        weight_loader=NoOpWeightLoader(),
     )
     mesh = sharding.make_mesh(config.fsdp_devices)
-    assert mesh.shape == {"batch": 4, "fsdp": 1}
+    assert mesh.shape == {"batch": 4 // fsdp_devices, "fsdp": fsdp_devices}
     state, layout = trainer.init_train_state(config, jax.random.key(7), mesh, resume=False)
-    for leaf in jax.tree.leaves(state):
-        assert leaf.sharding.is_fully_replicated
-    mask = np.ones((8, 3, 2), bool)
+    assert any(not leaf.sharding.is_fully_replicated for leaf in jax.tree.leaves(state)) == (
+        fsdp_devices > 1
+    )
+    mask = np.ones((8, 3, width), bool)
     mask[0] = False
     mask[1:4, 1:] = False
     obs = Observation(
         images={},
         image_masks={},
-        state=jnp.arange(16, dtype=jnp.float32).reshape(8, 2) / 16,
+        state=jnp.arange(8 * width, dtype=jnp.float32).reshape(8, width) / (8 * width),
         action_loss_mask=jnp.asarray(mask),
         action_loss_weight=jnp.array([1, 0.2, 1.5, 2, 0.5, 1, 1.2, 0.8]),
     )
-    batch = (obs, jnp.arange(48, dtype=jnp.float32).reshape(8, 3, 2) / 48)
+    batch = (obs, jnp.arange(24 * width, dtype=jnp.float32).reshape(8, 3, width) / (24 * width))
     data_layout = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec(sharding.DATA_AXIS))
     replicated = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
     distributed_step = jax.jit(
@@ -143,7 +150,7 @@ def test_pinned_training_step_matches_single_device_and_replicates_optimizer(
     reference = jax.device_put(state, single)
     reference_batch = jax.device_put(batch, single)
     distributed_batch = jax.device_put(batch, data_layout)
-    assert distributed_batch[0].state.addressable_shards[0].data.shape == (2, 2)
+    assert distributed_batch[0].state.addressable_shards[0].data.shape == (2, width)
     # Include Adam moments and EMA across multiple updates, not just forward loss.
     for seed in (11, 12, 13):
         rng = jax.random.key(seed)
@@ -154,6 +161,5 @@ def test_pinned_training_step_matches_single_device_and_replicates_optimizer(
         for got, wanted in zip(
             jax.tree.leaves((state, actual)), jax.tree.leaves((reference, expected)), strict=True
         ):
-            assert got.sharding.is_fully_replicated
             np.testing.assert_allclose(got, wanted, rtol=2e-5, atol=2e-6)
     assert int(state.step) == 3

@@ -17,6 +17,7 @@ def main():
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--output-dir", "--work-dir", dest="work_dir", type=Path, required=True)
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--mode", choices=("formal", "smoke"), default="formal")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--check-only", action="store_true")
     mode.add_argument(
@@ -31,6 +32,9 @@ def main():
 
 
 def run(a):
+    a.mode = getattr(a, "mode", "formal")
+    if a.mode == "smoke" and a.publish_only:
+        raise ValueError("smoke checkpoints cannot be published as formal milestones")
     from latency_meta_mdp.io.artifacts import sha256_file
     from latency_meta_mdp.io.policy_publish import publish_checkpoints
     from latency_meta_mdp.policy.clean_data import require_training_source, resolve_clean_inputs
@@ -51,7 +55,6 @@ def run(a):
     a.checkpoint_root = a.work_dir / "checkpoints"
     a.level, a.run_name = job.get("level"), job["run_name"]
     a.device_count, a.batch_size = job["device_count"], job["batch_size"]
-    a.mode = "formal"
     os.environ["HF_LEROBOT_HOME"] = str(a.dataset_root.resolve())
     profile_path, profile, prep = job["profile"], inputs.profile, inputs.preparation
     norm = a.preparation_root / prep["norm_stats"]
@@ -125,9 +128,13 @@ def run(a):
             / prep["source_count"],
             "state_tokens_enabled": config.model.discrete_state_input,
             "active_action_dim": config.model.active_action_dim,
+            "finetune_mode": "full",
+            "paligemma_variant": config.model.paligemma_variant,
+            "action_expert_variant": config.model.action_expert_variant,
+            "ema_decay": config.ema_decay,
             "checkpoint_dir": str(config.checkpoint_dir),
             "norm_stats_sha256": sha256_file(norm),
-            "training_parallelism": "replicated_data_parallel",
+            "training_parallelism": config.policy_metadata["training_parallelism"],
             "fsdp_devices": config.fsdp_devices,
             "device_count": a.device_count,
             "per_device_batch_size": config.batch_size // a.device_count,
@@ -156,9 +163,7 @@ def run(a):
             or jax.process_count() != 1
             or not all(device.platform == "gpu" for device in devices)
         ):
-            raise RuntimeError(
-                "Visible GPU devices differ from the replicated data-parallel request"
-            )
+            raise RuntimeError("Visible GPU devices differ from the single-host training request")
         import numpy as np
         from openpi.training.data_loader import create_torch_data_loader
 
@@ -232,6 +237,8 @@ def run(a):
                 data_identity=report["data_identity"],
             )
             contract.pop("level", None)
+        if config.fsdp_devices > 1:
+            contract["fsdp_devices"] = config.fsdp_devices
         if a.resume:
             if not destination.exists() or not contract_path.is_file():
                 raise ValueError("Resume requires a checkpoint directory and its launch contract")
@@ -270,7 +277,7 @@ def run(a):
         with (destination / f"verified_run-step{found[-1]}.json").open("x") as out:
             json.dump(report, out, indent=2, default=int)
             out.write("\n")
-        if job.get("publish_repo"):
+        if job.get("publish_repo") and a.mode == "formal":
             revision = publish_checkpoints(
                 root=destination,
                 steps=schedule.expected_checkpoint_steps,

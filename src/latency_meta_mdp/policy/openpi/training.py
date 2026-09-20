@@ -37,8 +37,6 @@ def build_task_train_config(
     extra_metadata: dict | None = None,
 ) -> Any:
     """Shared native model/training construction with explicit task identity."""
-    if profile.fsdp_devices != 1:
-        raise ValueError("SFT currently requires replicated data parallelism (fsdp_devices=1)")
     import openpi.models.pi0_config as pi0_config
     import openpi.training.optimizer as optimizer
     import openpi.training.weight_loaders as weight_loaders
@@ -136,9 +134,15 @@ def build_forecast_policy_train_config(
     from latency_meta_mdp.policy.openpi.forecast import ForecastPolicyDataConfig
 
     model = clean_config.model
+    if any(
+        "lora" in getattr(model, key, "") for key in ("paligemma_variant", "action_expert_variant")
+    ):
+        raise ValueError(
+            "This conditioned recipe requires native full-parameter variants; "
+            "a LoRA checkpoint needs an explicit matching trainable-scope recipe"
+        )
     if (
         not isinstance(clean_config.data, StructuredPolicyDataConfig)
-        or clean_config.fsdp_devices != 1
         or not model.pi05
         or not model.discrete_state_input
         or model.active_action_dim != 7
@@ -305,7 +309,11 @@ def build_launch_train_config(
         wandb_enabled=wandb_enabled,
         policy_metadata={
             **base.policy_metadata,
-            "training_parallelism": "replicated_data_parallel",
+            "training_parallelism": (
+                "replicated_data_parallel" if profile.fsdp_devices == 1 else "fsdp"
+            ),
+            "fsdp_devices": profile.fsdp_devices,
+            "replica_groups": request.device_count // profile.fsdp_devices,
             "training_device_count": request.device_count,
             "per_device_batch_size": schedule.batch_size // request.device_count,
             "reference_training_examples": profile.batch_size * profile.num_train_steps,
@@ -345,13 +353,17 @@ def run_openpi_training(*, config: Any, openpi_root: Path) -> None:
 
     import jax
 
-    if config.fsdp_devices != 1:
-        raise ValueError("SFT currently requires replicated data parallelism (fsdp_devices=1)")
     if jax.process_count() != 1:
         raise ValueError("the SFT launcher supports one process on one multi-GPU host")
     expected = config.policy_metadata.get("training_device_count", jax.device_count())
     if jax.device_count() != expected or config.batch_size % expected:
         raise ValueError("visible devices/global batch differ from the SFT launch contract")
+    if (
+        type(config.fsdp_devices) is not int
+        or config.fsdp_devices <= 0
+        or expected % config.fsdp_devices
+    ):
+        raise ValueError("FSDP group size must be positive and divide visible device count")
     _load_train_script(openpi_root.resolve()).main(config)
 
 

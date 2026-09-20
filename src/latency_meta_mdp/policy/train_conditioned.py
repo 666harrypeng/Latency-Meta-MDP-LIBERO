@@ -138,6 +138,8 @@ def run(a):
         }
         if input_mode == "forecast_only":
             report.update(input_mode=input_mode, **mode_contract)
+        if config.fsdp_devices > 1:
+            report.update(training_parallelism="fsdp", fsdp_devices=config.fsdp_devices)
 
         def prepare_publication():
             if input_mode == "forecast_only":
@@ -172,7 +174,7 @@ def run(a):
         from openpi.training import data_loader
 
         if jax.device_count() != clean_job["device_count"] or jax.process_count() != 1:
-            raise ValueError("Unexpected replicated-device topology")
+            raise ValueError("Unexpected single-host training topology")
         if any(d.platform != "gpu" for d in jax.devices()):
             raise ValueError("Training requires CUDA devices")
         data = config.data.create(config.assets_dirs, config.model)

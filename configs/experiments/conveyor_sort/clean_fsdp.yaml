@@ -1,0 +1,15 @@
+schema_version: 2
+task_id: conveyor_sort
+variant: surface
+action_contract: panda_osc_pose_delta_conveyor_v2
+profile: configs/contracts/policy/pi05_state16_h50.yaml
+training: configs/training/policy/conveyor_clean_fsdp.yaml
+dataset:
+  kind: huggingface
+  repo_id: yypeng666/metamdp-conveyor-sort-train-state16-h50-v1
+  revision: f9b82ddf5f8c3a870783fdb85d82c62c03911f52
+  manifest_sha256: f96940a79ffe143c98a6041e6ee3cb7baaa5955ff32c3d59a31e9fe98b1d7395
+run_name: conveyor-clean-full-fsdp-v1
+device_count: 8
+batch_size: 64
+publish_repo: yypeng666/metamdp-pi05-conveyor-sort-clean-state16-h50-full-sft-v1

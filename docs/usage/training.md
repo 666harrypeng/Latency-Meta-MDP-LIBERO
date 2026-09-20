@@ -16,6 +16,20 @@ Use `--check-data-only` to validate a real batch on available devices, or
 step. For task data collection, packaging and generated jobs, see the
 [conveyor workflow](conveyor.md).
 
+Policy training uses one JAX process across the job's `device_count` GPUs. In the
+training recipe, `fsdp_devices: 1` replicates model state; a larger value shards
+large parameter, optimizer and EMA arrays within groups of that size. It must
+divide `device_count`. The job's `batch_size` remains global across all devices.
+Check peak memory and throughput with the actual input mode before a full run;
+`--check-only` does not allocate the training state or measure training memory.
+Changing FSDP group size does not change the model or its trainable scope.
+
+Use `--mode smoke` with a separate output directory for a 100-update pilot with
+the actual model, optimizer, EMA and checkpoint writer. It keeps the formal
+learning-rate schedule and disables HF publication. Formal training remains the
+default; never use the pilot output directory for the formal run.
+Set `JAX_COMPILATION_CACHE_DIR` to place the training compilation cache explicitly.
+
 ## JEPA belief
 
 ```bash

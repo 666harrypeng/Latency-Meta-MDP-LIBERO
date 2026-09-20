@@ -48,15 +48,15 @@ class SFTSchedule:
 
 
 def resolve_sft_schedule(*, profile: SFTProfile, request: SFTLaunchRequest) -> SFTSchedule:
-    """Keep sample exposure when a replicated-data-parallel run changes its batch.
+    """Keep sample exposure when a single-host training run changes its global batch.
 
     Each formal milestone rounds up to a whole global batch. The full run can
     therefore exceed the profile budget by fewer than three global batches.
     Equal sample exposure does not imply identical optimizer trajectories.
     """
 
-    if profile.fsdp_devices != 1:
-        raise ValueError("SFT currently requires replicated data parallelism (fsdp_devices=1)")
+    if request.device_count % profile.fsdp_devices:
+        raise ValueError("FSDP group size must divide the SFT device count")
     batch = request.batch_size_override or profile.batch_size
     if batch % request.device_count:
         raise ValueError("global batch size must be divisible by the SFT device count")

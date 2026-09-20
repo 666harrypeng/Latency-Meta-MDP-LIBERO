@@ -179,14 +179,25 @@ def test_data_parallel_schedule_preserves_sample_budget(devices, batch, steps):
     assert schedule.rolling_save_interval * batch >= profile.save_interval * profile.batch_size
 
 
-def test_data_parallel_schedule_rejects_sharding_and_uneven_batches():
+def test_schedule_rejects_invalid_mesh_and_uneven_batches():
     profile = load_sft_profile(_PROFILE_PATH)
     with pytest.raises(ValueError, match="divisible"):
         resolve_sft_schedule(
             profile=profile, request=SFTLaunchRequest(3, "uneven", "smoke", False, 4, 127)
         )
-    with pytest.raises(ValueError, match="replicated"):
+    with pytest.raises(ValueError, match="FSDP"):
         resolve_sft_schedule(
-            profile=dataclasses.replace(profile, fsdp_devices=2),
+            profile=dataclasses.replace(profile, fsdp_devices=3),
             request=SFTLaunchRequest(3, "sharded", "formal", False, 4),
         )
+
+
+@pytest.mark.parametrize("fsdp_devices", [2, 4, 8])
+def test_fsdp_preserves_global_sample_and_checkpoint_schedule(fsdp_devices):
+    profile = load_sft_profile(Path("configs/contracts/policy/pi05_state16_h50.yaml"))
+    request = SFTLaunchRequest(3, "full-fsdp", "formal", False, 8, 128)
+    reference = resolve_sft_schedule(profile=profile, request=request)
+    actual = resolve_sft_schedule(
+        profile=dataclasses.replace(profile, fsdp_devices=fsdp_devices), request=request
+    )
+    assert actual == reference

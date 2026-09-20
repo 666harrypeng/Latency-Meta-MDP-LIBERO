@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -43,6 +44,17 @@ def temporary_patched_openpi_copy(
             for patch in patch_paths:
                 _git(copied, "apply", "--check", str(patch.resolve()))
                 _git(copied, "apply", str(patch.resolve()))
+            cache_dir = os.environ.get("JAX_COMPILATION_CACHE_DIR")
+            if cache_dir:
+                # Pinned upstream otherwise overrides JAX's environment setting.
+                script = copied / "scripts/train.py"
+                code = script.read_text()
+                default = 'str(epath.Path("~/.cache/jax").expanduser())'
+                if code.count(default) != 1:
+                    raise ValueError("unexpected pinned OpenPI training-cache setup")
+                script.write_text(
+                    code.replace(default, repr(str(Path(cache_dir).expanduser().resolve())))
+                )
             yield copied
         finally:
             _purge_worktree_modules(copied, modules_before)
