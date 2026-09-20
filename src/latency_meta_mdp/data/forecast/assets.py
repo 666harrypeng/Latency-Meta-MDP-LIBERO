@@ -36,7 +36,6 @@ def stage_source(job: dict, target: Path) -> Path:
             "manifest.json",
             repo_type="dataset",
             revision=job["source_revision"],
-            token=False,
         )
     )
     manifest = json.loads(manifest_path.read_text())
@@ -54,7 +53,6 @@ def stage_source(job: dict, target: Path) -> Path:
             repo_type="dataset",
             revision=job["source_revision"],
             allow_patterns=["manifest.json", *manifest["artifacts"]],
-            token=False,
         )
     )
     target.mkdir(parents=True, exist_ok=True)
@@ -82,9 +80,7 @@ def download_forecast_models(job: dict, work_dir: Path) -> tuple[Path, Path]:
     paths = []
     for kind in ("predictor", "decoder"):
         path = work_dir / "models" / job[kind + "_revision"]
-        snapshot_download(
-            job[kind + "_repo"], revision=job[kind + "_revision"], local_dir=path, token=False
-        )
+        snapshot_download(job[kind + "_repo"], revision=job[kind + "_revision"], local_dir=path)
         paths.append(path)
     return tuple(paths)
 

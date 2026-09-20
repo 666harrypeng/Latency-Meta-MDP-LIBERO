@@ -18,7 +18,6 @@ def conditioned_initialization(job, profile, schedule, *, work, clean_work):
             repo_type="dataset",
             revision=clean["dataset_revision"],
             local_dir=bundle,
-            token=False,
         )
         step = initialization["step"]
         if type(step) is not int or step <= 0:
@@ -28,7 +27,6 @@ def conditioned_initialization(job, profile, schedule, *, work, clean_work):
             repo_id=initialization["repo_id"],
             revision=initialization["revision"],
             local_dir=root,
-            token=False,
             allow_patterns=[
                 f"{step}/params/**",
                 f"{step}/assets/**",

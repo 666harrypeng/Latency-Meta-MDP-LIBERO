@@ -6,8 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 
-def test_local_clean_reuse_and_remote_step_are_explicit(tmp_path, monkeypatch):
+@pytest.mark.parametrize("credential", [None, "unit-test-token"])
+def test_local_clean_reuse_and_remote_step_are_explicit(tmp_path, monkeypatch, credential):
     import huggingface_hub
+    from huggingface_hub.utils import _headers
+
+    monkeypatch.setattr(_headers, "get_token", lambda: credential)
+    monkeypatch.setattr(_headers.constants, "HF_HUB_DISABLE_IMPLICIT_TOKEN", False)
 
     from latency_meta_mdp.policy.initialization import conditioned_initialization
 
@@ -72,7 +77,11 @@ def test_local_clean_reuse_and_remote_step_are_explicit(tmp_path, monkeypatch):
         "6000/assets/**",
         "6000/_CHECKPOINT_METADATA",
     ]
-    assert all(c["token"] is False for c in calls)
+    expected = None if credential is None else f"Bearer {credential}"
+    assert all(
+        _headers.build_hf_headers(token=c.get("token")).get("authorization") == expected
+        for c in calls
+    )
     del job["initialization"]
     (local / "assets/norm_stats.json").write_bytes(b"changed")
     with pytest.raises(ValueError, match="normalization"):

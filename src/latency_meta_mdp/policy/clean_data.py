@@ -33,7 +33,6 @@ def resolve_clean_inputs(job, work_dir):
             repo_type="dataset",
             revision=job["dataset_revision"],
             local_dir=bundle,
-            token=False,
         )
         identity = job["dataset_revision"]
     else:
@@ -51,7 +50,6 @@ def resolve_clean_inputs(job, work_dir):
                 repo_type="dataset",
                 revision=source["revision"],
                 local_dir=bundle,
-                token=False,
             )
         identity = sha256_file(bundle / "bundle.json")
         if identity != source["manifest_sha256"]:
