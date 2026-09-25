@@ -40,6 +40,32 @@ def test_pipeline_runs_stages_in_order_and_skips_completed_work(tmp_path, monkey
     assert len(calls) == 1 and "--check-access" in calls[0]
 
 
+def test_pipeline_with_pinned_initialization_does_not_retrain_clean(tmp_path, monkeypatch):
+    import sys
+
+    from latency_meta_mdp.data.forecast.assets import load_forecast_job
+    from latency_meta_mdp.policy import pipeline as cli
+
+    config = Path("configs/experiments/moving_ball/l2/conditioned.yaml").resolve()
+    job = load_forecast_job(config, project_root=Path.cwd())
+    job["initialization"] = dict(repo_id="owner/clean", revision="a" * 40, step=5079)
+    monkeypatch.setattr(cli, "load_forecast_job", lambda *a, **kw: job)
+    monkeypatch.setattr(
+        sys, "argv", ["pipeline", "--config", str(config), "--work-dir", str(tmp_path)]
+    )
+    calls = []
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda args, **kw: calls.append(args) or SimpleNamespace(returncode=0),
+    )
+    cli.main()
+    assert len(calls) == 3
+    assert "--check-access" in calls[0]
+    assert "latency_meta_mdp.data.forecast.prepare" in calls[1]
+    assert "latency_meta_mdp.policy.train_conditioned" in calls[2]
+
+
 def test_source_materialization_excludes_hf_metadata_and_preserves_declared_files(
     tmp_path, monkeypatch
 ):

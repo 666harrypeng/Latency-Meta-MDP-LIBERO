@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from latency_meta_mdp.policy.profile import SFTProfile
 
@@ -45,6 +46,40 @@ class SFTSchedule:
     batch_size: int
     warmup_steps: int
     decay_steps: int
+
+
+def apply_conditioned_source_budget(config, *, source_count: int, source_epochs: float):
+    """Count original action sources, independently of the virtual twenty-query view."""
+    if (
+        type(source_count) is not int
+        or source_count < 1
+        or type(source_epochs) not in (int, float)
+        or not math.isfinite(source_epochs)
+        or source_epochs <= 0
+    ):
+        raise ValueError("conditioned source count/epoch budget must be positive")
+    milestone = math.ceil(source_count * source_epochs / (3 * config.batch_size))
+    if milestone < 2:
+        raise ValueError("conditioned budget needs distinct rolling saves and milestones")
+    steps = 3 * milestone
+    metadata = {k: v for k, v in config.policy_metadata.items() if k != "balanced_pair_epochs"}
+    metadata.update(
+        training_budget_unit="source_epochs",
+        source_epochs_requested=source_epochs,
+        equivalent_source_epochs=steps * config.batch_size / source_count,
+        training_examples=steps * config.batch_size,
+        checkpoint_steps=[milestone, 2 * milestone, steps],
+    )
+    return replace(
+        config,
+        num_train_steps=steps,
+        keep_period=milestone,
+        save_interval=min(config.save_interval, max(1, milestone // 4)),
+        lr_schedule=replace(
+            config.lr_schedule, warmup_steps=max(1, math.ceil(steps / 20)), decay_steps=steps
+        ),
+        policy_metadata=metadata,
+    )
 
 
 def resolve_sft_schedule(*, profile: SFTProfile, request: SFTLaunchRequest) -> SFTSchedule:

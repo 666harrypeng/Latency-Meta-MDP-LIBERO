@@ -19,6 +19,8 @@ class CleanTrainingInputs:
     bundle_identity: str
     purpose: str
     task_parameters: dict | None
+    bundle_root: Path
+    policy_export_manifest: Path
 
 
 def resolve_clean_inputs(job, work_dir):
@@ -146,6 +148,8 @@ def resolve_clean_inputs(job, work_dir):
         identity,
         "training_source" if job["schema_version"] == 1 else info["purpose"],
         task_parameters,
+        bundle,
+        manifest_path if job["schema_version"] == 1 else nested,
     )
 
 

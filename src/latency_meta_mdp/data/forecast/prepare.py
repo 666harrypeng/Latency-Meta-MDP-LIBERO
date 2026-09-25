@@ -22,7 +22,10 @@ def main():
     p.add_argument("--output-dir", "--work-dir", dest="work_dir", type=Path, required=True)
     p.add_argument("--check-access", action="store_true")
     p.add_argument("--device", default="cuda:0")
+    p.add_argument("--limit-episodes", type=int, help="Task preparation smoke subset")
     a = p.parse_args()
+    if a.limit_episodes is not None and a.limit_episodes < 1:
+        p.error("episode limit must be positive")
     root = Path.cwd()
     job = load_forecast_job(a.config, project_root=root)
     a.work_dir.mkdir(parents=True, exist_ok=True)
@@ -39,8 +42,33 @@ def main():
         spec.model_id, revision=spec.revision, allow_patterns=["config.json", "model.safetensors"]
     )
     if a.check_access:
+        if job["schema_version"] == 2:
+            terminal = job.get("terminal_dir")
+            if terminal is None:
+                terminal = Path(
+                    snapshot_download(
+                        job["terminal_repo"], repo_type="dataset", revision=job["terminal_revision"]
+                    )
+                )
+            if not (terminal / "manifest.json").is_file():
+                raise FileNotFoundError("conveyor terminal-boundary assets are missing")
         print("Frozen model and DINO access verified", flush=True)
         return
+    if job["schema_version"] == 2:
+        from latency_meta_mdp.data.conveyor.forecast_prepare import prepare_conveyor_forecasts
+
+        result = prepare_conveyor_forecasts(
+            job,
+            a.work_dir,
+            predictor=predictor,
+            decoder=decoder,
+            device=a.device,
+            limit_episodes=a.limit_episodes,
+        )
+        print(json.dumps({"completed_manifest": str(result), "optimizer_steps": 0}), flush=True)
+        return
+    if a.limit_episodes is not None:
+        raise ValueError("use the standalone forecast builder for a legacy preparation subset")
     source = stage_source(job, a.work_dir / "source")
     from latency_meta_mdp.belief.jepa.corpus import (
         load_jepa_proprio_normalization,

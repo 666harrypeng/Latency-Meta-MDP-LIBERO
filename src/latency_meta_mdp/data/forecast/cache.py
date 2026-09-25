@@ -50,6 +50,7 @@ def write_forecast_cache(
     bindings: dict,
     batch_size: int = 32,
     resume: bool = False,
+    image_codec: str = "png",
 ):
     """Batch only real endpoints. Missing history/tails have no rows or invented labels."""
     import torch
@@ -58,15 +59,18 @@ def write_forecast_cache(
     from latency_meta_mdp.belief.jepa.data import (
         materialize_direct_query,
     )
+    from latency_meta_mdp.belief.jepa.identity import data_domain
 
     _check_bindings(bindings)
+    if image_codec not in {"png", "webp_lossless"}:
+        raise ValueError("forecast images require a supported lossless codec")
     if (
         not records
         or len({r.episode_id for r in records}) != len(records)
         or len({r.level for r in records}) != 1
     ):
         raise ValueError("cache records require unique train episodes of one level")
-    if any(r.split != "train" or r.level != normalization.level for r in records):
+    if any(r.split != "train" or data_domain(r) != data_domain(normalization) for r in records):
         raise ValueError("forecast SFT cache requires matching train records and normalization")
     if type(batch_size) is not int or batch_size <= 0:
         raise ValueError("cache batch size must be positive")
@@ -75,6 +79,8 @@ def write_forecast_cache(
         "bindings": bindings,
         "episodes": [(r.episode_id, r.terminal_tick) for r in records],
     }
+    if image_codec != "png":
+        contract["image_codec"] = image_codec
     contract = json.loads(json.dumps(contract))
     if resume:
         if json.loads((root / "generation.json").read_text()) != contract:
@@ -130,9 +136,11 @@ def write_forecast_cache(
             def encode(item):
                 i, (episode, h, q, _) = item
                 stream = io.BytesIO()
-                Image.fromarray(np.concatenate(rgb[i], axis=1)).save(
-                    stream, format="PNG", compress_level=1
-                )
+                image = Image.fromarray(np.concatenate(rgb[i], axis=1))
+                if image_codec == "png":
+                    image.save(stream, format="PNG", compress_level=1)
+                else:
+                    image.save(stream, format="WEBP", lossless=True, method=0)
                 image = stream.getvalue()
                 return episode, h, q, image, np.asarray(proprio[i], dtype="<f4").tobytes()
 
@@ -147,7 +155,7 @@ def write_forecast_cache(
                     json.dumps(
                         {
                             "prediction_rows": count,
-                            "png_bytes": png_bytes,
+                            "encoded_image_bytes": png_bytes,
                             "elapsed_seconds": time.monotonic() - started,
                         }
                     ),
@@ -171,6 +179,11 @@ def write_forecast_cache(
                     "frame_count": n,
                     "level": record.level,
                     "logical_master_task_index": record.logical_master_task_index,
+                    **(
+                        {"task_id": record.task_id, "action_contract_id": record.action_contract_id}
+                        if record.task_id is not None
+                        else {}
+                    ),
                 }
             )
             if record.episode_id in done:
@@ -209,7 +222,7 @@ def write_forecast_cache(
                         "cache_episode": record.episode_id,
                         "episodes_done": len(episodes),
                         "prediction_rows": count,
-                        "png_bytes": png_bytes,
+                        "encoded_image_bytes": png_bytes,
                         "elapsed_seconds": time.monotonic() - started,
                     }
                 ),
@@ -229,7 +242,9 @@ def write_forecast_cache(
             "bindings": dict(bindings),
             "episodes": episodes,
             "prediction_count": count,
-            "png_bytes": png_bytes,
+            "image_codec": image_codec,
+            "encoded_image_bytes": png_bytes,
+            **({"png_bytes": png_bytes} if image_codec == "png" else {}),
             "database_bytes": database.stat().st_size,
             "verification_policy": "metadata_and_read_validation",
             "phase_coverage": phase_coverage,

@@ -40,8 +40,10 @@ def main():
     parser.add_argument("--decoder-dir", type=Path, required=True)
     parser.add_argument("--decision", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--belief-config", type=Path, help="Task-aware Direct data job")
     parser.add_argument("--level", type=int, default=3, choices=(1, 2, 3))
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--image-codec", choices=("png", "webp_lossless"), default="png")
     parser.add_argument("--limit-episodes", type=int)
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
@@ -51,11 +53,6 @@ def main():
         raise ValueError("episode limit must be positive")
     torch.set_num_threads(8)
     root = repository_root()
-    config = load_action_conditioned_jepa_config(
-        model_path=root / "configs/models/jepa/model.yaml",
-        level_path=root / f"configs/models/jepa/l{args.level}.yaml",
-        temporal_sampling_path=root / "configs/models/jepa/stride4_80ms_history_160ms.yaml",
-    )
     norm_path = args.predictor_dir / "proprio_normalization.json"
     weights = args.predictor_dir / "checkpoints/epoch-075/model.safetensors"
     decision = json.loads(args.decision.read_text())
@@ -68,25 +65,45 @@ def main():
             raise ValueError("forecast checkpoint differs from declared decision")
     norm = load_jepa_proprio_normalization(norm_path)
     print("Verifying existing source/cache/split; no new data collection or training", flush=True)
-    inputs = load_verified_jepa_inputs(
-        source_root=args.source_root,
-        cache_run_manifest=args.vision_cache_manifest,
-        split_manifest_path=args.split_manifest,
-        config=config,
-        verify_payloads=False,
-        required_episode_ids=norm.episode_ids,
-    )
-    ids = sorted(
-        set(inputs.split.train_episode_ids) & set(inputs.source.episode_ids(level=args.level))
-    )
-    if tuple(ids) != norm.episode_ids:
-        raise ValueError("normalization does not bind the complete train inventory")
+    if args.belief_config is not None:
+        from latency_meta_mdp.belief.jepa.job import load_direct_data, load_direct_job
+
+        job = load_direct_job(args.belief_config, project_root=root)
+        if (
+            job.source_root != args.source_root.resolve()
+            or job.vision_cache_manifest != args.vision_cache_manifest.resolve()
+            or job.split_manifest != args.split_manifest.resolve()
+        ):
+            raise ValueError("forecast paths differ from the declared Belief data job")
+        config, job_norm, inputs, dataset = load_direct_data(job, split="train")
+        if norm.to_mapping() != job_norm.to_mapping():
+            raise ValueError("forecast predictor normalization differs from the data job")
+        records = dataset.records
+    else:
+        config = load_action_conditioned_jepa_config(
+            model_path=root / "configs/models/jepa/model.yaml",
+            level_path=root / f"configs/models/jepa/l{args.level}.yaml",
+            temporal_sampling_path=root / "configs/models/jepa/stride4_80ms_history_160ms.yaml",
+        )
+        inputs = load_verified_jepa_inputs(
+            source_root=args.source_root,
+            cache_run_manifest=args.vision_cache_manifest,
+            split_manifest_path=args.split_manifest,
+            config=config,
+            verify_payloads=False,
+            required_episode_ids=norm.episode_ids,
+        )
+        ids = sorted(
+            set(inputs.split.train_episode_ids) & set(inputs.source.episode_ids(level=args.level))
+        )
+        if tuple(ids) != norm.episode_ids:
+            raise ValueError("normalization does not bind the complete train inventory")
+        records = tuple(
+            load_verified_jepa_record(inputs, episode_id=e, level=args.level, split="train")
+            for e in ids
+        )
     if args.limit_episodes is not None:
-        ids = ids[: args.limit_episodes]
-    records = tuple(
-        load_verified_jepa_record(inputs, episode_id=e, level=args.level, split="train")
-        for e in ids
-    )
+        records = records[: args.limit_episodes]
     count = sum(max(0, r.terminal_tick - q - 9) for r in records for q in range(1, 21))
     # Conservative lossless PNG + SQLite bound; actual compressed usage is logged.
     parent = args.output_dir.parent
@@ -129,6 +146,7 @@ def main():
         bindings=bindings,
         batch_size=args.batch_size,
         resume=args.resume,
+        image_codec=args.image_codec,
     )
     print(json.dumps({"completed_manifest": str(manifest), "optimizer_steps": 0}), flush=True)
 

@@ -53,12 +53,36 @@ action targets. To reuse another run's clean checkpoint and cache, pass
 An `initialization` block in the job may instead pin a public clean checkpoint's
 `repo_id`, `revision` and `step`. The standalone trainer then downloads that
 checkpoint and the matching training bundle. Use a separate output directory per mode.
+Set `initialization.local_path` to an existing absolute checkpoint-step directory
+to reuse local weights instead; the declared step and data normalization are checked.
+
+Set `conditioned_source_epochs` to count training exposure against the original
+action-source count. This keeps the budget independent of the twenty-query view
+and saves three milestones at one-third, two-thirds and the full budget. Jobs
+without this field retain their existing two balanced-pair-epoch schedule.
+Conditioned jobs can override `device_count`, `batch_size` and `fsdp_devices`
+without changing clean-checkpoint initialization. Use `--mode smoke` in a separate
+directory for 100 real updates and a save; `--mode smoke --resume` checks restore
+and continues through update 120. Smoke runs do not publish checkpoints.
+`--check-data-only` checks a real conditioned batch without requiring the
+configured GPU topology or allocating optimizer state.
+
+The [conveyor conditioned job](../../configs/experiments/conveyor_sort/conditioned.yaml)
+reuses the clean training bundle and a small package of real terminal observations.
+Preparation generates frozen DINO features and lossless forecast images on the
+training machine. `--limit-episodes 1` produces a preparation smoke subset in a
+separate directory. Pass that cache with `--forecast-dir` and `--mode smoke` to
+pilot on the corresponding complete native episodes. Formal training requires
+the full cache and rejects this subset. The configured forecast space budget is
+checked before feature extraction, then refined using actual predictions.
 
 To run clean training, forecast preparation and conditioned training in sequence:
 
 ```bash
 python scripts/run_policy_pipeline.py --config "$CONFIG" --output-dir "$RUN_DIR"
 ```
+
+When the job pins an `initialization` checkpoint, the pipeline skips clean SFT.
 
 ## Meta policy
 

@@ -1,0 +1,24 @@
+schema_version: 2
+task_id: conveyor_sort
+clean_job: clean_fsdp.yaml
+input_mode: current_and_forecast
+predictor_repo: yypeng666/metamdp-jepa-direct-conveyor-q20-h160ms-epoch75-v1
+predictor_revision: 8f032237b69837e1c886eaa70e6641b3718b9bd7
+decoder_repo: yypeng666/metamdp-conveyor-dino-rgb-decoder-dualview-w384-d4-v1
+decoder_revision: 9b26f010490d1665f623504d65c6497c53e2bee4
+terminal_repo: yypeng666/metamdp-conveyor-sort-forecast-terminal-boundaries-v1
+terminal_revision: 1634fba8eedc8ffc3cc558aa761ce4770fa40e70
+initialization:
+  repo_id: yypeng666/metamdp-pi05-conveyor-sort-clean-state16-h50-full-sft-v1
+  revision: 9ae3f4eba28d1b43e73cbe1695102ff9033aa088
+  step: 5079
+conditioned_source_epochs: 15
+device_count: 8
+batch_size: 128
+fsdp_devices: 8
+image_codec: webp_lossless
+boundary_batch_size: 6
+forecast_batch_size: 32
+forecast_cache_budget_gib: 500
+conditioned_run_name: conveyor-forecast-rgb-state16-h50-v1
+conditioned_publish_repo: yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1

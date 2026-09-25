@@ -26,7 +26,7 @@ class ForecastPolicyDataset:
             stored = cache.episodes[e["episode_id"]]
             if any(
                 stored[k] != e[k] for k in ("frame_count", "level", "logical_master_task_index")
-            ):
+            ) or any(stored.get(k) != e.get(k) for k in ("task_id", "action_contract_id")):
                 raise ValueError("forecast/native episode identities mismatch")
         self._episode_arrays = {}
 
@@ -69,7 +69,8 @@ class ForecastPolicyDataset:
         if not np.allclose(np.asarray(raw["state"]), state[h], atol=1e-6, rtol=0):
             raise ValueError("native/forecast current state is misaligned")
         if ("frame_index" in raw and int(raw["frame_index"]) != h) or (
-            "episode_index" in raw and int(raw["episode_index"]) != episode_index
+            "episode_index" in raw
+            and int(raw["episode_index"]) != episode.get("native_episode_index", episode_index)
         ):
             raise ValueError("native/forecast frame identity is misaligned")
         n = min(50, len(actions) - h)
@@ -102,7 +103,7 @@ class ForecastPolicyDataset:
 def load_forecast_policy_dataset(native_dataset, spec):
     from latency_meta_mdp.data.forecast.cache import ForecastCache
 
-    if not isinstance(spec, dict) or set(spec) - {"input_mode"} != {
+    if not isinstance(spec, dict) or set(spec) - {"input_mode", "smoke_subset"} != {
         "cache_root",
         "policy_export_manifest",
         "bindings",
@@ -111,6 +112,26 @@ def load_forecast_policy_dataset(native_dataset, spec):
     cache = ForecastCache(Path(spec["cache_root"]), expected_bindings=spec["bindings"])
     path = Path(spec["policy_export_manifest"]).resolve()
     export = json.loads(path.read_text())
+    if export.get("task_id") == "conveyor_sort":
+        if (
+            export.get("format_id") != "metamdp_lerobot_v21"
+            or export.get("split") != "train"
+            or export.get("action_target_contract") != "masked_h50_real_actions_v1"
+            or export.get("source_manifest_sha256") != spec["bindings"]["source_manifest_sha256"]
+            or export.get("source_manifest_sha256") != spec["bindings"]["split_manifest_sha256"]
+        ):
+            raise ValueError("conveyor forecast/export source identity mismatch")
+        episodes = [
+            {
+                **row,
+                "level": None,
+                "logical_master_task_index": row["seed"],
+                "task_id": export["task_id"],
+                "action_contract_id": export["action_contract"],
+            }
+            for row in export["episodes"]
+        ]
+        return _make_view(native_dataset, episodes, cache, spec)
     if (
         export.get("format_id") != "metamdp_lerobot_structured_train_v1"
         or export.get("split") != "train"
@@ -132,6 +153,31 @@ def load_forecast_policy_dataset(native_dataset, spec):
     ):
         raise ValueError("forecast export manifest hash mismatch")
     nested = json.loads(nested_path.read_text())
+    return _make_view(native_dataset, nested["episodes"], cache, spec)
+
+
+def _make_view(native_dataset, episodes, cache, spec):
+    if type(spec.get("smoke_subset", False)) is not bool:
+        raise ValueError("smoke subset must be an explicit boolean")
+    if spec.get("smoke_subset", False):
+        from torch.utils.data import Subset
+
+        if not set(cache.episodes) <= {e["episode_id"] for e in episodes}:
+            raise ValueError("smoke cache contains episodes outside the train inventory")
+        indices, selected, offset = [], [], 0
+        for index, episode in enumerate(episodes):
+            end = offset + episode["frame_count"]
+            if episode["episode_id"] in cache.episodes:
+                indices.extend(range(offset, end))
+                selected.append({**episode, "native_episode_index": index})
+            offset = end
+        if offset != len(native_dataset):
+            raise ValueError("smoke source/native dataset length mismatch")
+        native_dataset, episodes = Subset(native_dataset, indices), selected
+    return _dataset_class(spec)(native_dataset, episode_rows=episodes, cache=cache)
+
+
+def _dataset_class(spec):
     from latency_meta_mdp.policy.conditioning import conditioning_contract
 
     mode = spec.get("input_mode", "current_and_forecast")
@@ -141,4 +187,4 @@ def load_forecast_policy_dataset(native_dataset, spec):
         from latency_meta_mdp.data.forecast.only_dataset import ForecastOnlyPolicyDataset
 
         dataset_type = ForecastOnlyPolicyDataset
-    return dataset_type(native_dataset, episode_rows=nested["episodes"], cache=cache)
+    return dataset_type
