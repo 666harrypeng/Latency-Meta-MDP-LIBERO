@@ -135,6 +135,10 @@ def prepare_visual_decoder_data(*, project_root: Path, output: Path, seed: int =
 
 def verify_visual_decoder_data(manifest_path: Path, *, project_root: Path):
     manifest = json.loads(manifest_path.read_text())
+    if manifest.get("format_id") == "conveyor_decoder_data_v1":
+        from latency_meta_mdp.belief.decoder.conveyor import verify_decoder_data
+
+        return verify_decoder_data(manifest_path, project_root=project_root)
     if (
         manifest.get("format_id") != "frozen_visual_decoder_rgb_targets_v1"
         or not manifest["complete"]
@@ -211,3 +215,12 @@ class VisualDecoderDataset(torch.utils.data.Dataset):
         return torch.from_numpy(np.array(z[tick], copy=True)), torch.from_numpy(
             np.array(rgb[tick], copy=True)
         )
+
+
+def load_decoder_dataset(manifest_path, *, project_root, partition):
+    manifest = json.loads(Path(manifest_path).read_text())
+    if manifest.get("format_id") == "conveyor_decoder_data_v1":
+        from latency_meta_mdp.belief.decoder.conveyor import ConveyorDecoderDataset
+
+        return ConveyorDecoderDataset(manifest_path, project_root=project_root, partition=partition)
+    return VisualDecoderDataset(manifest_path, project_root=project_root, partition=partition)

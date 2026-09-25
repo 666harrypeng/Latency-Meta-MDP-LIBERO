@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import io
 import json
 import time
 from pathlib import Path
 
 import numpy as np
-import pyarrow.parquet as pq
 import torch
 from PIL import Image, ImageDraw
 
@@ -19,6 +17,7 @@ from latency_meta_mdp.belief.decoder.evaluation import (
 from latency_meta_mdp.belief.jepa.data import (
     materialize_direct_sample,
 )
+from latency_meta_mdp.belief.jepa.evaluation_data import review_rgb, select_review_sources
 from latency_meta_mdp.belief.jepa.job import atomic_json
 from latency_meta_mdp.belief.jepa.metrics import (
     predict_legacy_endpoint,
@@ -34,7 +33,9 @@ def review_direct_outputs(*, job, dataset, direct, legacy, decoder_dir: Path | N
             query = materialize_direct_sample(
                 record, source_tick=10, query_ticks=q, normalization=dataset.normalization
             ).query.to(job.device)
-            for name, model in [("direct", direct)] + ([("ar", legacy)] if q % 4 == 0 else []):
+            for name, model in [("direct", direct)] + (
+                [("ar", legacy)] if legacy is not None and q % 4 == 0 else []
+            ):
                 predictor_ms = []
                 total_ms = []
                 for i in range(25):
@@ -87,6 +88,8 @@ def review_direct_outputs(*, job, dataset, direct, legacy, decoder_dir: Path | N
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     for model in ("direct", "ar", "copy_current"):
         rows = [r for r in report["results"] if model in r["coordinate_rmse"]]
+        if not rows:
+            continue
         for ax, key, scale, label in (
             (axes[0, 0], "visual", 1, "Visual coordinate RMSE"),
             (axes[0, 1], "qpos", 1000, "Joint position coordinate RMSE (mrad)"),
@@ -100,6 +103,8 @@ def review_direct_outputs(*, job, dataset, direct, legacy, decoder_dir: Path | N
             ax.set_ylabel(label)
     for model in ("direct", "ar"):
         rows = [r for r in timings if r["model"] == model]
+        if not rows:
+            continue
         axes[1, 0].plot(
             [r["milliseconds"] for r in rows],
             [r["predictor_median_ms"] for r in rows],
@@ -115,56 +120,32 @@ def review_direct_outputs(*, job, dataset, direct, legacy, decoder_dir: Path | N
             )
     axes[1, 0].set_ylabel("Predictor median latency (ms)")
     axes[1, 1].set_ylabel("Predictor + decoder median latency (ms)")
+    if decoder is None:
+        axes[1, 1].text(
+            0.5,
+            0.5,
+            "Decoder not evaluated",
+            ha="center",
+            va="center",
+            transform=axes[1, 1].transAxes,
+        )
     for ax in axes.flat:
         ax.set_xlabel("Forecast horizon (ms)")
         ax.grid(alpha=0.25)
-        ax.legend()
-    fig.suptitle(f"L{job.level} Direct and AR: real validation endpoints / isolated GPU runtime")
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend()
+    fig.suptitle(f"{job.label} Direct validation / isolated GPU runtime")
     fig.tight_layout()
     fig.savefig(output / "accuracy-runtime.png", dpi=160)
     fig.savefig(output / "accuracy-runtime.pdf")
     plt.close(fig)
     if decoder is None:
         return
-    metadata = {
-        r["episode_id"]: r
-        for r in pq.read_table(job.source_root / "meta/episodes.parquet").to_pylist()
-    }
-    chosen = []
-    used = set()
-    for r in dataset.records:
-        if r.logical_master_task_index in used:
-            continue
-        candidates = [
-            h
-            for h in range(10, r.terminal_tick - 19)
-            if r.phases[h] in ("approach", "grasp_funnel")
-        ]
-        if not candidates:
-            continue
-        # Select visible motion using GT feature change, before inspecting decoder errors.
-        scores = [
-            np.square(
-                np.asarray(r.cache.features[h + 20, 0], dtype=np.float32)
-                - np.asarray(r.cache.features[h, 0], dtype=np.float32)
-            ).mean()
-            for h in candidates
-        ]
-        h = candidates[int(np.argmax(scores))]
-        chosen.append((r, h))
-        used.add(r.logical_master_task_index)
-        if len(chosen) == 4:
-            break
+    chosen = select_review_sources(dataset, task_id=job.task_id)
     selections = []
     for r, h in chosen:
-        meta = metadata[r.episode_id]
-        rows = pq.read_table(
-            job.source_root / meta["data_shard"],
-            filters=[("episode_id", "=", r.episode_id)],
-            columns=["formal_tick", "agentview_rgb", "wrist_rgb"],
-        ).to_pylist()
-        by_tick = {row["formal_tick"]: row for row in rows}
         qs = (1, 5, 10, 15, 20)
+        by_tick = review_rgb(job, r, [h + q for q in qs])
         canvas = Image.new("RGB", (len(qs) * 224, 6 * 248), "white")
         draw = ImageDraw.Draw(canvas)
         for col, q in enumerate(qs):
@@ -176,11 +157,7 @@ def review_direct_outputs(*, job, dataset, direct, legacy, decoder_dir: Path | N
             pred = decode(decoder, prediction.visual_latents).cpu().numpy()[0]
             gt_decode = decode(decoder, sample.target_visual).cpu().numpy()[0]
             for camera, field in enumerate(("agentview_rgb", "wrist_rgb")):
-                gt = (
-                    Image.open(io.BytesIO(by_tick[h + q][field]["bytes"]))
-                    .convert("RGB")
-                    .resize((224, 224), Image.Resampling.BILINEAR)
-                )
+                gt = Image.fromarray(by_tick[h + q][camera])
                 images = [gt] + [
                     Image.fromarray(
                         (x[camera].transpose(1, 2, 0) * 255).round().clip(0, 255).astype("uint8")
@@ -211,7 +188,7 @@ def review_direct_outputs(*, job, dataset, direct, legacy, decoder_dir: Path | N
         output / "visual-review.json",
         {
             "selection": (
-                "first four distinct validation masters with approach/grasp; "
+                "first four distinct validation scenes (legacy: approach/grasp only); "
                 "largest GT main-feature change within each selected episode"
             ),
             "cases": selections,

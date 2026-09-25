@@ -16,12 +16,13 @@ from safetensors.torch import load_file, save_file
 from torch.nn.parallel import DistributedDataParallel
 
 from latency_meta_mdp.belief.decoder.data import (
-    VisualDecoderDataset,
+    load_decoder_dataset,
     verify_visual_decoder_data,
 )
 from latency_meta_mdp.belief.decoder.evaluation import (
     decode,
     evaluate_reconstruction,
+    load_visual_decoder,
     save_comparison,
 )
 from latency_meta_mdp.belief.decoder.model import (
@@ -66,6 +67,7 @@ def train_visual_decoder(
     limit_steps: int | None = None,
     resume: bool = False,
     wandb_enabled: bool = False,
+    initialize_from: Path | None = None,
 ):
     world = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
@@ -100,9 +102,16 @@ def train_visual_decoder(
         "edge_weight": 0.1,
         "trainable": "visual_decoder_only",
     }
+    initialization = (
+        None if initialize_from is None else sha256_file(initialize_from / "model.safetensors")
+    )
+    if initialization is not None:
+        config["initialization_sha256"] = initialization
     if rank == 0:
         if resume:
             previous = json.loads((output / "run.json").read_text())
+            if previous.get("initialization_sha256") != initialization:
+                raise ValueError("decoder initialization identity differs from resume")
             assert all(previous[k] == v for k, v in config.items()), "resume configuration mismatch"
         else:
             output.mkdir(parents=True, exist_ok=False)
@@ -119,8 +128,8 @@ def train_visual_decoder(
         verify_visual_decoder_data(data_manifest, project_root=project_root)
     if world > 1:
         dist.barrier()
-    train = VisualDecoderDataset(data_manifest, project_root=project_root, partition="fit")
-    heldout = VisualDecoderDataset(data_manifest, project_root=project_root, partition="holdout")
+    train = load_decoder_dataset(data_manifest, project_root=project_root, partition="fit")
+    heldout = load_decoder_dataset(data_manifest, project_root=project_root, partition="holdout")
     sampler = torch.utils.data.DistributedSampler(
         train, num_replicas=world, rank=rank, seed=seed, shuffle=True
     )
@@ -133,7 +142,13 @@ def train_visual_decoder(
         persistent_workers=workers > 0,
         multiprocessing_context="spawn" if workers else None,
     )
-    model = DualViewVisualDecoder(model_config).to(device)
+    model = (
+        DualViewVisualDecoder(model_config).to(device)
+        if initialize_from is None
+        else load_visual_decoder(initialize_from, device=str(device))
+    )
+    if dataclasses.asdict(model.config) != dataclasses.asdict(model_config):
+        raise ValueError("decoder initializer architecture differs from training config")
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), weight_decay=0.01)
     epoch_start = batch_start = steps = examples = 0
     if resume:
