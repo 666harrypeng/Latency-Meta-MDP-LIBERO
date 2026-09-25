@@ -160,7 +160,24 @@ The local dataset path is relative to the generated job file. To distribute a
 published bundle, replace its dataset source with `kind: huggingface`, `repo_id`
 and a pinned 40-character `revision`, retaining `manifest_sha256`. Profile and
 training recipe paths in these task jobs are repository-relative. Packaging does
-not publish data or assign a collaborator training task.
+not publish data.
+
+## Evaluate a clean policy
+
+For full-policy validation with controlled latency, use the OpenPI environment:
+
+```bash
+python scripts/evaluate_conveyor_policy.py \
+  --checkpoint "$CHECKPOINT" --checkpoint-revision "$REVISION" \
+  --normalization-sha256 "$NORM_SHA256" \
+  --protocol rtc --regime nominal --output-dir "$EVAL_DIR"
+```
+
+Use `family` for episode-varying latency and `sharp` for ordinary asynchronous
+replacement. The default cohort is validation seeds 2000–2019. E25 refers to
+observation-origin plan age for RTC, and actions consumed after arrival for
+sharp replacement; report request counts with success for this whole-protocol
+comparison. Actual wall time is recorded separately from injected logical delay.
 
 ## Data semantics
 
@@ -218,6 +235,47 @@ and masks controls after q. Individual deliveries never split a sequence.
 Preflight runs real gradient updates and latency measurements without saving
 weights. Formal training requires committed implementation code and a matching
 preflight; run it in tmux. Task checkpoints carry the conveyor/controller
-identity and cannot be substituted for moving-ball checkpoints. The existing
-AR-comparison review command is for moving-ball; conveyor validation reporting
-and decoded scene review require their task adapter before downstream admission.
+identity and cannot be substituted for moving-ball checkpoints.
+
+After training completes, evaluate Direct against the copy-current baseline:
+
+```bash
+"$CONVEYOR_PYTHON" scripts/evaluate_belief.py --config "$CONFIG" \
+  --run-dir "$RUN_DIR" --output-dir "$REVIEW_DIR" --source-stride 10
+```
+
+Conveyor validation uses a fixed source stride per episode plus its last legal
+endpoint at every q=1–20. The default stride is 10 ticks; use 1 for all endpoints.
+Both predictors use identical samples. Add `--decoder-dir "$DECODER_DIR"` for
+matched GT / GT-latent decode / predicted-latent decode panels. Conveyor does not
+require an AR checkpoint; existing moving-ball AR comparisons remain available.
+
+Use `--metrics-only` to compute prediction errors without GPU timing or RGB
+review. This stage can share a GPU with training. Later, use `--review-only`
+with the same output directory and source stride to reuse those metrics for
+isolated inference timing and optional decoded panels. It verifies the saved
+checkpoint/data identities and does not rerun the prediction-error sweep.
+
+## Train the task-specific RGB decoder
+
+Train a separate conveyor decoder from random initialization using the task's
+own train/validation sources. Prepare a sampled view without copying payloads:
+
+```bash
+"$CONVEYOR_PYTHON" -m latency_meta_mdp.belief.decoder.cli prepare \
+  --task conveyor_sort --corpus-manifest "$CORPUS_DIR/manifest.json" \
+  --feature-manifest "$FEATURE_DIR/manifest.json" --stride 5 \
+  --output-dir "$DECODER_DATA"
+
+"$CONVEYOR_PYTHON" -m latency_meta_mdp.belief.decoder.cli train \
+  --data-manifest "$DECODER_DATA/manifest.json" --output-dir "$DECODER_RUN" \
+  --epochs "$EPOCHS" --wandb
+```
+
+The view samples every five observation boundaries plus the final boundary.
+Train episodes form `fit`, validation episodes form `holdout`, and test is
+excluded. Features stay memory-mapped; RGB is decoded from the original PNG
+source in bounded worker caches. No RGB or feature payload is duplicated.
+Use a new output directory for each task's weights and `--resume` to continue
+that run. Belief, decoder, VLA SFT and Meta are trained for the selected task;
+the shared module architecture does not imply reusing another task's weights.
