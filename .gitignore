@@ -24,3 +24,5 @@ render_cache/
 .DS_Store
 
 sft-work/
+
+wandb/*

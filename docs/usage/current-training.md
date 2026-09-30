@@ -1,112 +1,123 @@
-# Current training tasks
+# Training task list
 
-This file contains the active assignment only. Replace its contents for the next
-round; keep experiment history and results in the external project record.
+Moving ball and conveyor are separate task families with their own data and model
+checkpoints. The operator's startup request selects which jobs to run and their
+priority. This list records configurations and dependencies, not an execution
+queue or a history of runs.
 
-## Assignment
+Use [Docker setup](../../docker/README.md), then run the commands below from
+`/workspace`. Shared training, resume and publication options are described in
+[training commands](training.md).
 
-Run these tasks using the supplied configurations:
+## Conveyor
 
-1. Train clean π0.5 from the public base checkpoint using [clean.yaml](../../configs/experiments/moving_ball/l2/clean.yaml).
-2. Generate forecast inputs locally with the supplied frozen L2 Direct Belief and
-   RGB decoder, then train the **current + forecast** policy from the final L2 clean checkpoint using
-   [conditioned.yaml](../../configs/experiments/moving_ball/l2/conditioned.yaml).
-   Inputs are current dual-camera RGB and current 16D proprio, plus forecast
-   dual-camera RGB and forecast 16D proprio, query horizon and task prompt.
-   Action supervision remains the observation-indexed H50 chunk.
+### Current + forecast conditioned SFT
 
-3. Train L2 **forecast-only** using [l2/forecast_only.yaml](../../configs/experiments/moving_ball/l2/forecast_only.yaml),
-   reusing the same clean checkpoint and generated cache, not the current + forecast checkpoint.
-4. Train L3 **forecast-only** using [l3/forecast_only.yaml](../../configs/experiments/moving_ball/l3/forecast_only.yaml).
-   It downloads the existing L3 clean6000 initializer; do not train another L3 clean policy.
+Configuration: [conditioned_ddp.yaml](../../configs/experiments/conveyor_sort/conditioned_ddp.yaml).
 
-Tasks 3–4 replace native RGB/proprio values with predictions and supervise actions
-starting at the forecast endpoint. They retain the clean VLA input structure.
-
-The combined launcher performs tasks 1–2, including local forecast generation. Use the configured 8 devices,
-global batch 256 (32 per device). Launch one process; OpenPI handles data parallelism.
-This assignment does not include Belief training, Meta training or evaluation.
-
-## L2 clean and current + forecast
-
-Follow [Docker setup](../../docker/README.md) in a persistent host terminal session
-(for example, tmux). Export `HF_TOKEN` and `WANDB_API_KEY` on the host before starting
-the container. The HF token needs official DINO weight access and permission to
-upload to the model repositories specified in the configs.
-
-Inside the container:
+- Initialize from the configured public conveyor clean checkpoint, step 5079.
+- Reuse the conveyor clean training bundle and download the small terminal-observation
+  supplement, conveyor Direct Belief, RGB decoder and DINO weights.
+- Generate forecasts locally, then train with current and forecast dual-camera RGB,
+  proprio, query horizon and the task prompt. Targets remain observation-indexed H50 actions.
+- Train 15 additional source-equivalent epochs. At global batch 256, milestones
+  are steps **7618, 15236, 22854** (approximately 5, 10 and 15 source epochs).
+- Use one JAX process, eight devices, global batch 256 and replicated data
+  parallelism (`fsdp_devices: 1`).
+  The model uses the existing non-LoRA conditioned training scope.
 
 ```bash
-cd /workspace
-export CONFIG=configs/experiments/moving_ball/l2/conditioned.yaml
-export RUN_DIR=/data/l2-sft
+export CONFIG=configs/experiments/conveyor_sort/conditioned_ddp.yaml
+export RUN_DIR=/data/conveyor-conditioned
 mkdir -p "$RUN_DIR"
-
 python scripts/run_policy_pipeline.py --config "$CONFIG" \
   --output-dir "$RUN_DIR" --check-access-only
 
-python scripts/train_clean_policy.py \
-  --config configs/experiments/moving_ball/l2/clean.yaml \
-  --output-dir "$RUN_DIR/clean" --check-only
-
+# After the preparation/training pilot described in training.md:
 set -o pipefail
 python -u scripts/run_policy_pipeline.py --config "$CONFIG" \
   --output-dir "$RUN_DIR" 2>&1 | tee -a "$RUN_DIR/pipeline.log"
 ```
 
-The access check downloads/caches frozen models. Clean preparation downloads the
-public training bundle and checks the actual input batch and device topology.
-The base model and tokenizer are downloaded by OpenPI as needed. After clean SFT,
-the pipeline downloads source data, generates forecasts and starts conditioned SFT.
-Rerun the final command with the same config and output directory after interruption;
-the pipeline skips completed stages and selects the stage-specific recovery mode.
+The pinned initializer makes this pipeline skip clean SFT. It prepares the full
+forecast cache and then starts conditioned training automatically. Rerun with the
+same configuration and directory to resume the incomplete stage. Use the same
+`RUN_DIR/preparation` for a completed full preparation and the combined pipeline.
+Keep a limited preparation pilot in a separate directory.
 
-## L2 forecast-only
+[conditioned.yaml](../../configs/experiments/conveyor_sort/conditioned.yaml) retains
+the alternative global-batch-128 / FSDP-8 configuration. Select one configuration
+per run. [clean_fsdp.yaml](../../configs/experiments/conveyor_sort/clean_fsdp.yaml)
+is the separate clean-training entrypoint when clean retraining is assigned.
 
-Reuse the L2 data and clean checkpoint from `/data/l2-sft`:
+## Moving ball
+
+### L2 clean and current + forecast
+
+Configurations: [clean.yaml](../../configs/experiments/moving_ball/l2/clean.yaml)
+and [conditioned.yaml](../../configs/experiments/moving_ball/l2/conditioned.yaml).
+
+The combined pipeline trains clean from π0.5 base, prepares L2 forecasts and
+trains current + forecast from the resulting final clean checkpoint. It uses
+8 devices, global batch 256 and replicated model state (`fsdp_devices: 1`).
+
+```bash
+export CONFIG=configs/experiments/moving_ball/l2/conditioned.yaml
+export RUN_DIR=/data/moving-ball-l2
+mkdir -p "$RUN_DIR"
+python scripts/run_policy_pipeline.py --config "$CONFIG" \
+  --output-dir "$RUN_DIR" --check-access-only
+set -o pipefail
+python -u scripts/run_policy_pipeline.py --config "$CONFIG" \
+  --output-dir "$RUN_DIR" 2>&1 | tee -a "$RUN_DIR/pipeline.log"
+```
+
+To run only clean SFT, use `scripts/train_clean_policy.py` with `clean.yaml` and
+`--output-dir /data/moving-ball-l2/clean`. Base parameters and the tokenizer are
+downloaded as needed. Forecast preparation also downloads the structured source
+corpus and selects the configured L2 training split.
+
+### L2 forecast-only
+
+Configuration: [forecast_only.yaml](../../configs/experiments/moving_ball/l2/forecast_only.yaml).
+Reuse the L2 clean checkpoint and forecast cache; this does not initialize from
+the current + forecast checkpoint.
 
 ```bash
 python -u scripts/train_conditioned_policy.py \
   --config configs/experiments/moving_ball/l2/forecast_only.yaml \
-  --output-dir /data/l2-forecast-only \
-  --clean-work-dir /data/l2-sft/clean \
-  --forecast-dir /data/l2-sft/preparation/forecasts
+  --output-dir /data/moving-ball-l2-forecast-only \
+  --clean-work-dir /data/moving-ball-l2/clean \
+  --forecast-dir /data/moving-ball-l2/preparation/forecasts
 ```
 
-## L3 forecast-only
+### L3 forecast-only
 
-Generate L3 forecasts locally, then train from the configured public clean6000:
+Configuration: [forecast_only.yaml](../../configs/experiments/moving_ball/l3/forecast_only.yaml).
+Download the configured clean6000 initializer, prepare L3 forecasts and train:
 
 ```bash
 /opt/belief/bin/python -u scripts/prepare_forecasts.py \
   --config configs/experiments/moving_ball/l3/forecast_only.yaml \
-  --output-dir /data/l3-forecast-only/preparation
-
+  --output-dir /data/moving-ball-l3-forecast-only/preparation
 python -u scripts/train_conditioned_policy.py \
   --config configs/experiments/moving_ball/l3/forecast_only.yaml \
-  --output-dir /data/l3-forecast-only
+  --output-dir /data/moving-ball-l3-forecast-only
 ```
 
-For either standalone SFT, append `--check-only` to check its batch before training,
-`--resume` to resume interrupted training, or `--publish-only` to retry publication
-after training completed. Keep all output directories distinct. Forecast preparation
-resumes its existing cache when rerun with the same inputs.
+Forecast-only replaces native RGB/proprio values with predictions and supervises
+H50 actions starting at the forecast endpoint. Each moving-ball conditioned run
+uses two balanced-query epochs. Configured milestones are L2 clean 1000/2000/3000,
+L2 current + forecast 3780/7560, and L2/L3 forecast-only 3505/7010.
 
-## Expected delivery
+## Checkpoints and outputs
 
-- Clean milestones: steps **1000, 2000, 3000**.
-- L2 current + forecast milestones: **3780, 7560**.
-- L2 forecast-only milestones: **3505, 7010**.
-- L3 forecast-only milestones: **3505, 7010**.
-- Each conditioned run covers two balanced-query epochs; forecast-only excludes
-  pairs without a real future action, so its step counts differ.
-- Each stage publishes its milestones together after that stage finishes, to the
-  HF model repo declared in its config. Uploads include inference parameters,
-  normalization and required notices; the model README stays empty.
-- Report the four HF repo links and published revisions, checkpoint steps, W&B run
-  links and completion status to the operator. Keep optimizer states,
-  logs and generated datasets on node storage until the operator arranges cleanup.
+Each job declares its HF publication destination. Training keeps rolling recovery
+checkpoints and permanent milestones; milestones are published together when the
+stage finishes. A completed milestone can also be uploaded during training using
+`scripts/publish_checkpoints.py` after its asynchronous save finishes.
 
-Completion requires `/data/l2-sft/pipeline.json` to show `phase: complete`, the two
-forecast-only runs to have `conditioned/completion.json`, and all four milestone
-publications to succeed. Generated forecast caches and optimizer states are not uploaded.
+The publisher includes inference parameters, normalization and required notices;
+it leaves the model README empty. Generated data and optimizer state remain on
+node storage. Return the configuration, checkpoint steps, W&B link, HF revision
+and completion status to the operator. Keep run history outside this task list.

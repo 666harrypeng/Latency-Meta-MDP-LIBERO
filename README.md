@@ -9,6 +9,7 @@ export PYTHONPATH=src
 ```
 
 - [Environment setup](docker/README.md)
+- [Training task list: moving ball and conveyor](docs/usage/current-training.md)
 - [Training and publishing commands](docs/usage/training.md)
 - [Experiment configurations](configs/experiments)
 - [Conveyor task and source recordings](docs/usage/conveyor.md)

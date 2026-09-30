@@ -3,7 +3,8 @@
 Run from the repository root with `PYTHONPATH=src`. Set `CONFIG` to the experiment
 configuration and `RUN_DIR` to its output directory. Commands below use the Docker
 environment paths; use the equivalent local Python environments outside Docker. Set `HF_TOKEN` and
-`WANDB_API_KEY` in the shell when required.
+`WANDB_API_KEY` in the shell when required. Select the task and configuration from
+[the training task list](current-training.md) according to the startup request.
 
 ## Clean policy
 
@@ -83,6 +84,66 @@ python scripts/run_policy_pipeline.py --config "$CONFIG" --output-dir "$RUN_DIR"
 ```
 
 When the job pins an `initialization` checkpoint, the pipeline skips clean SFT.
+
+### Preparation, reuse and throughput
+
+Clean training downloads the configured training bundle (RGB, state, actions and
+normalization). It downloads π0.5 base parameters and the tokenizer as needed.
+Conditioned training loads the selected clean checkpoint instead of starting
+again from the base model.
+
+Forecast preparation uses the frozen models pinned in the selected job:
+
+- Conveyor reads its clean bundle plus real terminal observations. It does not
+  need the full original source recordings or a RoboSuite rollout.
+- Moving ball reads the structured source corpus and its declared level/split.
+- Both encode observation history with DINO, run Direct Belief and the decoder,
+  and write forecast RGB/proprio for legal q=1–20 endpoints. VLA inference is not
+  involved in generating this cache.
+
+Keep model caches and run directories on mounted storage. If a conveyor bundle
+already exists on the node, set `dataset.kind: local` and `dataset.path` in its
+clean job, retaining the bundle manifest identity. This lets preparation and SFT
+read the same files instead of materializing the bundle under each stage.
+Use container-visible paths, for example `/data/datasets/conveyor-clean`.
+`initialization.local_path` similarly reuses an existing clean checkpoint.
+When copying an experiment YAML to another directory, update its relative
+`clean_job` path; that reference is resolved relative to the experiment file.
+
+Run a one-episode conveyor preparation and training pilot before full generation:
+
+```bash
+export PREP_PILOT=/data/conveyor-preparation-pilot
+export TRAIN_PILOT=/data/conveyor-training-pilot
+/opt/belief/bin/python -u scripts/prepare_forecasts.py \
+  --config "$CONFIG" --output-dir "$PREP_PILOT" --limit-episodes 1
+python -u scripts/train_conditioned_policy.py \
+  --config "$CONFIG" --output-dir "$TRAIN_PILOT" \
+  --forecast-dir "$PREP_PILOT/forecasts" --mode smoke
+python -u scripts/train_conditioned_policy.py \
+  --config "$CONFIG" --output-dir "$TRAIN_PILOT" \
+  --forecast-dir "$PREP_PILOT/forecasts" --mode smoke --resume
+```
+
+Preparation currently uses one GPU (`--device cuda:0` by default), batched model
+inference and four CPU image-encoding threads. `boundary_batch_size` controls
+DINO batches; `forecast_batch_size` controls predictor/decoder batches. Increase
+these on a short preparation run when memory permits, and compare elapsed time
+including image encoding and storage writes. Use separate pilot directories for
+throughput comparisons: a resumed completed cache only measures cache reuse.
+Do not start concurrent writers against the same forecast directory.
+
+Generate each task/model cache once. Moving-ball L2 current + forecast and
+forecast-only can share that cache via `--forecast-dir`. Rerunning preparation
+resumes completed episodes. Conveyor uses lossless WebP; its storage estimate is
+written to `storage-estimate.json`. Include DINO features, checkpoints and working
+space when sizing the mounted storage. The full cache stays local to the training
+node; HF distributes the source data and model weights.
+
+After the pilot, launch the combined pipeline with the full run directory. It
+prepares the full dataset, then starts SFT without a separate manual launch.
+Alternatively prepare into `$RUN_DIR/preparation` and call the standalone trainer.
+The limited pilot directory is not the full training cache.
 
 ## Meta policy
 

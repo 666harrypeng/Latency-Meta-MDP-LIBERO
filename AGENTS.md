@@ -3,9 +3,10 @@
 ## Start here
 
 - Read [README.md](README.md) for the repository layout.
-- For an assigned training run, read the [current training tasks](docs/usage/current-training.md).
-  That file specifies this round only; replace it for the next round rather than
-  appending history. Long-term experiment tracking is maintained outside this repository.
+- For training, read the [training task list](docs/usage/current-training.md).
+  It lists moving-ball and conveyor jobs separately. Run the task and configuration
+  selected in the operator's startup request; list order does not set priority.
+  Replace the list when assignments change rather than appending run history.
 - Use [Docker setup](docker/README.md) and [training commands](docs/usage/training.md)
   for environment and CLI instructions. Experiment YAML files are the source of
   truth for datasets, revisions, training settings and publication destinations.
