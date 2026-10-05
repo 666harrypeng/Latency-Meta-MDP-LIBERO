@@ -173,6 +173,12 @@ validation, then adds training interactions to the shared replay. `selected.json
 records the chosen checkpoint and whether any candidate met the measured budget.
 Reportable evaluation is run separately. Use `--resume` after interruption.
 
+Cohorts may include `zero`, `nominal`, and `family` delay regimes. All three
+cohort roles must use the same regime set. An optional `evaluation.bootstrap_cache`
+directory reuses verified native bootstrap actions when evaluating a conditioned
+policy; populate it with the matching clean policy first. Calibration charges the
+recorded native bootstrap inference time, not the cache read time.
+
 Create the cost profile from isolated, single-worker clean-rule and
 conditioned-Meta evaluation runs on the same reference device:
 

@@ -26,8 +26,8 @@ def validate_cohorts(cohorts):
         raise ValueError("cohorts require train, validation and feedback")
     masters, levels = {}, set()
     regimes = set(cohorts["train"])
-    if not regimes or not regimes <= {"nominal", "family"}:
-        raise ValueError("cycle regimes must be nominal and/or family")
+    if not regimes or not regimes <= {"zero", "nominal", "family"}:
+        raise ValueError("cycle regimes must be zero, nominal and/or family")
     for group, files in cohorts.items():
         if set(files) != regimes:
             raise ValueError("all cohort groups must cover the same regimes")
@@ -134,6 +134,7 @@ def load_cycle_config(path):
     if set(EVALUATION_PATHS) - evaluation.keys() or evaluation.keys() - set(EVALUATION_PATHS) - {
         "decision_interval_ticks",
         "rtc_max_guidance_weight",
+        "bootstrap_cache",
     }:
         raise ValueError("missing or unknown evaluation fields")
     cfg["evaluation"] = {
@@ -142,6 +143,8 @@ def load_cycle_config(path):
         **evaluation,
         **{k: resolve(evaluation[k]) for k in EVALUATION_PATHS},
     }
+    if "bootstrap_cache" in evaluation:
+        cfg["evaluation"]["bootstrap_cache"] = resolve(evaluation["bootstrap_cache"])
     interval = cfg["evaluation"]["decision_interval_ticks"]
     guidance = cfg["evaluation"]["rtc_max_guidance_weight"]
     if type(interval) is not int or interval < 1 or not math.isfinite(guidance) or guidance < 0:

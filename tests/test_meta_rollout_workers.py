@@ -6,6 +6,14 @@ import time
 import pytest
 
 
+def test_worker_preserves_explicit_python_overlay(monkeypatch):
+    from latency_meta_mdp.meta.rollouts import worker_environment
+
+    monkeypatch.setenv("PYTHONPATH", "/runtime/overlay:src")
+    env = worker_environment(0)
+    assert env["PYTHONPATH"].split(os.pathsep)[0] == "/runtime/overlay"
+
+
 def test_local_workers_write_disjoint_cases_and_resume_existing_results(tmp_path, monkeypatch):
     from latency_meta_mdp.meta import rollouts
 

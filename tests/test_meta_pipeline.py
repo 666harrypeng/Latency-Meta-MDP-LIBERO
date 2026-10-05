@@ -68,6 +68,8 @@ def test_cohort_split_rejects_feedback_leakage_and_duplicate_cases(tmp_path):
         "feedback": {"nominal": cohort("feedback", 1, "train")},
     }
     validate_cohorts(paths)
+    zero_paths = {group: {"zero": files["nominal"]} for group, files in paths.items()}
+    assert validate_cohorts(zero_paths) == {"train": {1}, "validation": {2}, "feedback": {1}}
     paths["feedback"]["nominal"] = cohort("leak", 2, "train")
     with pytest.raises(ValueError, match="feedback"):
         validate_cohorts(paths)
@@ -226,6 +228,11 @@ def test_cycle_config_binds_inputs_and_keeps_cost_profile_path(tmp_path, monkeyp
     path = tmp_path / "job.yaml"
     path.write_text(yaml.safe_dump(job))
     loaded = load_cycle_config(path)
+    cache = tmp_path / "bootstrap-cache"
+    cache.mkdir()
+    job["evaluation"]["bootstrap_cache"] = cache.name
+    path.write_text(yaml.safe_dump(job))
+    assert load_cycle_config(path)["evaluation"]["bootstrap_cache"] == str(cache)
     # Resolve asset paths, but keep venv executable symlinks: dereferencing them
     # invokes the base Python and silently loses the environment's packages.
     env_python = tmp_path / "venv/bin/python"

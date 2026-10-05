@@ -18,7 +18,9 @@ def worker_environment(gpu):
         "MUJOCO_EGL_DEVICE_ID": str(gpu),
         "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
         "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONPATH": str(Path.cwd() / "src"),
+        "PYTHONPATH": os.pathsep.join(
+            filter(None, (os.environ.get("PYTHONPATH"), str(Path.cwd() / "src")))
+        ),
         "OMP_NUM_THREADS": "8",
         "OPENBLAS_NUM_THREADS": "1",
     }
