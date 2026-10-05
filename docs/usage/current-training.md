@@ -1,15 +1,17 @@
 # Training task list
 
 Moving ball and conveyor are separate task families with their own data and model
-checkpoints. The operator's startup request selects which jobs to run and their
-priority. This list records configurations and dependencies, not an execution
-queue or a history of runs.
+checkpoints. Select the jobs to run explicitly; list order does not set execution
+priority. This list records configurations and dependencies, not run history.
 
 Use [Docker setup](../../docker/README.md), then run the commands below from
 `/workspace`. Shared training, resume and publication options are described in
 [training commands](training.md).
 
 ## Conveyor
+
+Use branch `conveyor-sort`. Follow the checkout instructions in
+[Docker setup](../../docker/README.md) before building the container.
 
 ### Current + forecast conditioned SFT
 
@@ -48,7 +50,7 @@ Keep a limited preparation pilot in a separate directory.
 [conditioned.yaml](../../configs/experiments/conveyor_sort/conditioned.yaml) retains
 the alternative global-batch-128 / FSDP-8 configuration. Select one configuration
 per run. [clean_fsdp.yaml](../../configs/experiments/conveyor_sort/clean_fsdp.yaml)
-is the separate clean-training entrypoint when clean retraining is assigned.
+is the separate clean-training entrypoint.
 
 ## Moving ball
 

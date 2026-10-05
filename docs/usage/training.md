@@ -4,7 +4,7 @@ Run from the repository root with `PYTHONPATH=src`. Set `CONFIG` to the experime
 configuration and `RUN_DIR` to its output directory. Commands below use the Docker
 environment paths; use the equivalent local Python environments outside Docker. Set `HF_TOKEN` and
 `WANDB_API_KEY` in the shell when required. Select the task and configuration from
-[the training task list](current-training.md) according to the startup request.
+[the training task list](current-training.md).
 
 ## Clean policy
 
@@ -113,8 +113,8 @@ When copying an experiment YAML to another directory, update its relative
 Run a one-episode conveyor preparation and training pilot before full generation:
 
 ```bash
-export PREP_PILOT=/data/conveyor-preparation-pilot
-export TRAIN_PILOT=/data/conveyor-training-pilot
+export PREP_PILOT=${RUN_DIR}-preparation-pilot
+export TRAIN_PILOT=${RUN_DIR}-training-pilot
 /opt/belief/bin/python -u scripts/prepare_forecasts.py \
   --config "$CONFIG" --output-dir "$PREP_PILOT" --limit-episodes 1
 python -u scripts/train_conditioned_policy.py \
