@@ -25,10 +25,18 @@ POLICY_KEYS = (
 
 
 def build_cost_profile(process_groups, *, hardware):
-    """Each group contains ordered episode results from ONE isolated worker process."""
+    """Each group contains episode results from ONE isolated worker process."""
     samples = {key: [] for key in COMPONENTS}
     binding, policies = None, {}
     for rows in process_groups:
+        rows = sorted(
+            rows,
+            key=lambda row: next(
+                event["wall_start_ns"]
+                for event in row["stage_events"]
+                if event["stage"] == "bootstrap_launch"
+            ),
+        )
         lane = {key: [] for key in COMPONENTS}
         for row in rows:
             identity = row["identity"]
@@ -58,9 +66,11 @@ def build_cost_profile(process_groups, *, hardware):
             ends = [e for e in events if e["stage"] == "bootstrap_return"]
             if len(starts) != 1 or len(ends) != 1:
                 raise ValueError("calibration needs paired bootstrap timestamps")
-            lane["bootstrap_clean"].append(
-                (ends[0]["wall_start_ns"] - starts[0]["wall_start_ns"]) / 1e9
+            # Cached actions save evaluation memory, not deployed bootstrap computation.
+            bootstrap_ns = row.get("bootstrap_cache", {}).get(
+                "native_wall_ns", ends[0]["wall_start_ns"] - starts[0]["wall_start_ns"]
             )
+            lane["bootstrap_clean"].append(bootstrap_ns / 1e9)
         for key, values in lane.items():
             samples[key].extend(values[1:])
     if any(len(v) < 3 or not np.isfinite(v).all() or min(v) <= 0 for v in samples.values()):
@@ -112,11 +122,6 @@ def main():
     groups = []
     for directory in args.process_results:
         rows = [json.loads(p.read_text()) for p in directory.glob("master*.json")]
-        rows.sort(
-            key=lambda r: next(
-                e["wall_start_ns"] for e in r["stage_events"] if e["stage"] == "bootstrap_launch"
-            )
-        )
         groups.append(rows)
     profile = build_cost_profile(groups, hardware=args.hardware)
     args.output.parent.mkdir(parents=True, exist_ok=True)

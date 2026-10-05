@@ -38,3 +38,23 @@ def test_calibration_discards_cold_calls_and_binds_policy():
     groups[0][1]["identity"]["client_config_sha256"] = "changed"
     with pytest.raises(ValueError, match="binding"):
         build_cost_profile(groups, hardware="test")
+
+
+def test_cached_bootstrap_is_charged_at_native_service_time():
+    from latency_meta_mdp.meta.calibration import build_cost_profile
+
+    groups = [process_rows(conditioned=True, q=True), process_rows(conditioned=False, q=False)]
+    for rows in groups:
+        for row in rows:
+            row["bootstrap_cache"] = {"cache_hit": True, "native_wall_ns": 500_000_000}
+    profile = build_cost_profile(groups, hardware="test")
+    assert profile["calibration"]["samples"]["bootstrap_clean"]["median_seconds"] == 0.5
+
+
+def test_calibration_orders_episodes_before_excluding_cold_calls():
+    from latency_meta_mdp.meta.calibration import build_cost_profile
+
+    groups = [process_rows(conditioned=True, q=True), process_rows(conditioned=False, q=False)]
+    unordered = [rows[1:] + rows[:1] for rows in groups]
+    profile = build_cost_profile(unordered, hardware="test")
+    assert profile["calibration"]["samples"]["decode"]["p95_seconds"] == 20 / 1e9

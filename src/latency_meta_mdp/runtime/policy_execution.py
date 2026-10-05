@@ -106,13 +106,14 @@ class InProcessOpenpiPolicy:
             "return_belief",
             "known_delay_oracle",
             "prefix",
+            "forecast",
         }:
             raise ValueError("policy noise stream or Belief input route is invalid")
         self.policy = policy
         self.noise_rng = noise_rng
         self.belief_input_key = belief_input_key
 
-    def __call__(self, observation: PolicyObservation, belief):
+    def __call__(self, observation: PolicyObservation, belief=None):
         inputs = observation.to_policy_inputs()
         if belief is not None:
             if self.belief_input_key == "prefix":
@@ -262,6 +263,7 @@ class LogicalPolicyRuntime:
         bootstrap_policy=None,
         belief_provider=None,
         forecast_provider=None,
+        forecast_delay_history=None,
         scheduler_uses_forecast=False,
         policy_uses_forecast=None,
         transition_sink=None,
@@ -286,12 +288,18 @@ class LogicalPolicyRuntime:
         if transition_sink is not None and not callable(transition_sink):
             raise TypeError("transition sink must be callable")
         if forecast_provider is not None and (
-            not self.is_rtc
-            or belief_provider is not None
-            or policy_uses_belief
-            or scheduler_uses_belief
+            belief_provider is not None or policy_uses_belief or scheduler_uses_belief
         ):
-            raise ValueError("RTC forecast provider cannot be mixed with legacy Belief routes")
+            raise ValueError("forecast provider cannot be mixed with legacy Belief routes")
+        if not self.is_rtc and forecast_provider is not None:
+            from latency_meta_mdp.runtime.rtc_protocol import RollingDelayHistory
+
+            if not isinstance(forecast_delay_history, RollingDelayHistory):
+                raise ValueError("sharp forecast requires explicit completed-delay history")
+            if scheduler_uses_forecast:
+                raise ValueError("sharp forecast currently supports fixed policy-only requests")
+        elif forecast_delay_history is not None:
+            raise ValueError("explicit forecast delay history is only for sharp forecast")
         if forecast_provider is not None and bootstrap_policy is None:
             raise ValueError("forecast runtime requires an explicit native bootstrap policy")
         if self.is_rtc:
@@ -335,6 +343,8 @@ class LogicalPolicyRuntime:
             probability.setflags(write=False)
             self.latency_probabilities = probability
         self.events = []
+        self.forecast_delay_history = forecast_delay_history
+        self._sharp_forecast_origins = {}
         self.transitions = []
         self.collector = DecisionStageAccumulator(gamma=gamma)
         self.harness = LogicalLatencyHarness(
@@ -398,6 +408,12 @@ class LogicalPolicyRuntime:
         )
 
     def _installed(self, event):
+        if self.forecast_delay_history is not None and event.source_request_id is not None:
+            self.forecast_delay_history.record_completed(
+                request_id=event.source_request_id,
+                origin_tick=self._sharp_forecast_origins.pop(event.source_request_id),
+                completion_tick=event.formal_tick,
+            )
         stage = "bootstrap_install" if event.formal_tick is None else "chunk_install"
         self._event(
             stage,
@@ -556,6 +572,18 @@ class LogicalPolicyRuntime:
             return launch
 
         def infer(context):
+            if self.forecast_provider is not None and not self.is_rtc:
+                self._sharp_forecast_origins[context.request_id] = formal_tick
+                old, mask = self.client.unread_buffer()
+                context = RtcInferenceContext(
+                    request_id=context.request_id,
+                    origin_tick=formal_tick,
+                    observation=context.observation,
+                    buffer_version=self.client.active_chunk_id,
+                    previous_actions=old,
+                    previous_action_mask=mask,
+                    estimated_delay_ticks=self.forecast_delay_history.estimate_ticks(),
+                )
             if self.forecast_provider is not None:
                 self._event(
                     "request_launch", formal_tick, self.clock(), request_id=context.request_id
@@ -587,10 +615,10 @@ class LogicalPolicyRuntime:
                     "buffer_version": context.buffer_version,
                     "available_prefix_actions": int(context.previous_action_mask.sum()),
                 }
-                if self.is_rtc
+                if self.is_rtc or self.forecast_provider is not None
                 else {}
             )
-            if self.is_rtc and (
+            if (self.is_rtc or self.forecast_provider is not None) and (
                 context.forecast is not None
                 or self.scheduler_uses_forecast
                 or getattr(self.policy, "plan_construction", None)
@@ -608,7 +636,7 @@ class LogicalPolicyRuntime:
             )
             self.policy_calls += 1
             condition = self.prepared_belief if self.policy_uses_belief else None
-            if self.is_rtc:
+            if self.is_rtc or self.forecast_provider is not None:
                 condition = context
             output = self.policy(context.observation, condition)
             self._event(

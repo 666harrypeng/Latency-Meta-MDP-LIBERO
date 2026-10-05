@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_meta_mdp.data.collection.contracts import TaskInstanceId
+from latency_meta_mdp.data.collection.contracts import MasterTaskRequest, TaskInstanceId
 from latency_meta_mdp.data.collection.task_instance import (
     _build_task_instance_runtime,
     materialize_task_instance,
@@ -48,6 +48,40 @@ def evaluation_jobs(cases, *, regime, output_root, identity, fixed_delay_ticks=N
         cell_identity = {**identity, "regime": name, "actual_fixed_delay_ticks": tick}
         for case in cases:
             yield case, name, output_root / f"fixed{20 * tick}", cell_identity
+
+
+def validate_evaluation_cohort(cohort, *, project_root):
+    """Keep held-out validation masters distinct from historical train-pool diagnostics."""
+    partition = cohort.get("partition")
+    if partition == "train_pool_development":
+        return
+    if partition != "validation":
+        raise ValueError("evaluation requires a development or validation cohort")
+    split_path = project_root / "configs/data/structured_source_split_v1.json"
+    if cohort.get("split_manifest_sha256") != sha256_file(split_path):
+        raise ValueError("validation cohort split identity differs")
+    split = json.loads(split_path.read_text())
+    allowed = set(split["validation_master_task_indices"])
+    cases = cohort["cases"]
+    if not cases or any(c["master_index"] not in allowed for c in cases):
+        raise ValueError("validation cohort contains a non-validation master")
+    keys = [(c["master_index"], c["policy_seed"]) for c in cases]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate validation trials")
+    for case in cases:
+        task = case["task_instance_id"]
+        MasterTaskRequest(
+            corpus_id=split["source_corpus_id"],
+            logical_task_index=case["master_index"],
+            master_task_seed=task["task_instance_seed"],
+            reserve=False,
+        )
+        if task["level"] != cohort["level"]:
+            raise ValueError("validation task level differs from cohort")
+        source_id = case["source_episode_id"]
+        prefix = f"source-L{cohort['level']}-task{case['master_index']:06d}-"
+        if source_id not in split["validation_episode_ids"] or not source_id.startswith(prefix):
+            raise ValueError("validation source episode differs from master")
 
 
 def main(argv=None):
@@ -98,6 +132,7 @@ def main(argv=None):
     parser.add_argument("--discount-per-tick", type=float, default=1.0)
     parser.add_argument("--bootstrap-checkpoint", type=Path)
     parser.add_argument("--bootstrap-verification", type=Path)
+    parser.add_argument("--bootstrap-cache", type=Path)
     parser.add_argument(
         "--regime",
         choices=(
@@ -114,10 +149,8 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     forecast_only = args.forecast_input_mode == "forecast_only"
-    if forecast_only and (
-        args.protocol != "rtc" or args.forecast_assets is None or args.planned_handoff is not None
-    ):
-        parser.error("forecast-only requires RTC and forecast assets, without another handoff mode")
+    if forecast_only and (args.forecast_assets is None or args.planned_handoff is not None):
+        parser.error("forecast-only requires forecast assets, without another handoff mode")
     if args.fixed_delay_ticks is not None:
         if args.regime != "zero":
             parser.error("fixed-delay-ticks cannot be combined with a nondefault regime")
@@ -172,16 +205,14 @@ def main(argv=None):
         if (args.planned_handoff == "forecast") != (args.forecast_assets is not None):
             parser.error("only forecast planned handoff requires forecast assets")
     if args.forecast_assets is not None and (
-        args.protocol != "rtc"
-        or args.bootstrap_checkpoint is None
-        or args.bootstrap_verification is None
+        args.bootstrap_checkpoint is None or args.bootstrap_verification is None
     ):
-        parser.error("forecast evaluation requires RTC and a verified native bootstrap")
+        parser.error("forecast evaluation requires a verified native bootstrap")
     if args.forecast_assets is None and (
         args.bootstrap_checkpoint is not None or args.bootstrap_verification is not None
     ):
         parser.error("bootstrap arguments require forecast assets")
-    if args.rtc_calibration is not None and args.protocol != "rtc":
+    if args.rtc_calibration is not None and args.protocol != "rtc" and args.forecast_assets is None:
         parser.error("RTC calibration requires the RTC protocol")
     calibration = (
         load_rtc_calibration(args.rtc_calibration, project_root=root)
@@ -190,10 +221,8 @@ def main(argv=None):
     )
     cohort = json.loads(args.cohort.read_text())
     verified = json.loads(args.checkpoint_verification.read_text())
-    if (
-        cohort["partition"] != "train_pool_development"
-        or not verified["all_downloaded_hashes_match"]
-    ):
+    validate_evaluation_cohort(cohort, project_root=root)
+    if not verified["all_downloaded_hashes_match"]:
         raise ValueError("evaluation requires a development cohort and verified checkpoint")
     level = cohort["level"]
     forecast_assets = None
@@ -257,12 +286,27 @@ def main(argv=None):
         "profile_sha256": sha256_file(profile_path),
         "regime": args.regime,
         "maximum_steps": args.maximum_steps,
+        "runtime_source_sha256": {
+            name: sha256_file(root / "src/latency_meta_mdp/runtime" / name)
+            for name in (
+                "evaluate.py",
+                "policy_execution.py",
+                "policy_evaluation.py",
+                "sharp_forecast_policy.py",
+                "planned_handoff_policy.py",
+                "action_chunk_client.py",
+                "rtc_client.py",
+                "rtc_protocol.py",
+                "latency_harness.py",
+                "bootstrap_cache.py",
+            )
+        },
     }
     if args.task_horizon_terminal:
         identity["task_horizon_terminal"] = True
     if args.fixed_launch_cursor != 25:
         identity["fixed_launch_cursor"] = args.fixed_launch_cursor
-    if args.protocol == "rtc":
+    if args.protocol == "rtc" or forecast_assets is not None:
         expected_repo = f"yypeng666/metamdp-pi05-l{level}-clean-state16-h50-full-sft-v1"
         if (forecast_assets is None or args.planned_handoff is not None) and (
             verified["repo_id"] != expected_repo
@@ -280,12 +324,22 @@ def main(argv=None):
         if not any(p.name == "0007-inference-time-rtc.patch" for p in patches):
             raise ValueError("RTC runtime patch is missing")
         identity.update(
-            protocol_id="rtc_observation_time_h50_v1",
+            protocol_id=(
+                "rtc_observation_time_h50_v1"
+                if args.protocol == "rtc"
+                else "sharp_return_time_chunk_v2"
+            ),
             runtime_patch_sha256={p.name: sha256_file(p) for p in patches},
             client_config_sha256=sha256_file(
-                root / "configs/runtime/client/rtc_observation_time_h50_v1.yaml"
+                root
+                / "configs/runtime/client"
+                / (
+                    "rtc_observation_time_h50_v1.yaml"
+                    if args.protocol == "rtc"
+                    else "sharp_return_time_h50_e25_v1.yaml"
+                )
             ),
-            rtc_max_guidance_weight=args.rtc_max_guidance_weight,
+            rtc_max_guidance_weight=args.rtc_max_guidance_weight if args.protocol == "rtc" else 0.0,
             runtime_code_revision=subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], text=True
             ).strip(),
@@ -309,7 +363,7 @@ def main(argv=None):
                 forecast_assets_sha256=sha256_file(args.forecast_assets),
                 bootstrap_verification_sha256=sha256_file(args.bootstrap_verification),
             )
-        if args.planned_handoff is not None or forecast_only:
+        if args.planned_handoff is not None or (forecast_only and args.protocol == "rtc"):
             from latency_meta_mdp.runtime.planned_handoff_policy import PLAN_CONSTRUCTION
 
             identity.update(
@@ -361,6 +415,32 @@ def main(argv=None):
             )
         elif args.scheduler in {"immediate", "coverage"}:
             identity["scheduler"] = args.scheduler
+    identity.setdefault("protocol_id", "sharp_return_time_chunk_v2")
+    bootstrap_cache_identity = None
+    if args.bootstrap_cache is not None:
+        bootstrap_cache_identity = {
+            "format": "native_bootstrap_h50_v1",
+            "checkpoint_verification_sha256": sha256_file(
+                args.bootstrap_verification or args.checkpoint_verification
+            ),
+            "profile_sha256": identity["profile_sha256"],
+            "protocol": args.protocol,
+            "rtc_max_guidance_weight": args.rtc_max_guidance_weight
+            if args.protocol == "rtc"
+            else 0,
+        }
+        identity["bootstrap_cache"] = bootstrap_cache_identity
+    if forecast_assets is not None and args.protocol == "sharp":
+        identity["plan_construction"] = "raw_h50_return_index_zero_v1"
+        delay_config = load_rtc_client_config(
+            root / "configs/runtime/client/rtc_observation_time_h50_v1.yaml"
+        )
+        identity["forecast_delay_history"] = {
+            "capacity": delay_config.delay_history_capacity,
+            "initial_delays": list(
+                calibration.delay_ticks if calibration else delay_config.initial_delay_ticks
+            ),
+        }
     cases = cohort["cases"][args.worker_index :: args.worker_count]
     if args.max_cases is not None:
         cases = cases[: args.max_cases]
@@ -428,7 +508,7 @@ def main(argv=None):
                 root / "configs/runtime/client/sharp_return_time_h50_e25_v1.yaml"
             )
         )
-        if calibration is not None:
+        if calibration is not None and args.protocol == "rtc":
             client_config = dataclasses.replace(
                 client_config, initial_delay_ticks=calibration.delay_ticks
             )
@@ -444,7 +524,7 @@ def main(argv=None):
                         "initial_delay_ticks": (
                             list(client_config.initial_delay_ticks)
                             if args.protocol == "rtc"
-                            else None
+                            else identity.get("forecast_delay_history", {}).get("initial_delays")
                         ),
                     }
                 )
@@ -464,13 +544,14 @@ def main(argv=None):
                 load_forecast_components,
             )
 
-            bootstrap_policy = (
-                policy
-                if args.planned_handoff is not None
-                else create_trained_policy(
-                    clean_config, args.bootstrap_checkpoint, sample_kwargs=sample_kwargs
+            if args.bootstrap_cache is None:
+                bootstrap_policy = (
+                    policy
+                    if args.planned_handoff is not None
+                    else create_trained_policy(
+                        clean_config, args.bootstrap_checkpoint, sample_kwargs=sample_kwargs
+                    )
                 )
-            )
             forecast_components = load_forecast_components(
                 forecast_assets, project_root=root, device="cuda:0"
             )
@@ -536,12 +617,30 @@ def main(argv=None):
             )
             noise_rng = np.random.default_rng(case["policy_seed"])
             actor = actor_type(policy, noise_rng=noise_rng)
+            if forecast_assets is not None and args.protocol == "sharp":
+                from latency_meta_mdp.runtime.sharp_forecast_policy import SharpForecastPolicy
+
+                actor = SharpForecastPolicy(
+                    InProcessOpenpiPolicy(policy, noise_rng=noise_rng, belief_input_key="forecast"),
+                    forecast_only=forecast_only,
+                )
             bootstrap_actor = (
                 actor_type(bootstrap_policy, noise_rng=noise_rng)
                 if bootstrap_policy is not None
                 else None
             )
-            if args.planned_handoff is not None or forecast_only:
+            if args.bootstrap_cache is not None:
+                from latency_meta_mdp.runtime.bootstrap_cache import CachedBootstrapPolicy
+
+                bootstrap_actor = CachedBootstrapPolicy(
+                    args.bootstrap_cache
+                    / args.protocol
+                    / f"master-{case['master_index']:03d}-seed-{case['policy_seed']}.npz",
+                    identity={**bootstrap_cache_identity, "policy_seed": case["policy_seed"]},
+                    noise_rng=noise_rng,
+                    native_policy=actor if forecast_assets is None else None,
+                )
+            if args.planned_handoff is not None or (forecast_only and args.protocol == "rtc"):
                 from latency_meta_mdp.runtime.planned_handoff_policy import PlannedHandoffPolicy
 
                 actor = PlannedHandoffPolicy(
@@ -668,6 +767,14 @@ def main(argv=None):
                     }
                 )
 
+            forecast_delay_history = None
+            if forecast_assets is not None and args.protocol == "sharp":
+                from latency_meta_mdp.runtime.rtc_protocol import RollingDelayHistory
+
+                forecast_delay_history = RollingDelayHistory(
+                    capacity=identity["forecast_delay_history"]["capacity"],
+                    initial_delays=identity["forecast_delay_history"]["initial_delays"],
+                )
             with recorder as recording:
                 result = run_native_policy_episode(
                     runtime=_build_task_instance_runtime(task),
@@ -679,6 +786,7 @@ def main(argv=None):
                     policy_alignment="observation_time" if args.protocol == "rtc" else None,
                     bootstrap_policy=bootstrap_actor,
                     forecast_provider=provider,
+                    forecast_delay_history=forecast_delay_history,
                     scheduler_uses_forecast=args.prepare_forecast_before_decision,
                     decision_interval_ticks=args.decision_interval_ticks,
                     transition_sink=(
@@ -690,6 +798,8 @@ def main(argv=None):
                 )
             if args.prepare_forecast_before_decision:
                 result["decision_transitions"] = transition_audit
+            if args.bootstrap_cache is not None:
+                result["bootstrap_cache"] = bootstrap_actor.last_record
             if replay is not None:
                 replay_path = cell_root / "meta-replay" / target.with_suffix(".npz").name
                 result["meta_replay"] = {
