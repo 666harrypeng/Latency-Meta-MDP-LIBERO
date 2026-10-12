@@ -90,6 +90,7 @@ def run_online_training(
     replay_cache_gib=128,
     replay_cache_dir=None,
     replay_prepare_workers=4,
+    replay_storage="archive",
     cpu_threads=4,
     stop_after_iterations=None,
     warm_start_checkpoint=None,
@@ -122,6 +123,10 @@ def run_online_training(
         Path, (root, offline_dir, online_dir, output_dir)
     )
     config = load_config(config_path)
+    if replay_storage not in ("archive", "mmap"):
+        raise ValueError("unknown replay storage")
+    if replay_storage == "mmap" and training_gpus is None:
+        raise ValueError("mmap replay requires explicit train-gpus, including for one GPU")
     if training_gpus is not None:
         devices = training_gpus.split(",")
         if (
@@ -226,9 +231,14 @@ def run_online_training(
         from latency_meta_mdp.meta.information.distributed_fqi import fit_distributed
         from latency_meta_mdp.meta.information.replay_preparation import prepare_replay
 
+        if replay_storage == "mmap":
+            from latency_meta_mdp.meta.information.packed_replay import prepare_packed_replay
+
+            prepare_replay = prepare_packed_replay
+        cache_dir = replay_cache_dir or output_dir / f"prepared-{replay_storage}"
         replay = prepare_replay(
             replay,
-            replay_cache_dir or output_dir / "prepared-replay",
+            cache_dir,
             workers=replay_prepare_workers,
             progress=admission("mixed"),
         )
@@ -253,7 +263,8 @@ def run_online_training(
                         started_at=time.time(),
                         host=os.uname().nodename,
                         physical_gpus=devices,
-                        replay_cache_dir=str(replay_cache_dir or output_dir / "prepared-replay"),
+                        replay_cache_dir=str(cache_dir),
+                        replay_storage=replay_storage,
                         replay_prepare_workers=replay_prepare_workers,
                         **fitter_options,
                     )

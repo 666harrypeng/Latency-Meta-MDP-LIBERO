@@ -53,6 +53,7 @@ def main():
     parser.add_argument("--replay-cache-gib", type=int, default=128)
     parser.add_argument("--replay-cache-dir", type=Path)
     parser.add_argument("--replay-prepare-workers", type=int, default=4)
+    parser.add_argument("--replay-storage", choices=["archive", "mmap"], default="archive")
     parser.add_argument(
         "--cpu-threads", type=int, default=4, help="CPU threads per rollout/learner worker"
     )
@@ -191,6 +192,7 @@ def main():
                     replay_cache_gib=args.replay_cache_gib,
                     replay_cache_dir=args.replay_cache_dir,
                     replay_prepare_workers=args.replay_prepare_workers,
+                    replay_storage=args.replay_storage,
                     cpu_threads=args.cpu_threads,
                     stop_after_iterations=args.stop_after_iterations,
                     warm_start_checkpoint=args.warm_start_checkpoint,

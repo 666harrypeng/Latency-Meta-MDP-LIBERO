@@ -113,9 +113,14 @@ def _worker(rank, devices, state, episodes, options, orders, directory):
 def _fit_worker(rank, world, device, state, episodes, options, orders, directory):
     # Replay wrappers are metadata-only at spawn. A rank retains decoded episodes
     # across target/regression passes; the total host allowance is divided by ranks.
+    from latency_meta_mdp.meta.information.packed_replay import PackedReplay
     from latency_meta_mdp.meta.information.replay_cache import EpisodeCache
 
-    cache = EpisodeCache(options["cache_bytes"] // world)
+    cache = (
+        episodes
+        if isinstance(episodes, PackedReplay)
+        else EpisodeCache(options["cache_bytes"] // world)
+    )
     if hasattr(episodes, "offline"):
         episodes.offline.cache = episodes.online.cache = episodes.cache = cache
     elif hasattr(episodes, "cache"):

@@ -152,7 +152,7 @@ batch/data exposure and inspect closed-loop rewards when changing recipes.
 
 `--replay-cache-gib` bounds the aggregate host episode cache across learner ranks
 (default 128 GiB for the distributed path). A verified, lossless uncompressed
-copy under `prepared-replay/` avoids repeated DEFLATE work across iterations;
+copy under `prepared-archive/` avoids repeated DEFLATE work across iterations;
 source data and cohort bindings remain unchanged. Allow additional disk space for
 these copies. Preparation checks both admitted source receipts and cached content.
 Use `--replay-cache-dir` to place or reuse these copies on suitable local storage
@@ -162,6 +162,18 @@ Learner hardware, CPU/cache allocation and paths are recorded separately in
 iteration can resume with a different device count while keeping global batch,
 replay, optimizer settings and source version fixed. Floating-point collective
 reduction order can cause small numerical differences across device counts.
+
+The synchronous learner also accepts `--replay-storage mmap`. Preparation validates
+the original episode, folds forced stages using the canonical decoder, and stores
+public packet metadata plus a deduplicated read-only NumPy visual array. Worker
+processes attach these arrays without copying or decompressing repeated visual
+inputs. Hashes are checked during admission; source and derived file identities
+are checked on every access. Only raw inputs are cached: learned visual features,
+recurrent histories and targets are recomputed. The mmap format has its own
+versioned namespace within the selected cache directory. Mmap uses reclaimable
+operating-system pages; the archive
+LRU's `--replay-cache-gib` limit does not bound that page cache. Include one-time
+conversion cost when reporting cold-start throughput.
 
 `--warm-start-checkpoint` initializes a new fit from a later compatible scheduler
 while `--checkpoint` continues to identify the policy that collected the online
