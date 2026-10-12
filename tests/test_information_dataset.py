@@ -69,3 +69,24 @@ def test_repeated_visual_references_are_decompressed_once(tmp_path, monkeypatch)
     result = load_episode(tmp_path / "episode", binding={})
     assert len(result) == 2
     assert calls == ["visual_0"]
+
+
+def test_visual_archive_preserves_exact_float_values_and_numpy_compatibility(tmp_path):
+    from latency_meta_mdp.meta.information.dataset import save_visual_archive
+
+    rng = np.random.default_rng(17)
+    arrays = dict(
+        visual_0=rng.standard_normal((2, 196, 384)).astype(np.float32),
+        visual_1=np.array([0.0, -0.0, np.inf, -np.inf], dtype=np.float32),
+    )
+    path = tmp_path / "visual.npz"
+    save_visual_archive(path, arrays)
+    with np.load(path, allow_pickle=False) as store:
+        assert set(store.files) == set(arrays)
+        for key, value in arrays.items():
+            assert store[key].dtype == value.dtype
+            assert store[key].tobytes() == value.tobytes()
+    with pytest.raises(FileExistsError):
+        save_visual_archive(path, arrays)
+    with pytest.raises(ValueError, match="Object arrays"):
+        save_visual_archive(tmp_path / "object.npz", dict(unsafe=np.array([{}], dtype=object)))

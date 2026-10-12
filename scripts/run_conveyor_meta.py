@@ -20,6 +20,7 @@ def main():
             "cycle-collect",
             "online-train",
             "monitor-series",
+            "parallel-collect",
         ],
     )
     parser.add_argument("--config", type=Path, required=True)
@@ -42,9 +43,52 @@ def main():
     parser.add_argument("--meta-only", action="store_true")
     parser.add_argument("--bootstrap-dir", type=Path)
     parser.add_argument("--no-wandb", action="store_true")
+    parser.add_argument("--gpus", help="Physical GPU indices for independent rollout workers")
+    parser.add_argument("--worker-python", type=Path)
+    parser.add_argument("--allow-shared-pids", default="")
+    parser.add_argument("--shard-index", type=int)
+    parser.add_argument("--num-shards", type=int)
+    parser.add_argument("--train-gpus", help="Physical GPUs for synchronous FQI updates")
+    parser.add_argument("--global-batch", type=int, default=4)
+    parser.add_argument("--replay-cache-gib", type=int, default=128)
+    parser.add_argument("--warm-start-checkpoint", type=Path)
+    parser.add_argument("--iterations", type=int, default=10)
     args = parser.parse_args()
+    if args.allow_shared_pids:
+        import os
+
+        os.environ["CONVEYOR_SHARED_GPU_PIDS"] = args.allow_shared_pids
     root = Path(__file__).resolve().parents[1]
-    if args.command == "monitor-series":
+    if args.command == "parallel-collect":
+        if any(
+            v is None
+            for v in (args.gpus, args.checkpoint, args.phase, args.scene_audit, args.bootstrap_dir)
+        ):
+            parser.error(
+                "parallel-collect requires gpus, checkpoint, phase, scene-audit, bootstrap-dir"
+            )
+        from latency_meta_mdp.meta.information.parallel import run_parallel
+
+        print(
+            json.dumps(
+                run_parallel(
+                    args.config,
+                    args.output_dir,
+                    root=root,
+                    audit_path=args.scene_audit,
+                    checkpoint=args.checkpoint,
+                    phase=args.phase,
+                    bootstrap_dir=args.bootstrap_dir,
+                    gpus=args.gpus,
+                    worker_python=args.worker_python,
+                    baselines=not args.meta_only,
+                    source_manifest=args.offline_dir / "cohort.json" if args.offline_dir else None,
+                    enabled=not args.no_wandb,
+                ),
+                indent=2,
+            )
+        )
+    elif args.command == "monitor-series":
         if any(v is None for v in (args.checkpoint, args.bootstrap_dir, args.scene_audit)):
             parser.error("monitor-series requires checkpoint directory, bootstrap-dir, scene-audit")
         from latency_meta_mdp.meta.information.monitor import run_monitor_series
@@ -57,6 +101,8 @@ def main():
             audit_path=args.scene_audit,
             bootstrap_dir=args.bootstrap_dir,
             source_manifest=args.offline_dir / "cohort.json" if args.offline_dir else None,
+            worker_python=args.worker_python,
+            gpus=args.gpus,
         )
     elif args.command in ("cycle-bootstrap", "cycle-collect"):
         if args.checkpoint is None or args.phase is None or args.scene_audit is None:
@@ -69,6 +115,8 @@ def main():
             phase=args.phase,
             baselines=not args.meta_only,
             source_manifest=args.offline_dir / "cohort.json" if args.offline_dir else None,
+            shard_index=args.shard_index,
+            num_shards=args.num_shards,
         )
         if args.command == "cycle-bootstrap":
             prepare_bootstraps(
@@ -129,6 +177,14 @@ def main():
                     device=args.device,
                     seed=0 if args.seed is None else args.seed,
                     validation_bootstrap=args.bootstrap_dir,
+                    worker_python=args.worker_python,
+                    validation_gpus=args.gpus,
+                    training_gpus=args.train_gpus,
+                    global_batch=args.global_batch,
+                    replay_cache_gib=args.replay_cache_gib,
+                    stop_after_iterations=args.stop_after_iterations,
+                    warm_start_checkpoint=args.warm_start_checkpoint,
+                    total_iterations=args.iterations,
                 ),
                 indent=2,
             )

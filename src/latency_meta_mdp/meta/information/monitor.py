@@ -1,4 +1,4 @@
-"""Serial, real-simulator validation between FQI iterations or over saved iterates."""
+"""Real-simulator validation between FQI iterations or over saved iterates."""
 
 import gc
 import json
@@ -34,8 +34,12 @@ class IterationValidator:
         progress=None,
         prune=True,
         source_manifest=None,
+        worker_python=None,
+        gpus=None,
     ):
         self.root = Path(root).resolve()
+        self.worker_python = str(worker_python or self.root / ".venv-openpi/bin/python")
+        self.gpus = gpus
         self.config_path, self.audit_path = Path(config_path).resolve(), Path(audit_path).resolve()
         self.output_dir = Path(output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -116,10 +120,10 @@ class IterationValidator:
             flush=True,
         )
         command = [
-            str(self.root / ".venv-openpi/bin/python"),
+            self.worker_python,
             "-u",
             str(self.root / "scripts/run_conveyor_meta.py"),
-            "cycle-collect",
+            "parallel-collect" if self.gpus else "cycle-collect",
             "--config",
             str(self.config_path),
             "--scene-audit",
@@ -133,6 +137,17 @@ class IterationValidator:
             "--output-dir",
             str(destination),
         ]
+        if self.gpus:
+            command.extend(
+                [
+                    "--gpus",
+                    self.gpus,
+                    "--worker-python",
+                    self.worker_python,
+                    "--bootstrap-dir",
+                    str(self.bootstrap_dir),
+                ]
+            )
         if self.source_manifest is not None:
             validate_binding(self.protocol["source_manifest_sha256"], sha256(self.source_manifest))
             command.extend(["--offline-dir", str(self.source_manifest.parent)])
@@ -148,6 +163,9 @@ class IterationValidator:
                 torch.cuda.synchronize(device)
                 self.model.cpu()
                 gc.collect()
+                # cuBLAS workspaces survive model.cpu() and count as allocated
+                # memory despite holding no live model tensors (pinned PyTorch).
+                torch._C._cuda_clearCublasWorkspaces()
                 torch.cuda.empty_cache()
                 if torch.cuda.memory_allocated(device) != 0:
                     raise RuntimeError("learner still holds live GPU tensors before validation")
@@ -166,7 +184,9 @@ class IterationValidator:
                     for line in process.stdout:
                         log.write(line)
                         log.flush()
-                        if line.startswith(("EPISODE_COMPLETE ", "WANDB_RUN ", "tick=")):
+                        if line.startswith(
+                            ("EPISODE_COMPLETE ", "PARALLEL_PROGRESS ", "WANDB_RUN ", "tick=")
+                        ):
                             print(line, end="", flush=True)
                     if process.wait() != 0:
                         raise RuntimeError(
@@ -258,6 +278,8 @@ def run_monitor_series(
     audit_path,
     bootstrap_dir,
     source_manifest=None,
+    worker_python=None,
+    gpus=None,
 ):
     checkpoint_dir = Path(checkpoint_dir).resolve()
     entries = sorted(checkpoint_dir.glob("iteration-*/complete.json"))
@@ -277,6 +299,8 @@ def run_monitor_series(
         bootstrap_dir=bootstrap_dir,
         prune=False,
         source_manifest=source_manifest,
+        worker_python=worker_python,
+        gpus=gpus,
     )
     tracker = ValidationTracker(validator.output_dir, protocol=validator.protocol)
     validator.progress = tracker

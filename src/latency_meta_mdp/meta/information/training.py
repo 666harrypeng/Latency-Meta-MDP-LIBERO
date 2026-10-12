@@ -89,6 +89,8 @@ def train_iterations(
     stop_after_iterations=None,
     progress=None,
     validate_checkpoint=None,
+    fitter=None,
+    fitter_options=None,
 ):
     """Resume only published complete iterations; restart an interrupted iteration."""
     if total_iterations < 1 or (stop_after_iterations is not None and stop_after_iterations < 1):
@@ -105,6 +107,8 @@ def train_iterations(
         chunk_size=64,
         optimizer="Adam-reset-per-fitted-iteration",
     )
+    if fitter is not None:
+        recipe["parallel_fqi"] = fitter_options
     binding = {**binding, "recipe": recipe}
     receipt = _restore(output_dir, model, binding=binding)
     if receipt is None:
@@ -142,7 +146,7 @@ def train_iterations(
             if progress is not None:
                 progress(dict(iteration=iteration, **value))
 
-        metrics = fit_iteration(
+        metrics = (fitter or fit_iteration)(
             model,
             episodes,
             mode=binding["mode"],
@@ -151,6 +155,7 @@ def train_iterations(
             conservative_weight=conservative_weight,
             progress=notify,
             sources=getattr(episodes, "sources", None),
+            **(fitter_options or {}),
         )
         if metrics["target_hash_before"] != metrics["target_hash_after"]:
             raise ValueError("frozen target changed during regression")
@@ -282,7 +287,6 @@ def run_training(
 ):
     import importlib.metadata
     import os
-    import subprocess
 
     from latency_meta_mdp.meta.information.config import identity_hash, load_config
     from latency_meta_mdp.meta.information.model import StageQ
@@ -310,10 +314,9 @@ def run_training(
     if actual != expected or len(manifest["episodes"]) != 128:
         raise ValueError("complete paired starter128 required")
     if torch.device(device).type == "cuda":
-        active = subprocess.check_output(
-            ["nvidia-smi", "--query-compute-apps=pid,process_name", "--format=csv,noheader"],
-            text=True,
-        ).strip()
+        from latency_meta_mdp.meta.information.resources import gpu_processes
+
+        active, _ = gpu_processes()
         if active:
             raise RuntimeError("GPU compute process already active")
     verify_runtime_dependencies(root, config)

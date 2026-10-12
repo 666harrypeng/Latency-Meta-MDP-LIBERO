@@ -96,9 +96,9 @@ def preflight(config_path, output_dir, *, root):
         ],
         text=True,
     ).strip()
-    active = subprocess.check_output(
-        ["nvidia-smi", "--query-compute-apps=pid,process_name", "--format=csv,noheader"], text=True
-    ).strip()
+    from latency_meta_mdp.meta.information.resources import gpu_processes
+
+    blockers, active = gpu_processes()
     sources = {
         str(p.relative_to(root)): sha256(p)
         for directory in ("src/latency_meta_mdp", "scripts")
@@ -110,7 +110,7 @@ def preflight(config_path, output_dir, *, root):
         git_head=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         git_status=subprocess.check_output(["git", "status", "--short"], cwd=root, text=True),
         gpu=gpu,
-        compute_processes=blocking_gpu_processes(active),
+        compute_processes=blockers,
         all_compute_processes=active,
         disk_free_bytes=shutil.disk_usage(root).free,
         split_counts={k: len(v) for k, v in config["splits"].items()},

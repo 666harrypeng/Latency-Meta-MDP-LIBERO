@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import zipfile
 from dataclasses import fields
 from pathlib import Path
 
@@ -18,6 +19,17 @@ def _json(value):
     if isinstance(value, np.generic):
         return value.item()
     raise TypeError(type(value).__name__)
+
+
+def save_visual_archive(path, arrays):
+    """Lossless NumPy archive with fast DEFLATE; existing readers remain compatible."""
+    with Path(path).open("xb") as stream:
+        with zipfile.ZipFile(
+            stream, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1
+        ) as archive:
+            for name, value in arrays.items():
+                with archive.open(name + ".npy", "w", force_zip64=True) as entry:
+                    np.lib.format.write_array(entry, value, allow_pickle=False)
 
 
 def save_episode(path, recorder, *, report, binding):
@@ -46,8 +58,7 @@ def save_episode(path, recorder, *, report, binding):
         {**row, "packet": pack(row["packet"]), "next_packet": pack(row["next_packet"])}
         for row in recorder.rows
     ]
-    with (path / "visual.npz").open("xb") as stream:
-        np.savez_compressed(stream, **arrays)
+    save_visual_archive(path / "visual.npz", arrays)
     metadata = dict(
         episode_id=recorder.episode_id,
         binding=binding,

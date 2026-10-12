@@ -155,7 +155,12 @@ class CycleTracker:
 
     def close(self, *, success):
         complete = success and len(self.rows) == len(self.manifest["episodes"])
-        if complete and self.phase in ("validation", "monitor") and self.rows:
+        if (
+            complete
+            and "shard" not in self.manifest
+            and self.phase in ("validation", "monitor")
+            and self.rows
+        ):
             from latency_meta_mdp.meta.information.evaluation import paired_summary
 
             groups = summarize_rollouts(self.rows)

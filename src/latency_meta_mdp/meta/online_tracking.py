@@ -31,9 +31,9 @@ def fit_metrics(event, *, episodes, epochs):
         }
     if phase == "fit":
         source = event["source"]
-        if source not in ("offline", "online"):
+        if source not in ("offline", "online", "mixed"):
             raise ValueError("invalid training source")
-        return dict(
+        metrics = dict(
             {
                 "train/update": event.get(
                     "actual_update",
@@ -53,6 +53,11 @@ def fit_metrics(event, *, episodes, epochs):
                 f"train/{source}/conservative_loss": event["conservative_loss"],
             }
         )
+        for name, values in event.get("source_losses", {}).items():
+            metrics.update({f"train/{name}/{k}": v for k, v in values.items()})
+        if "global_batch" in event:
+            metrics["train/global_batch"] = event["global_batch"]
+        return metrics
     if phase == "iteration_complete":
         return {
             "fqi/iteration": iteration,

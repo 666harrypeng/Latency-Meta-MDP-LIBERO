@@ -59,6 +59,8 @@ def prepare_cycle(
     phase,
     baselines=True,
     source_manifest=None,
+    shard_index=None,
+    num_shards=None,
 ):
     from latency_meta_mdp.meta.information.config import load_config
     from latency_meta_mdp.meta.information.deployment import (
@@ -86,11 +88,17 @@ def prepare_cycle(
         phase=phase,
         baselines=baselines,
     )
+    if shard_index is not None or num_shards is not None:
+        from latency_meta_mdp.meta.information.parallel import partition_manifest
+
+        manifest = partition_manifest(manifest, shard_index, num_shards)
     path = output_dir / "cohort.json"
     if path.exists():
         validate_binding(json.loads(path.read_text()), manifest)
     else:
-        path.write_text(json.dumps(manifest, indent=2) + "\n")
+        from latency_meta_mdp.meta.information.validation import atomic_json
+
+        atomic_json(path, manifest)
     return config, manifest
 
 

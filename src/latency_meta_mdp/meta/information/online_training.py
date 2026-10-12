@@ -83,11 +83,18 @@ def run_online_training(
     device="cuda:0",
     seed=0,
     validation_bootstrap=None,
+    worker_python=None,
+    validation_gpus=None,
+    training_gpus=None,
+    global_batch=4,
+    replay_cache_gib=128,
+    stop_after_iterations=None,
+    warm_start_checkpoint=None,
+    total_iterations=10,
 ):
     import json
     import os
     import random
-    import subprocess
     from pathlib import Path
 
     import numpy as np
@@ -112,6 +119,19 @@ def run_online_training(
         Path, (root, offline_dir, online_dir, output_dir)
     )
     config = load_config(config_path)
+    if training_gpus is not None:
+        devices = training_gpus.split(",")
+        if (
+            not devices
+            or any(not d.isdigit() for d in devices)
+            or len(set(devices)) != len(devices)
+        ):
+            raise ValueError("training GPUs must be distinct physical indices")
+        if global_batch < 1 or replay_cache_gib < 0:
+            raise ValueError("invalid distributed batch/cache budget")
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"] = training_gpus
+        device = "cpu"  # Coordinator never owns CUDA tensors or contexts.
     manifests = [json.loads((d / "cohort.json").read_text()) for d in (offline_dir, online_dir)]
     compatibility = json.loads(Path(compatibility_path).read_text())
     validate_mixture(config, manifests, compatibility)
@@ -129,18 +149,15 @@ def run_online_training(
     )
     validate_binding(expected_old, manifests[0])
     validate_binding(expected_new, manifests[1])
-    if (
-        torch.device(device).type == "cuda"
-        and subprocess.check_output(
-            ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"], text=True
-        ).strip()
-    ):
+    from latency_meta_mdp.meta.information.resources import gpu_processes
+
+    if (training_gpus is not None or torch.device(device).type == "cuda") and gpu_processes()[0]:
         raise RuntimeError("GPU compute process already active")
     verify_runtime_dependencies(root, config)
     verify_assets(root, config["assets"])
     from latency_meta_mdp.meta.information.replay_cache import EpisodeCache
 
-    cache = EpisodeCache()
+    cache = None if training_gpus is not None else EpisodeCache()
 
     def admission(source):
         return lambda value: print(json.dumps(dict(source=source, **value)), flush=True)
@@ -159,15 +176,25 @@ def run_online_training(
     from latency_meta_mdp.meta.information.deployment import deployment_binding
 
     expected = deployment_binding(config)
-    model = start_generation(
+    from latency_meta_mdp.meta.information.deployment import load_scheduler, scheduler_identity
+
+    behavior = load_scheduler(
         checkpoint,
+        expected,
+        source_manifest=manifests[1]["binding"]["policy"].get("source_manifest"),
+    )
+    validate_binding(scheduler_identity(behavior), manifests[1]["binding"]["policy"])
+    del behavior
+    model = start_generation(
+        warm_start_checkpoint or checkpoint,
         output_dir,
         expected,
         device=device,
         source_manifest=manifests[1]["binding"]["policy"].get("source_manifest"),
     )
     parent = json.loads((output_dir / "initial-parent.json").read_text())
-    validate_binding(parent, manifests[1]["binding"]["policy"])
+    if warm_start_checkpoint is None:
+        validate_binding(parent, manifests[1]["binding"]["policy"])
     code = {
         str(p.relative_to(root)): sha256(p)
         for p in sorted((root / "src/latency_meta_mdp/meta/information").glob("*.py"))
@@ -189,6 +216,25 @@ def run_online_training(
         sampling="0.5 mean offline transitions + 0.5 mean online transitions",
         trainer_code_hash=identity_hash(code),
     )
+    if warm_start_checkpoint is not None:
+        binding["behavior_policy"] = manifests[1]["binding"]["policy"]
+    fitter, fitter_options = None, None
+    if training_gpus is not None:
+        from latency_meta_mdp.meta.information.distributed_fqi import fit_distributed
+        from latency_meta_mdp.meta.information.replay_preparation import prepare_replay
+
+        replay = prepare_replay(replay, output_dir / "prepared-replay", progress=admission("mixed"))
+        fitter = fit_distributed
+        fitter_options = dict(
+            devices=[f"cuda:{i}" for i in range(len(devices))],
+            global_batch=global_batch,
+            cache_bytes=replay_cache_gib * 2**30,
+        )
+        binding["parallel_training"] = dict(
+            recipe="synchronous-episode-minibatch-v1",
+            physical_gpus=devices,
+            **fitter_options,
+        )
     from latency_meta_mdp.meta.information.monitor import IterationValidator
 
     validator = None
@@ -200,9 +246,18 @@ def run_online_training(
             audit_path=audit_path,
             bootstrap_dir=validation_bootstrap,
             model=model,
+            worker_python=worker_python,
+            gpus=validation_gpus,
         )
         binding["validation_protocol"] = validator.protocol
-    tracker = OnlineFitTracker(output_dir, binding=binding, episodes=len(replay), epochs=2)
+    tracker = OnlineFitTracker(
+        output_dir,
+        binding=binding,
+        episodes=(len(replay) + global_batch - 1) // global_batch
+        if training_gpus is not None
+        else len(replay),
+        epochs=2,
+    )
     if validator is not None:
         validator.progress = tracker
     success = False
@@ -212,12 +267,15 @@ def run_online_training(
             replay,
             output_dir,
             binding=binding,
-            total_iterations=10,
+            total_iterations=total_iterations,
             epochs=2,
             learning_rate=config["training"]["learning_rate"],
             conservative_weight=config["training"]["conservative_weight"],
             progress=tracker,
             validate_checkpoint=validator,
+            fitter=fitter,
+            fitter_options=fitter_options,
+            stop_after_iterations=stop_after_iterations,
         )
         success = True
         return result

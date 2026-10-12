@@ -91,3 +91,26 @@ def test_iteration_logs_replay_cache_and_phase_timings():
     assert metrics["fqi/target_seconds"] == 3.0
     assert metrics["fqi/replay_cache/hits"] == 12
     assert metrics["fqi/replay_cache/bytes_used"] == 1024
+
+
+def test_distributed_minibatch_counts_one_update_and_reports_source_contributions():
+    from latency_meta_mdp.meta.online_tracking import fit_metrics
+
+    event = dict(
+        phase="fit",
+        iteration=1,
+        epoch=2,
+        episode=40,
+        actual_update=80,
+        loss=0.3,
+        huber_loss=0.2,
+        conservative_loss=10.0,
+        source="mixed",
+        global_batch=4,
+        source_losses={"offline": {"combined_loss": 0.1}, "online": {"combined_loss": 0.2}},
+    )
+    values = fit_metrics(event, episodes=40, epochs=2)
+    assert values["train/update"] == 80
+    assert values["train/global_epoch"] == 2
+    assert values["train/offline/combined_loss"] == 0.1
+    assert values["train/online/combined_loss"] == 0.2

@@ -104,14 +104,67 @@ Validation binds the Python source hash. Do not edit the active checkout's Pytho
 files during a validation series or change its recorded protocol to resume across
 different implementations. Use a separate output directory for changed protocols.
 
-## Current portability limits
+## Serial and parallel execution
 
-The validation launcher currently assumes `.venv-openpi/bin/python` and a local
-evaluation compatibility overlay. These need explicit runtime configuration before
-using the launcher in a different environment; the Docker SFT instructions alone do not provision this
-combined evaluation runtime.
+The default collector remains serial. `parallel-collect` partitions an unchanged
+cycle manifest by episode index across one resident frozen-model worker per GPU.
+For example, select physical devices with `--gpus 4,5,6,7`, and supply the same
+`--checkpoint`, `--phase`, `--scene-audit`, `--config`, and `--meta-only` options
+as `cycle-collect`, plus an existing `--bootstrap-dir`. Choose the combined
+OpenPI/Belief runtime with `--worker-python /absolute/path/to/python`.
 
-Collection is serial and its output directory has a single writer. GPU admission
-checks are host-wide. Launching several collectors against the same directory is
-unsupported; multi-GPU rollout partitioning, per-device admission and result
-merging require separate implementation and validation.
+Each worker writes its own directory. The coordinator verifies completion hashes,
+publishes relative episode links, and reports per-episode results to W&B as they
+finish. A failed worker stops its siblings; resuming the same command verifies and
+reuses complete episodes. Preserve the entire `workers/` tree with its parent
+output directory. Do not start a separate serial writer inside this directory.
+The worker count, GPU assignment and runtime are fixed when resuming this output.
+
+GPU admission uses `CUDA_VISIBLE_DEVICES`; without it, admission checks all GPUs.
+Explicit `--allow-shared-pids` exceptions are available for operator-approved
+contexts. They do not authorize terminating processes. Parallel coordinators also
+hold per-device and output-directory locks. Other applications do not honor these
+locks, so check device occupancy before launch. CUDA and EGL are mapped separately
+so each worker renders and performs inference on its assigned physical device.
+
+`online-train` and `monitor-series` accept `--gpus` and `--worker-python` for
+parallel validation. Without `--train-gpus`, the existing episode-wise FQI learner
+remains single-device. Use `--train-gpus 4,5,6,7 --gpus 4,5,6,7 --global-batch 4`
+with `online-train` to parallelize both Bellman targets and regression. The CPU
+coordinator publishes checkpoints and W&B events; learner ranks terminate before
+all nine validation episodes run, releasing CUDA contexts and device locks.
+
+The synchronous minibatch recipe is explicit: each global batch averages the
+original source-weighted episode losses, with complete causal recurrent histories
+and the existing truncated-gradient boundaries. Ranks SUM gradients, then clip
+and update identically. A single device with `--train-gpus 0 --global-batch 4`
+accumulates the same four episodes before each update. Global batch size is
+independent of device count. With 160 episodes and two passes, batch four performs
+80 updates; this differs from the original 320 episode-wise updates. Learning rate
+and epoch count are not automatically scaled. Compare throughput at equal global
+batch/data exposure and inspect closed-loop rewards when changing recipes.
+
+`--replay-cache-gib` bounds the aggregate host episode cache across learner ranks
+(default 128 GiB for the distributed path). A verified, lossless uncompressed
+copy under `prepared-replay/` avoids repeated DEFLATE work across iterations;
+source data and cohort bindings remain unchanged. Allow additional disk space for
+these copies. Preparation checks both admitted source receipts and cached content.
+
+`--warm-start-checkpoint` initializes a new fit from a later compatible scheduler
+while `--checkpoint` continues to identify the policy that collected the online
+data. Both identities are recorded separately. `--iterations` sets the new fit's
+outer-iteration budget; `--stop-after-iterations` supports bounded verification.
+Resume an unchanged recipe in the same output directory. Use a new output when
+changing the batch recipe or source code; preserve previous receipts and evidence.
+
+The launcher defaults to `.venv-openpi/bin/python` and the existing local evaluation
+overlay when runtime overrides are omitted. The runtime must contain both model
+stacks, their fixed dependencies, cached vision weights and matching EGL libraries.
+
+Changing machines does not make old runs portable by rewriting their receipts.
+Model deployment verifies content hashes and accepts an explicitly supplied new
+checkpoint location; create new collection outputs there. Existing training-resume
+bindings can contain original source paths and must remain intact. Record hardware
+and execution metadata alongside throughput measurements. Compare serial and
+parallel throughput on the same hardware and cohort; keep their per-rollout model
+compute times separate from simulator/video/storage wall time.
