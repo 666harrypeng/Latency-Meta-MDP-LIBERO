@@ -1,0 +1,291 @@
+"""Serial, real-simulator validation between FQI iterations or over saved iterates."""
+
+import gc
+import json
+import os
+import subprocess
+import uuid
+from pathlib import Path
+
+from latency_meta_mdp.meta.information.config import (
+    identity_hash,
+    load_config,
+    sha256,
+    validate_binding,
+)
+from latency_meta_mdp.meta.information.validation import (
+    atomic_json,
+    record_validation,
+    retain_checkpoints,
+    validation_metrics,
+)
+
+
+class IterationValidator:
+    def __init__(
+        self,
+        config_path,
+        output_dir,
+        *,
+        root,
+        audit_path,
+        bootstrap_dir,
+        model=None,
+        progress=None,
+        prune=True,
+        source_manifest=None,
+    ):
+        self.root = Path(root).resolve()
+        self.config_path, self.audit_path = Path(config_path).resolve(), Path(audit_path).resolve()
+        self.output_dir = Path(output_dir).resolve()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.bootstrap_dir = Path(bootstrap_dir).resolve()
+        self.model, self.progress, self.prune = model, progress, prune
+        self.source_manifest = (
+            Path(source_manifest).resolve() if source_manifest is not None else None
+        )
+        config = load_config(self.config_path)
+        scenes = config["splits"]["validation"][:3]
+        for scene in scenes:
+            if not (self.bootstrap_dir / f"seed-{scene}.npz").is_file():
+                raise ValueError("validation requires existing verified bootstrap files")
+        code = {
+            str(p.relative_to(self.root)): sha256(p)
+            for directory in ("src/latency_meta_mdp", "scripts")
+            for p in sorted((self.root / directory).rglob("*.py"))
+        }
+        self.protocol = dict(
+            scenes=scenes,
+            regimes=["nominal", "family", "zero"],
+            config_sha256=sha256(self.config_path),
+            audit_sha256=sha256(self.audit_path),
+            code_hash=identity_hash(code),
+            epsilon=0.0,
+            selection="mean_nominal_family_incumbent_on_ties",
+            delay="actual_zero_with_unchanged_RTC_estimator_and_reserve",
+        )
+        if self.source_manifest is not None:
+            self.protocol["source_manifest_sha256"] = sha256(self.source_manifest)
+        protocol_file = self.output_dir / "protocol.json"
+        if protocol_file.exists():
+            validate_binding(self.protocol, json.loads(protocol_file.read_text()))
+        else:
+            atomic_json(protocol_file, self.protocol)
+
+    def __call__(self, checkpoint, receipt):
+        import torch
+
+        checkpoint = Path(checkpoint).resolve()
+        iteration = receipt["iteration"]
+        destination = self.output_dir / f"iteration-{iteration:04d}"
+        destination.mkdir(parents=True, exist_ok=True)
+        link = destination / "bootstrap"
+        if not link.exists():
+            link.symlink_to(self.bootstrap_dir, target_is_directory=True)
+        elif link.resolve() != self.bootstrap_dir:
+            raise ValueError("validation bootstrap location differs")
+        state_path = checkpoint.parent / "validation-state.json"
+        if state_path.exists():
+            state = json.loads(state_path.read_text())
+            validate_binding(self.protocol, state["protocol"])
+            previous = state["completed"].get(str(iteration))
+            if previous is not None:
+                validate_binding(
+                    previous["checkpoint_receipt_sha256"], sha256(checkpoint / "complete.json")
+                )
+                validate_binding(
+                    previous["evaluation_sha256"], sha256(destination / "rollout-summary.json")
+                )
+                metrics = previous["metrics"]
+                if self.progress is not None:
+                    self.progress(
+                        dict(phase="validation_complete", iteration=iteration, metrics=metrics)
+                    )
+                if self.prune:
+                    retain_checkpoints(checkpoint.parent, best_iteration=state["best_iteration"])
+                return metrics
+        print(
+            json.dumps(
+                dict(
+                    phase="validation_started",
+                    iteration=iteration,
+                    episodes=9,
+                    output=str(destination),
+                )
+            ),
+            flush=True,
+        )
+        command = [
+            str(self.root / ".venv-openpi/bin/python"),
+            "-u",
+            str(self.root / "scripts/run_conveyor_meta.py"),
+            "cycle-collect",
+            "--config",
+            str(self.config_path),
+            "--scene-audit",
+            str(self.audit_path),
+            "--checkpoint",
+            str(checkpoint),
+            "--phase",
+            "monitor",
+            "--meta-only",
+            "--no-wandb",
+            "--output-dir",
+            str(destination),
+        ]
+        if self.source_manifest is not None:
+            validate_binding(self.protocol["source_manifest_sha256"], sha256(self.source_manifest))
+            command.extend(["--offline-dir", str(self.source_manifest.parent)])
+        env = dict(os.environ)
+        # Same pinned compatibility overlay as the existing local evaluator.
+        env["PYTHONPATH"] = os.pathsep.join(
+            str(self.root / p)
+            for p in ("outputs/analysis/conveyor-sort/conditioned-eval-v1/python-overlay", "src")
+        )
+        device = next(self.model.parameters()).device if self.model is not None else None
+        try:
+            if device is not None and device.type == "cuda":
+                torch.cuda.synchronize(device)
+                self.model.cpu()
+                gc.collect()
+                torch.cuda.empty_cache()
+                if torch.cuda.memory_allocated(device) != 0:
+                    raise RuntimeError("learner still holds live GPU tensors before validation")
+                # Only this direct, synchronously waiting parent is exempted by preflight.
+                env["CONVEYOR_IDLE_LEARNER_PID"] = str(os.getpid())
+            with (destination / "execution.log").open("a") as log:
+                process = subprocess.Popen(
+                    command,
+                    cwd=self.root,
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                try:
+                    for line in process.stdout:
+                        log.write(line)
+                        log.flush()
+                        if line.startswith(("EPISODE_COMPLETE ", "WANDB_RUN ", "tick=")):
+                            print(line, end="", flush=True)
+                    if process.wait() != 0:
+                        raise RuntimeError(
+                            f"validation failed; see {destination / 'execution.log'}"
+                        )
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait()
+        finally:
+            if self.model is not None and device is not None:
+                self.model.to(device)
+        manifest = json.loads((destination / "cohort.json").read_text())
+        validate_binding(manifest["binding"]["code_hash"], self.protocol["code_hash"])
+        validate_binding(
+            manifest["binding"]["policy"]["receipt_sha256"], sha256(checkpoint / "complete.json")
+        )
+        summary = json.loads((destination / "rollout-summary.json").read_text())
+        if summary["completed"] != 9 or summary["expected"] != 9:
+            raise ValueError("incomplete validation cohort")
+        metrics = validation_metrics(summary["episodes"], scenes=self.protocol["scenes"])
+        state = record_validation(
+            checkpoint.parent,
+            iteration=iteration,
+            metrics=metrics,
+            protocol=self.protocol,
+            evaluation_sha256=sha256(destination / "rollout-summary.json"),
+        )
+        event = dict(phase="validation_complete", iteration=iteration, metrics=metrics)
+        if self.progress is not None:
+            self.progress(event)
+        else:
+            print(json.dumps(event), flush=True)
+        if self.prune:
+            retain_checkpoints(checkpoint.parent, best_iteration=state["best_iteration"])
+        return metrics
+
+
+class ValidationTracker:
+    def __init__(self, directory, *, protocol):
+        import wandb
+        from latency_meta_mdp.meta.tracking_transport import start_run
+
+        directory = Path(directory)
+        path = directory / "wandb-run.json"
+        state = json.loads(path.read_text()) if path.exists() else dict(id=uuid.uuid4().hex[:8])
+        self.run = start_run(
+            directory,
+            entity=os.environ.get("WANDB_ENTITY"),
+            project=os.environ.get("WANDB_PROJECT", "latency-meta-mdp-robosuite"),
+            id=state["id"],
+            resume="allow",
+            name=directory.name,
+            group="conveyor-meta-bound-fqi-cycle-v1",
+            job_type="retrospective-validation",
+            tags=["conveyor", "meta", "fqi", "validation"],
+            config=dict(protocol=protocol, retrospective=True),
+            dir=str(directory),
+            settings=wandb.Settings(disable_git=True, save_code=False, console="off"),
+        )
+        state["url"] = self.run.url
+        atomic_json(path, state)
+        self.run.define_metric("validation/iteration")
+        self.run.define_metric("validation/*", step_metric="validation/iteration")
+        print("WANDB_RUN " + str(self.run.url), flush=True)
+
+    def __call__(self, event):
+        print(json.dumps(event), flush=True)
+        if event["iteration"] < self.run.step:
+            return
+        self.run.log(
+            {
+                "validation/iteration": event["iteration"],
+                **{f"validation/{k}": v for k, v in event["metrics"].items()},
+            },
+            step=event["iteration"],
+        )
+
+    def close(self, *, success):
+        self.run.finish(exit_code=0 if success else 1)
+
+
+def run_monitor_series(
+    config_path,
+    checkpoint_dir,
+    output_dir,
+    *,
+    root,
+    audit_path,
+    bootstrap_dir,
+    source_manifest=None,
+):
+    checkpoint_dir = Path(checkpoint_dir).resolve()
+    entries = sorted(checkpoint_dir.glob("iteration-*/complete.json"))
+    if not entries:
+        raise ValueError("no completed checkpoints to evaluate")
+    if source_manifest is None and any(
+        "cohort_sha256" in json.loads(entry.read_text())["binding"] for entry in entries
+    ):
+        raise ValueError(
+            "offline checkpoints require --offline-dir with the original cohort manifest"
+        )
+    validator = IterationValidator(
+        config_path,
+        output_dir,
+        root=root,
+        audit_path=audit_path,
+        bootstrap_dir=bootstrap_dir,
+        prune=False,
+        source_manifest=source_manifest,
+    )
+    tracker = ValidationTracker(validator.output_dir, protocol=validator.protocol)
+    validator.progress = tracker
+    success = False
+    try:
+        for entry in entries:
+            validator(entry.parent, json.loads(entry.read_text()))
+        state = json.loads((checkpoint_dir / "validation-state.json").read_text())
+        retain_checkpoints(checkpoint_dir, best_iteration=state["best_iteration"])
+        success = True
+    finally:
+        tracker.close(success=success)

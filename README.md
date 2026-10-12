@@ -13,6 +13,7 @@ export PYTHONPATH=src
 - [Training and publishing commands](docs/usage/training.md)
 - [Experiment configurations](configs/experiments)
 - [Conveyor task and source recordings](docs/usage/conveyor.md)
+- [Conveyor information scheduler and FQI](docs/usage/conveyor-meta.md)
 
 Implementations live in `src/latency_meta_mdp`; executable entrypoints are in
 `scripts`. Historical implementations and configurations are isolated under

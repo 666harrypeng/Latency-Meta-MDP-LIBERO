@@ -1,0 +1,111 @@
+"""Hash-verified episode storage; privileged reports never enter public replay."""
+
+import hashlib
+import json
+from dataclasses import fields
+from pathlib import Path
+
+import numpy as np
+
+from latency_meta_mdp.meta.information.config import sha256, validate_binding
+from latency_meta_mdp.meta.information.records import decision_view
+from latency_meta_mdp.meta.information.schema import ACTOR_FIELDS, ActorPacket
+
+
+def _json(value):
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(type(value).__name__)
+
+
+def save_episode(path, recorder, *, report, binding):
+    if not recorder.closed:
+        raise ValueError("cannot publish an open episode")
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=False)
+    arrays, indices = {}, {}
+
+    def pack(packet):
+        if packet is None:
+            return None
+        values = {}
+        for field in fields(packet):
+            value = getattr(packet, field.name)
+            if field.name.endswith("_tokens") and value is not None:
+                key = hashlib.sha256(value.tobytes()).hexdigest()
+                if key not in indices:
+                    indices[key] = f"visual_{len(indices)}"
+                    arrays[indices[key]] = value
+                value = indices[key]
+            values[field.name] = value
+        return values
+
+    rows = [
+        {**row, "packet": pack(row["packet"]), "next_packet": pack(row["next_packet"])}
+        for row in recorder.rows
+    ]
+    with (path / "visual.npz").open("xb") as stream:
+        np.savez_compressed(stream, **arrays)
+    metadata = dict(
+        episode_id=recorder.episode_id,
+        binding=binding,
+        rows=rows,
+        visual_arrays=len(arrays),
+        operations=recorder.operations,
+        summary=recorder.summary(),
+    )
+    (path / "records.json").write_text(json.dumps(metadata, default=_json, allow_nan=False))
+    (path / "audit.json").write_text(json.dumps(report, default=_json, allow_nan=False))
+    receipt = dict(
+        binding=binding,
+        files={name: sha256(path / name) for name in ("visual.npz", "records.json", "audit.json")},
+        terminated=bool(rows and rows[-1]["terminated"]),
+    )
+    temporary = path / "receipt.tmp"
+    temporary.write_text(json.dumps(receipt, indent=2))
+    temporary.replace(path / "complete.json")
+
+
+def load_episode(path, *, binding):
+    path = Path(path)
+    receipt = json.loads((path / "complete.json").read_text())
+    validate_binding(binding, receipt["binding"])
+    if set(receipt["files"]) != {"visual.npz", "records.json", "audit.json"}:
+        raise ValueError("episode file manifest differs")
+    for name, expected in receipt["files"].items():
+        if sha256(path / name) != expected:
+            raise ValueError("episode content hash differs")
+    data = json.loads((path / "records.json").read_text())
+    validate_binding(binding, data["binding"])
+    with np.load(path / "visual.npz", allow_pickle=False) as store:
+        visual_cache = {}
+
+        def unpack(values):
+            if values is None:
+                return None
+            if set(values) != ACTOR_FIELDS:
+                raise ValueError("actor schema has missing or privileged fields")
+            values = dict(values)
+            for name in ("current_tokens", "forecast_tokens"):
+                if values[name] is not None:
+                    key = values[name]
+                    if key not in visual_cache:
+                        visual_cache[key] = np.asarray(store[key], dtype=np.float32)
+                        visual_cache[key].setflags(write=False)
+                    values[name] = visual_cache[key]
+            values["buffer_mask"] = np.asarray(values["buffer_mask"], bool)
+            packet = ActorPacket(**values)
+            # Validation above owns independent scalar/buffer copies. Visual sources
+            # came from this verified archive and can share their read-only storage.
+            for name in ("current_tokens", "forecast_tokens"):
+                if values[name] is not None:
+                    object.__setattr__(packet, name, values[name])
+            return packet
+
+        rows = [
+            {**row, "packet": unpack(row["packet"]), "next_packet": unpack(row["next_packet"])}
+            for row in data["rows"]
+        ]
+    return decision_view(rows)
