@@ -52,6 +52,7 @@ terminal with a log. `--help` lists the entrypoint arguments.
 | `cycle-collect` | Run that cohort with the fixed scheduler checkpoint and record real closed-loop outcomes. |
 | `online-train` | Fit a new generation from `--offline-dir` and online `--cohort-dir`, initialized by `--checkpoint`. Requires `--compatibility` and `--scene-audit`. |
 | `monitor-series` | Retrospectively evaluate saved iterations from a training directory supplied as `--checkpoint`. Requires `--bootstrap-dir` and `--scene-audit`. |
+| `campaign` | Run a bounded, synchronous collection/refit/validation recipe. Requires `--campaign-recipe`, `--scene-audit`, `--gpus`, and `--train-gpus`. |
 
 All commands require `--config` and `--output-dir`. `online-train` performs the
 mixed-replay optimization stage; it does not collect online rollouts itself or
@@ -62,7 +63,8 @@ it performs optimization without interleaved validation.
 The starter recipe uses the first 16 configured training scenes, four scheduler
 behaviors and two delay regimes. The online cohort uses the next 16 training
 scenes: 24 exploratory learned-policy episodes and eight rule-policy episodes.
-This is a bounded recipe, not a configurable distributed RL orchestrator.
+These are the default fixed cohorts. An explicit `--generation` JSON can select
+additional audited training scenes for the cycle commands.
 
 Scene-audit JSON and its referenced evidence, bootstrap caches, model assets and
 replay archives are required run inputs. They are not installed by a Git checkout.
@@ -184,6 +186,76 @@ changing the batch recipe or source code; preserve previous receipts and evidenc
 
 The selected runtime must contain both model
 stacks, their fixed dependencies, cached vision weights and matching EGL libraries.
+
+## Explicit collection and refit campaigns
+
+A generation JSON contains `name`, `scenes`, `behaviors`, `regimes`, and `epsilon`.
+`scenes` lists distinct audited training seeds; `behaviors` assigns one of `fqi`,
+`periodic`, or `active` to each scene. Each scene is collected under every listed
+regime (`zero`, `nominal`, or `family`). Epsilon applies only to FQI. The full
+definition and behavior checkpoint identity enter the cohort binding. No machine
+name, card count or device assignment belongs in this definition.
+
+For an explicit cumulative refit, repeat `online-train --online-cohort PATH` for
+each additional complete online cohort. Preserve `--cohort-dir` and `--checkpoint`
+as the original online cohort and its collecting policy; pass the current policy
+separately as `--warm-start-checkpoint`. Cohorts are admitted from this exact list,
+never discovered by scanning output directories. Duplicate episode identities,
+evaluation data, changed assets and unreviewed collector hashes are rejected.
+The objective stays half offline and half cumulative online **transitions**;
+it does not give half the samples to each source or add recency weighting.
+
+`--optimizer-updates N` supplies an exact synchronous update budget. It shuffles
+full replay passes and truncates the final pass when necessary; transition weights
+still use the entire replay. Without this option each FQI iteration uses two full
+passes. Receipts record episode visits, transition visits and actual updates.
+`--skip-initial-validation` suppresses only the initial checkpoint's validation;
+a saved fitted checkpoint with interrupted validation is validated on resume
+before any further optimization.
+
+The `campaign` recipe is a JSON object with these required fields:
+
+| Field | Meaning |
+|---|---|
+| `initial_checkpoint` | Scheduler starting both the candidate lineage and incumbent selection. |
+| `behavior_checkpoint` | Scheduler that collected the first existing online cohort. |
+| `offline_dir`, `online_dirs` | One starter cohort and an explicit ordered list of existing online cohorts. |
+| `compatibility` | Reviewed configuration/collector-code compatibility JSON for these existing cohorts. |
+| `validation_bootstrap` | Existing bootstrap directory for the fixed validation scenes. |
+| `initial_validation` | Complete `rollout-summary.json` for the initial checkpoint, with its sibling `cohort.json`. |
+| `cycles` | Ordered list of `{ "generation": <definition or null>, "optimizer_updates": <positive integer or null> }`. |
+| `global_batch`, `seed` | Scientific batch size and initial fit seed; cycle index increments the fit seed. |
+| `drop_successes` | Delayed-mode ball-count regression triggering one full nine-episode repeat. |
+
+Paths resolve against the repository root. A null generation makes a fixed-data
+control and requires an explicit update budget. A non-null generation collects
+before refitting; its null update budget means two full passes. All proposed
+generations are checked for overlapping scenes and episode identities before collection.
+Each cycle refreshes targets once, fits once, and evaluates the same nine greedy
+episodes. It does not repeat initial validation or admit validation trajectories.
+Every new collection uses the preceding candidate; independent `best` selection
+uses mean nominal/family reward and retains the incumbent on ties. If both the
+candidate and its repeat reach the configured loss relative to the initial
+incumbent, subsequent cycles are not admitted. The threshold counts balls in the
+fixed six delayed episodes; it is a development stopping rule, not a significance test.
+
+Launch resources remain command arguments: `--gpus`, `--train-gpus`,
+`--worker-python`, `--cpu-threads`, `--replay-cache-dir`, and
+`--replay-prepare-workers`. One physical GPU is valid for each GPU list. Campaign
+fits use mmap replay. The immutable recipe contains no server-specific scheduling.
+Resume with the same recipe and output directory. `campaign-state.json` retains
+phase attempts, wall times and artifact hashes; completed phases are reused only
+after verification. Interrupted collection reuses completed episodes, and an
+interrupted validation reuses its complete fit. The rollout topology must remain
+unchanged when resuming a partial collection or validation phase. Bootstrap and
+rollout cancellation terminate only children owned by this command.
+
+`report.json` links the candidate lineage, separate three-delay rewards,
+regression repeats and fit metrics. Each cycle also keeps its collection/validation
+video index and per-episode summaries, module calls/costs, replay provenance and
+training receipts. Report complete cycle wall time alongside model-compute time,
+environment interactions and optimizer updates; host parallelism alone does not
+establish better learning or lower per-rollout cost.
 
 Changing machines does not make old runs portable by rewriting their receipts.
 Model deployment verifies content hashes and accepts an explicitly supplied new

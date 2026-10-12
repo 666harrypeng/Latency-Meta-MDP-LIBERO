@@ -201,3 +201,59 @@ def test_partial_rank_start_failure_cleans_started_worker(monkeypatch, tmp_path)
         with module.worker_processes(["cpu", "cpu"], {}, [], {}, [], str(tmp_path)):
             pass
     assert processes[0].terminated
+
+
+def test_exact_update_budget_uses_full_replay_weights_and_counts_partial_pass():
+    from latency_meta_mdp.meta.information.distributed_fqi import fit_distributed
+
+    data = replay()
+    np.random.seed(51)
+    expected = [np.random.permutation(5).tolist() for _ in range(4)]
+    expected[-1] = expected[-1][:4]
+    events = []
+    np.random.seed(51)
+    metrics = fit_distributed(
+        StageQ(),
+        data,
+        devices=["cpu"],
+        mode="bound",
+        epochs=2,
+        global_batch=4,
+        optimizer_updates=7,
+        progress=events.append,
+    )
+    assert metrics["optimizer_updates"] == 7
+    assert metrics["transition_visits"] == sum(map(len, data)) + sum(
+        len(data[i]) for order in expected for i in order
+    )
+    assert [i for e in events if e["phase"] == "fit" for i in e["replay_episodes"]] == [
+        i for order in expected for i in order
+    ]
+
+
+def test_exact_budget_epoch_axis_advances_across_two_iterations(tmp_path):
+    from latency_meta_mdp.meta.information.distributed_fqi import fit_distributed
+    from latency_meta_mdp.meta.information.training import train_iterations
+    from latency_meta_mdp.meta.online_tracking import fit_metrics
+
+    events = []
+    train_iterations(
+        StageQ(),
+        replay(),
+        tmp_path,
+        binding={"mode": "bound"},
+        total_iterations=2,
+        epochs=2,
+        learning_rate=0.001,
+        conservative_weight=0.01,
+        fitter=fit_distributed,
+        fitter_options=dict(devices=["cpu"], global_batch=4, optimizer_updates=7),
+        progress=events.append,
+    )
+    epochs = [
+        fit_metrics(e, episodes=2, epochs=2)["train/model_epoch"]
+        for e in events
+        if e["phase"] == "fit"
+    ]
+    assert epochs[6:8] == [4, 5]
+    assert epochs == sorted(epochs)

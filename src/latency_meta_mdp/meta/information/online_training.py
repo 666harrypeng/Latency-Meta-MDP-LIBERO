@@ -1,5 +1,23 @@
 """Source-balanced replay and explicit parent-initialized FQI generations."""
 
+from latency_meta_mdp.meta.information.training import VerifiedReplay
+
+
+class CumulativeReplay(VerifiedReplay):
+    """Concatenate explicitly admitted online cohorts without scanning for new data."""
+
+    def __init__(self, streams):
+        streams = list(streams)
+        if not streams:
+            raise ValueError("cumulative replay requires admitted cohorts")
+        self.entries = [entry for stream in streams for entry in stream.entries]
+        self.receipts = {
+            f"{i}/{key}": digest
+            for i, stream in enumerate(streams)
+            for key, digest in stream.receipts.items()
+        }
+        self.cache = streams[0].cache
+
 
 class MixedReplay:
     def __init__(self, offline, online):
@@ -52,8 +70,13 @@ def validate_mixture(config, manifests, compatibility):
         compatibility["collection_code_hashes"]
     ) != {m["binding"]["code_hash"] for m in manifests}:
         raise ValueError("explicit collector compatibility differs")
-    if [m["binding"]["scope"] for m in manifests] != ["starter_training", "online_training"]:
+    if len(manifests) < 2 or [m["binding"]["scope"] for m in manifests] != ["starter_training"] + [
+        "online_training"
+    ] * (len(manifests) - 1):
         raise ValueError("expected offline and online training sources")
+    identities = [e["episode_id"] for m in manifests for e in m["episodes"]]
+    if len(identities) != len(set(identities)):
+        raise ValueError("duplicate training episode identity across cohorts")
     for manifest in manifests:
         binding = manifest["binding"]
         for expected, actual in (
@@ -95,6 +118,9 @@ def run_online_training(
     stop_after_iterations=None,
     warm_start_checkpoint=None,
     total_iterations=10,
+    additional_online_dirs=(),
+    optimizer_updates=None,
+    validate_initial=True,
 ):
     import json
     import os
@@ -122,6 +148,11 @@ def run_online_training(
     root, offline_dir, online_dir, output_dir = map(
         Path, (root, offline_dir, online_dir, output_dir)
     )
+    directories = [offline_dir, online_dir, *map(Path, additional_online_dirs)]
+    if additional_online_dirs and warm_start_checkpoint is None:
+        raise ValueError("cumulative replay requires an explicit warm-start checkpoint")
+    if optimizer_updates is not None and training_gpus is None:
+        raise ValueError("exact update budgets require explicit train-gpus")
     config = load_config(config_path)
     if replay_storage not in ("archive", "mmap"):
         raise ValueError("unknown replay storage")
@@ -140,23 +171,27 @@ def run_online_training(
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = training_gpus
         device = "cpu"  # Coordinator never owns CUDA tensors or contexts.
-    manifests = [json.loads((d / "cohort.json").read_text()) for d in (offline_dir, online_dir)]
+    manifests = [json.loads((d / "cohort.json").read_text()) for d in directories]
     compatibility = json.loads(Path(compatibility_path).read_text())
     validate_mixture(config, manifests, compatibility)
     audit = json.loads(Path(audit_path).read_text())
     expected_old = build_manifest(
         config, audit, root=root, code_hash=manifests[0]["binding"]["code_hash"]
     )
-    expected_new = build_cycle_manifest(
-        config,
-        audit,
-        root=root,
-        code_hash=manifests[1]["binding"]["code_hash"],
-        policy=manifests[1]["binding"]["policy"],
-        phase="online",
-    )
     validate_binding(expected_old, manifests[0])
-    validate_binding(expected_new, manifests[1])
+    for manifest in manifests[1:]:
+        collector = manifest["binding"]
+        expected_new = build_cycle_manifest(
+            config,
+            audit,
+            root=root,
+            code_hash=collector["code_hash"],
+            policy=collector["policy"],
+            phase="online",
+            baselines=collector["baselines"],
+            generation=collector.get("generation"),
+        )
+        validate_binding(expected_new, manifest)
     from latency_meta_mdp.meta.information.resources import gpu_processes
 
     if (training_gpus is not None or torch.device(device).type == "cuda") and gpu_processes()[0]:
@@ -170,10 +205,11 @@ def run_online_training(
     def admission(source):
         return lambda value: print(json.dumps(dict(source=source, **value)), flush=True)
 
-    replay = MixedReplay(
-        VerifiedReplay(offline_dir, manifests[0], cache=cache, progress=admission("offline")),
-        VerifiedReplay(online_dir, manifests[1], cache=cache, progress=admission("online")),
-    )
+    admitted = [
+        VerifiedReplay(directory, manifest, cache=cache, progress=admission(f"cohort-{i}"))
+        for i, (directory, manifest) in enumerate(zip(directories, manifests, strict=True))
+    ]
+    replay = MixedReplay(admitted[0], CumulativeReplay(admitted[1:]))
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
@@ -186,13 +222,15 @@ def run_online_training(
     expected = deployment_binding(config)
     from latency_meta_mdp.meta.information.deployment import load_scheduler, scheduler_identity
 
-    behavior = load_scheduler(
-        checkpoint,
-        expected,
-        source_manifest=manifests[1]["binding"]["policy"].get("source_manifest"),
-    )
-    validate_binding(scheduler_identity(behavior), manifests[1]["binding"]["policy"])
-    del behavior
+    for i, manifest in enumerate(manifests[1:]):
+        policy = manifest["binding"]["policy"]
+        behavior = load_scheduler(
+            checkpoint if i == 0 else policy["checkpoint"],
+            expected,
+            source_manifest=policy.get("source_manifest"),
+        )
+        validate_binding(scheduler_identity(behavior), policy)
+        del behavior
     model = start_generation(
         warm_start_checkpoint or checkpoint,
         output_dir,
@@ -217,10 +255,14 @@ def run_online_training(
         collector_compatibility=compatibility,
         data=[
             dict(manifest_sha256=sha256(d / "cohort.json"), receipts_hash=identity_hash(r.receipts))
-            for d, r in zip((offline_dir, online_dir), (replay.offline, replay.online), strict=True)
+            for d, r in zip(directories, admitted, strict=True)
         ],
-        online_training_episodes=32,
-        online_learned_episodes=24,
+        offline_training_episodes=len(admitted[0]),
+        online_training_episodes=len(replay.online),
+        online_learned_episodes=sum(
+            e["behavior"] == "fqi" for m in manifests[1:] for e in m["episodes"]
+        ),
+        behavior_policies=[m["binding"]["policy"] for m in manifests[1:]],
         sampling="0.5 mean offline transitions + 0.5 mean online transitions",
         trainer_code_hash=identity_hash(code),
     )
@@ -248,6 +290,7 @@ def run_online_training(
             global_batch=global_batch,
             cache_bytes=replay_cache_gib * 2**30,
             cpu_threads=cpu_threads,
+            **({"optimizer_updates": optimizer_updates} if optimizer_updates is not None else {}),
         )
         binding["parallel_training"] = dict(
             recipe="synchronous-episode-minibatch-v1",
@@ -287,13 +330,18 @@ def run_online_training(
             cpu_threads=cpu_threads,
         )
         binding["validation_protocol"] = validator.protocol
+    updates_per_pass = (
+        (len(replay) + global_batch - 1) // global_batch
+        if training_gpus is not None
+        else len(replay)
+    )
     tracker = OnlineFitTracker(
         output_dir,
         binding=binding,
-        episodes=(len(replay) + global_batch - 1) // global_batch
-        if training_gpus is not None
-        else len(replay),
-        epochs=2,
+        episodes=updates_per_pass,
+        epochs=2
+        if optimizer_updates is None
+        else (optimizer_updates + updates_per_pass - 1) // updates_per_pass,
     )
     if validator is not None:
         validator.progress = tracker
@@ -313,6 +361,7 @@ def run_online_training(
             fitter=fitter,
             fitter_options=fitter_options,
             stop_after_iterations=stop_after_iterations,
+            validate_initial=validate_initial,
         )
         success = True
         return result

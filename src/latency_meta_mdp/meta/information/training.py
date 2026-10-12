@@ -91,6 +91,7 @@ def train_iterations(
     validate_checkpoint=None,
     fitter=None,
     fitter_options=None,
+    validate_initial=True,
 ):
     """Resume only published complete iterations; restart an interrupted iteration."""
     if total_iterations < 1 or (stop_after_iterations is not None and stop_after_iterations < 1):
@@ -106,6 +107,7 @@ def train_iterations(
         budget_lambda=0.0,
         chunk_size=64,
         optimizer="Adam-reset-per-fitted-iteration",
+        validate_initial=validate_initial,
     )
     if fitter is not None:
         recipe["parallel_fqi"] = {
@@ -138,7 +140,8 @@ def train_iterations(
             random.setstate(python_rng)
             model.train(training)
 
-    validate(receipt)
+    if validate_initial or receipt["iteration"] > 0:
+        validate(receipt)
     first = receipt["iteration"]
     last = total_iterations
     if stop_after_iterations is not None:
@@ -165,7 +168,8 @@ def train_iterations(
             raise ValueError("frozen target changed during regression")
         metrics["seconds"] = perf_counter() - started
         metrics["transition_visits_per_second"] = (
-            (1 + epochs) * metrics["transitions"] / metrics["seconds"]
+            metrics.get("transition_visits", (1 + epochs) * metrics["transitions"])
+            / metrics["seconds"]
         )
         if getattr(episodes, "cache", None) is not None:
             metrics["replay_cache"] = episodes.cache.metrics()

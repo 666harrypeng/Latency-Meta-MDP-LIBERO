@@ -7,8 +7,59 @@ from latency_meta_mdp.meta.information.cohort import build_manifest
 from latency_meta_mdp.meta.information.config import validate_binding
 
 
-def build_cycle_manifest(config, audit, *, root, code_hash, policy, phase, baselines=True):
+def build_cycle_manifest(
+    config, audit, *, root, code_hash, policy, phase, baselines=True, generation=None
+):
     base = build_manifest(config, audit, root=root, code_hash=code_hash)
+    if generation is not None:
+        if phase != "online" or set(generation) != {
+            "name",
+            "scenes",
+            "behaviors",
+            "regimes",
+            "epsilon",
+        }:
+            raise ValueError("explicit generations require an online recipe")
+        scenes, behaviors, regimes = (generation[k] for k in ("scenes", "behaviors", "regimes"))
+        if (
+            not isinstance(generation["name"], str)
+            or not generation["name"]
+            or not scenes
+            or len(scenes) != len(set(scenes))
+            or any(type(s) is not int or s not in config["splits"]["train"] for s in scenes)
+            or len(behaviors) != len(scenes)
+            or set(behaviors) - {"fqi", "periodic", "active"}
+            or not regimes
+            or len(regimes) != len(set(regimes))
+            or set(regimes) - {"nominal", "family", "zero"}
+            or not 0 <= generation["epsilon"] <= 1
+        ):
+            raise ValueError("invalid online generation recipe")
+        episodes = [
+            dict(
+                episode_id=f"{scene}-{regime}-{behavior}",
+                scene=scene,
+                regime=regime,
+                behavior=behavior,
+                policy_seed=0,
+                scheduler_seed=scene * 100 + {"nominal": 0, "family": 10, "zero": 20}[regime],
+                split="train",
+                epsilon=generation["epsilon"] if behavior == "fqi" else 0.0,
+            )
+            for scene, behavior in zip(scenes, behaviors, strict=True)
+            for regime in regimes
+        ]
+        return dict(
+            binding=dict(
+                base["binding"],
+                scope="online_training",
+                policy=policy,
+                phase=phase,
+                baselines=baselines,
+                generation=generation,
+            ),
+            episodes=episodes,
+        )
     if phase == "smoke":
         scenes, scope, split = config["splits"]["train"][:2], "diagnostic", "train"
     elif phase == "validation":
@@ -61,6 +112,7 @@ def prepare_cycle(
     source_manifest=None,
     shard_index=None,
     num_shards=None,
+    generation=None,
 ):
     from latency_meta_mdp.meta.information.config import load_config
     from latency_meta_mdp.meta.information.deployment import (
@@ -87,6 +139,7 @@ def prepare_cycle(
         policy=policy,
         phase=phase,
         baselines=baselines,
+        generation=generation,
     )
     if shard_index is not None or num_shards is not None:
         from latency_meta_mdp.meta.information.parallel import partition_manifest

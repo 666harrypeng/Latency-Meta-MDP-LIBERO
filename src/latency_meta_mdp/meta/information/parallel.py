@@ -97,6 +97,7 @@ def run_parallel(
     baselines=False,
     source_manifest=None,
     enabled=True,
+    generation=None,
 ):
     from latency_meta_mdp.meta.cycle_tracking import CycleTracker
     from latency_meta_mdp.meta.information.cycle import prepare_cycle
@@ -128,6 +129,7 @@ def run_parallel(
                 phase=phase,
                 baselines=baselines,
                 source_manifest=source_manifest,
+                generation=generation,
             )
         finally:
             if previous is None:
@@ -136,6 +138,8 @@ def run_parallel(
                 os.environ["CUDA_VISIBLE_DEVICES"] = previous
         for i in range(len(devices)):
             partition_manifest(manifest, i, len(devices))
+        if generation is not None:
+            atomic_json(output_dir / "generation.json", generation)
         execution = dict(
             gpus=devices,
             worker_python=str(worker_python or sys.executable),
@@ -189,6 +193,8 @@ def run_parallel(
                 ]
                 if not baselines:
                     command.append("--meta-only")
+                if generation is not None:
+                    command.extend(["--generation", str(output_dir / "generation.json")])
                 if source_manifest is not None:
                     command.extend(["--offline-dir", str(Path(source_manifest).resolve().parent)])
                 env = worker_environment(device, cpu_threads=cpu_threads)

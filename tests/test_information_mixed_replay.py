@@ -95,7 +95,7 @@ def test_mixture_requires_explicit_collector_compatibility_and_train_scene_membe
     from latency_meta_mdp.meta.information.config import identity_hash
     from latency_meta_mdp.meta.information.online_training import validate_mixture
 
-    config = dict(mode="bound", assets={"identity": {"vla": "fixed"}}, splits={"train": [1, 2]})
+    config = dict(mode="bound", assets={"identity": {"vla": "fixed"}}, splits={"train": [1, 2, 3]})
 
     def manifest(scope, code, scene):
         return dict(
@@ -107,14 +107,53 @@ def test_mixture_requires_explicit_collector_compatibility_and_train_scene_membe
                 config_hash=identity_hash(config),
                 schema_version=1,
             ),
-            episodes=[dict(scene=scene, split="train")],
+            episodes=[dict(episode_id=str(scene), scene=scene, split="train")],
         )
 
     old, new = manifest("starter_training", "old", 1), manifest("online_training", "new", 2)
     compatibility = dict(config_hash=identity_hash(config), collection_code_hashes=["new", "old"])
     validate_mixture(config, [old, new], compatibility)
+    extra = manifest("online_training", "new", 3)
+    validate_mixture(config, [old, new, extra], compatibility)
+    with pytest.raises(ValueError, match="duplicate"):
+        validate_mixture(config, [old, new, new], compatibility)
     with pytest.raises(ValueError, match="compatibility"):
         validate_mixture(config, [old, new], {**compatibility, "collection_code_hashes": ["old"]})
     new["episodes"][0]["scene"] = 99
     with pytest.raises(ValueError, match="train"):
         validate_mixture(config, [old, new], compatibility)
+
+
+def test_cumulative_online_preserves_provenance_and_shared_cache(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information.online_training import CumulativeReplay, MixedReplay
+    from latency_meta_mdp.meta.information.replay_cache import EpisodeCache
+    from latency_meta_mdp.meta.information.training import VerifiedReplay
+
+    streams = []
+    for i, scene in enumerate([10016, 10032]):
+        path = tmp_path / str(i)
+        manifest, _ = make_replay(path, scope="online_training", scene=scene, behavior="fqi")
+        streams.append(VerifiedReplay(path, manifest))
+    data = CumulativeReplay(streams)
+    assert len(data.entries) == len(data.receipts) == len(data) == 2
+    assert data[1][0]["task_reward"] == 0.1
+    cache = EpisodeCache()
+    data.cache = cache
+    data[0]
+    data[0]
+    assert cache.metrics()["hits"] == 1
+    assert MixedReplay([[{}]], data).sources == ["offline", "online", "online"]
+    from latency_meta_mdp.meta.information import dataset
+    from latency_meta_mdp.meta.information.replay_preparation import prepare_replay
+
+    prepared = prepare_replay(data, tmp_path / "prepared")
+    visited = []
+    load = dataset.load_episode
+
+    def record_path(path, **kwargs):
+        visited.append(path)
+        return load(path, **kwargs)
+
+    monkeypatch.setattr(dataset, "load_episode", record_path)
+    assert prepared[1][0]["task_reward"] == 0.1
+    assert visited == [prepared.entries[1][0]]

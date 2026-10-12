@@ -21,6 +21,7 @@ def main():
             "online-train",
             "monitor-series",
             "parallel-collect",
+            "campaign",
         ],
     )
     parser.add_argument("--config", type=Path, required=True)
@@ -59,13 +60,43 @@ def main():
     )
     parser.add_argument("--warm-start-checkpoint", type=Path)
     parser.add_argument("--iterations", type=int, default=10)
+    parser.add_argument("--online-cohort", type=Path, action="append", default=[])
+    parser.add_argument("--optimizer-updates", type=int)
+    parser.add_argument("--skip-initial-validation", action="store_true")
+    parser.add_argument("--generation", type=Path, help="Explicit online collection recipe JSON")
+    parser.add_argument("--campaign-recipe", type=Path, help="Bounded collect/refit campaign JSON")
     args = parser.parse_args()
     if args.allow_shared_pids:
         import os
 
         os.environ["CONVEYOR_SHARED_GPU_PIDS"] = args.allow_shared_pids
     root = Path(__file__).resolve().parents[1]
-    if args.command == "parallel-collect":
+    if args.command == "campaign":
+        if any(
+            v is None for v in (args.campaign_recipe, args.scene_audit, args.gpus, args.train_gpus)
+        ):
+            parser.error("campaign requires campaign-recipe, scene-audit, gpus, train-gpus")
+        from latency_meta_mdp.meta.information.campaign import run_campaign
+
+        print(
+            json.dumps(
+                run_campaign(
+                    args.config,
+                    args.output_dir,
+                    root=root,
+                    recipe_path=args.campaign_recipe,
+                    audit_path=args.scene_audit,
+                    gpus=args.gpus,
+                    training_gpus=args.train_gpus,
+                    worker_python=args.worker_python,
+                    cpu_threads=args.cpu_threads,
+                    replay_cache_dir=args.replay_cache_dir,
+                    replay_prepare_workers=args.replay_prepare_workers,
+                ),
+                indent=2,
+            )
+        )
+    elif args.command == "parallel-collect":
         if any(
             v is None
             for v in (args.gpus, args.checkpoint, args.phase, args.scene_audit, args.bootstrap_dir)
@@ -91,6 +122,7 @@ def main():
                     baselines=not args.meta_only,
                     source_manifest=args.offline_dir / "cohort.json" if args.offline_dir else None,
                     enabled=not args.no_wandb,
+                    generation=json.loads(args.generation.read_text()) if args.generation else None,
                 ),
                 indent=2,
             )
@@ -125,6 +157,7 @@ def main():
             source_manifest=args.offline_dir / "cohort.json" if args.offline_dir else None,
             shard_index=args.shard_index,
             num_shards=args.num_shards,
+            generation=json.loads(args.generation.read_text()) if args.generation else None,
         )
         if args.command == "cycle-bootstrap":
             prepare_bootstraps(
@@ -197,6 +230,9 @@ def main():
                     stop_after_iterations=args.stop_after_iterations,
                     warm_start_checkpoint=args.warm_start_checkpoint,
                     total_iterations=args.iterations,
+                    additional_online_dirs=args.online_cohort,
+                    optimizer_updates=args.optimizer_updates,
+                    validate_initial=not args.skip_initial_validation,
                 ),
                 indent=2,
             )

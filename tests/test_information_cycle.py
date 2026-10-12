@@ -38,6 +38,36 @@ def test_cycle_manifests_keep_online_eval_and_diagnostic_disjoint(tmp_path):
     assert not {e["scene"] for e in evaluation["episodes"]} & {
         e["scene"] for e in online["episodes"]
     }
+    generation = dict(
+        name="batch-1",
+        scenes=list(range(132, 140)),
+        behaviors=["fqi"] * 6 + ["periodic", "active"],
+        regimes=["zero", "nominal", "family"],
+        epsilon=0.2,
+    )
+    expanded = build_cycle_manifest(config, audit, phase="online", generation=generation, **kwargs)
+    assert len(expanded["episodes"]) == 24
+    assert sum(e["behavior"] == "fqi" for e in expanded["episodes"]) == 18
+    assert expanded["binding"]["generation"] == generation
+    assert {e["regime"] for e in expanded["episodes"]} == {"zero", "nominal", "family"}
+    assert all(
+        e["scheduler_seed"]
+        == e["scene"] * 100 + {"nominal": 0, "family": 10, "zero": 20}[e["regime"]]
+        for e in expanded["episodes"]
+    )
+    for bad in (
+        {**generation, "scenes": [200] + generation["scenes"][1:]},
+        {**generation, "scenes": [132] * 8},
+        {**generation, "epsilon": 1.1},
+        {**generation, "behaviors": ["fqi"]},
+        {**generation, "regimes": ["zero", "zero"]},
+    ):
+        with pytest.raises(ValueError):
+            build_cycle_manifest(config, audit, phase="online", generation=bad, **kwargs)
+    with pytest.raises(ValueError):
+        build_cycle_manifest(
+            config, audit, phase="monitor", generation=generation, baselines=False, **kwargs
+        )
     with pytest.raises(ValueError):
         build_cycle_manifest(config, audit, phase="test", **kwargs)
 

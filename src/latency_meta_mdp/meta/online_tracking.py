@@ -42,7 +42,8 @@ def fit_metrics(event, *, episodes, epochs):
                 "train/attempt": event.get("attempt", 1),
                 "train/resume_iteration": event.get("resume_iteration", 0),
                 f"train/attempt_{event.get('attempt', 1)}/combined_loss": event["loss"],
-                "train/model_epoch": (iteration - 1) * epochs + event["epoch"],
+                "train/model_epoch": (iteration - 1) * event.get("passes_per_iteration", epochs)
+                + event["epoch"],
                 "train/global_epoch": (event["actual_update"] - 1) // episodes + 1
                 if "actual_update" in event
                 else (iteration - 1) * epochs + event["epoch"],
@@ -145,8 +146,8 @@ class OnlineFitTracker:
                 "evaluation/status": "validation_after_each_iteration"
                 if "validation_protocol" in binding
                 else "separate_greedy_rollout_required",
-                "data/offline_episodes": 128,
-                "data/online_episodes": 32,
+                "data/offline_episodes": binding.get("offline_training_episodes", 128),
+                "data/online_episodes": binding.get("online_training_episodes", 32),
             }
         )
         print("WANDB_RUN " + str(self.run.url), flush=True)

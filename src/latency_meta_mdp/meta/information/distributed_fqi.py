@@ -211,6 +211,7 @@ def _fit_worker(rank, world, device, state, episodes, options, orders, directory
                 dict(
                     phase="fit",
                     epoch=epoch + 1,
+                    passes_per_iteration=len(orders),
                     episode=position + 1,
                     episodes=len(groups),
                     source="mixed" if options["sources"] else "offline",
@@ -248,10 +249,14 @@ def _fit_worker(rank, world, device, state, episodes, options, orders, directory
         raise ValueError("distributed learner weights diverged")
     if rank == 0:
         metrics = dict(
-            loss=losses / (len(episodes) * len(orders)),
+            loss=losses / sum(map(len, orders)),
             transitions=sum(lengths),
-            transition_visits=sum(lengths) * (len(orders) + 1),
+            transition_visits=sum(lengths) + sum(lengths[i] for order in orders for i in order),
+            regression_transition_visits=sum(lengths[i] for order in orders for i in order),
             optimizer_updates=updates,
+            regression_passes=len(orders),
+            regression_episode_visits=sum(map(len, orders)),
+            episode_transition_counts=lengths,
             target_seconds=max(s["target_seconds"] for s in stats),
             regression_seconds=max(s["regression_seconds"] for s in stats),
             target_min=min(min(t) for t in fixed.values()),
@@ -320,6 +325,7 @@ def fit_distributed(
     sources=None,
     cache_bytes=128 * 2**30,
     cpu_threads=4,
+    optimizer_updates=None,
     progress=None,
 ):
     """All ranks exit before returning, so validation owns clean GPU contexts."""
@@ -335,6 +341,10 @@ def fit_distributed(
         raise ValueError("invalid distributed FQI recipe")
     if next(model.parameters()).device.type != "cpu":
         raise ValueError("distributed coordinator model must remain on CPU")
+    if optimizer_updates is not None and (
+        type(optimizer_updates) is not int or optimizer_updates < 1
+    ):
+        raise ValueError("optimizer update budget must be positive")
     options = dict(
         mode=mode,
         learning_rate=learning_rate,
@@ -345,7 +355,15 @@ def fit_distributed(
         cache_bytes=cache_bytes,
         cpu_threads=cpu_threads,
     )
-    orders = [np.random.permutation(len(episodes)).tolist() for _ in range(epochs)]
+    if optimizer_updates is None:
+        orders = [np.random.permutation(len(episodes)).tolist() for _ in range(epochs)]
+    else:
+        orders = []
+        remaining = optimizer_updates
+        while remaining:
+            order = np.random.permutation(len(episodes)).tolist()[: remaining * global_batch]
+            orders.append(order)
+            remaining -= (len(order) + global_batch - 1) // global_batch
     state = {k: v.detach().clone() for k, v in model.state_dict().items()}
     from latency_meta_mdp.meta.information.resources import (
         gpu_processes,

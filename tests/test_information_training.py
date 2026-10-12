@@ -205,3 +205,30 @@ def test_shuffled_mixed_replay_resume_matches_continuous(tmp_path):
     run(resumed, data, tmp_path / "split", {"mode": "bound"})
     for k, v in continuous.state_dict().items():
         torch.testing.assert_close(v, resumed.state_dict()[k], rtol=0, atol=0)
+
+
+def test_generation_skips_initial_validation_but_retries_completed_fit(tmp_path):
+    from latency_meta_mdp.meta.information.training import train_iterations
+
+    seen = []
+
+    def validate(checkpoint, receipt):
+        seen.append(receipt["iteration"])
+        if len(seen) == 1:
+            raise RuntimeError("validation interrupted")
+
+    kwargs = dict(
+        binding={"mode": "bound"},
+        total_iterations=1,
+        epochs=1,
+        learning_rate=0.001,
+        conservative_weight=0.01,
+        validate_initial=False,
+        validate_checkpoint=validate,
+    )
+    with pytest.raises(RuntimeError, match="interrupted"):
+        train_iterations(StageQ(), episodes(), tmp_path, **kwargs)
+    receipt = (tmp_path / "iteration-0001/complete.json").read_bytes()
+    train_iterations(StageQ(), episodes(), tmp_path, **kwargs)
+    assert seen == [1, 1]
+    assert (tmp_path / "iteration-0001/complete.json").read_bytes() == receipt
