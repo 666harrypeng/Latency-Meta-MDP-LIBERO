@@ -41,6 +41,7 @@ def test_monitor_binds_source_manifest_and_forwards_to_evaluator(tmp_path, monke
     checkpoint = tmp_path / "fit/iteration-0000"
     checkpoint.mkdir(parents=True)
     monkeypatch.setattr(monitor, "load_config", lambda _: {"splits": {"validation": [1, 2, 3]}})
+    monkeypatch.setenv("PYTHONPATH", "/runtime/compat:/runtime/libs")
     validator = monitor.IterationValidator(
         config,
         tmp_path / "evaluation",
@@ -50,16 +51,22 @@ def test_monitor_binds_source_manifest_and_forwards_to_evaluator(tmp_path, monke
         source_manifest=source,
         worker_python="/custom/bin/python" if parallel else None,
         gpus="4,5,6,7" if parallel else None,
+        cpu_threads=7,
     )
     assert validator.protocol["source_manifest_sha256"] == sha256(source)
 
     def fake_launch(command, **kwargs):
+        import sys
+
+        assert kwargs["env"]["PYTHONPATH"] == f"/runtime/compat:/runtime/libs:{tmp_path}/src"
+        assert kwargs["env"]["OMP_NUM_THREADS"] == "7"
         if parallel:
             assert command[0] == "/custom/bin/python"
             assert "parallel-collect" in command
             assert command[command.index("--gpus") + 1] == "4,5,6,7"
             assert command[command.index("--bootstrap-dir") + 1] == str(bootstrap)
         else:
+            assert command[0] == sys.executable
             assert "cycle-collect" in command
         i = command.index("--offline-dir")
         assert Path(command[i + 1]) == source.parent

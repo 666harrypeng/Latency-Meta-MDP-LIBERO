@@ -82,3 +82,26 @@ def test_preparation_rejects_source_changed_during_copy(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="changed|hash"):
         module.prepare_episode(source, tmp_path / "cache")
     assert not list((tmp_path / "cache").glob("*/complete.json"))
+
+
+def test_simultaneous_cache_publication_reuses_verified_winner(tmp_path, monkeypatch):
+    import shutil
+    from pathlib import Path
+
+    from latency_meta_mdp.meta.information.replay_preparation import prepare_episode
+
+    recorder = StageRecorder("sample")
+    recorder.start(ActorPacket(10, "G"), 5, forced=False, probability=1.0)
+    recorder.finish(11, terminated=True)
+    source = tmp_path / "source"
+    save_episode(source, recorder, report={}, binding={})
+    rename = Path.rename
+
+    def other_writer_publishes_first(pending, target):
+        shutil.copytree(pending, target)
+        return rename(pending, target)
+
+    monkeypatch.setattr(Path, "rename", other_writer_publishes_first)
+    target = prepare_episode(source, tmp_path / "cache")
+    assert load_episode(target, binding={})[0]["terminated"]
+    assert not list((tmp_path / "cache").glob(".pending-*"))

@@ -83,7 +83,7 @@ def _gather(value, world):
 def _worker(rank, devices, state, episodes, options, orders, directory):
     world = len(devices)
     device = torch.device(devices[rank])
-    torch.set_num_threads(4)
+    torch.set_num_threads(options["cpu_threads"])
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     torch.manual_seed(0)
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -314,10 +314,19 @@ def fit_distributed(
     chunk_size=64,
     sources=None,
     cache_bytes=128 * 2**30,
+    cpu_threads=4,
     progress=None,
 ):
     """All ranks exit before returning, so validation owns clean GPU contexts."""
-    if not devices or global_batch < 1 or epochs < 1 or not episodes or cache_bytes < 0:
+    if (
+        not devices
+        or global_batch < 1
+        or epochs < 1
+        or not episodes
+        or cache_bytes < 0
+        or type(cpu_threads) is not int
+        or cpu_threads < 1
+    ):
         raise ValueError("invalid distributed FQI recipe")
     if next(model.parameters()).device.type != "cpu":
         raise ValueError("distributed coordinator model must remain on CPU")
@@ -329,6 +338,7 @@ def fit_distributed(
         chunk_size=chunk_size,
         sources=sources,
         cache_bytes=cache_bytes,
+        cpu_threads=cpu_threads,
     )
     orders = [np.random.permutation(len(episodes)).tolist() for _ in range(epochs)]
     state = {k: v.detach().clone() for k, v in model.state_dict().items()}

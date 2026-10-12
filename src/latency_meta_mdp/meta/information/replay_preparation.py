@@ -1,6 +1,7 @@
 """Verified lossless uncompressed replay copies, reusable across learner launches."""
 
 import copy
+import errno
 import json
 import shutil
 import tempfile
@@ -63,7 +64,15 @@ def prepare_episode(source, cache_root, *, expected_receipt=None, binding=None):
         for name, value in receipt["files"].items():
             if sha256(source / name) != value:
                 raise ValueError("source replay changed during preparation")
-        pending.rename(target)
+        try:
+            pending.rename(target)
+        except OSError as exc:
+            if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            # Another run published the same source while this copy was built.
+            return prepare_episode(
+                source, cache_root, expected_receipt=source_hash, binding=binding
+            )
     finally:
         if pending.exists():
             shutil.rmtree(pending)

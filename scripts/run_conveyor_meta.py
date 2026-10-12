@@ -51,6 +51,11 @@ def main():
     parser.add_argument("--train-gpus", help="Physical GPUs for synchronous FQI updates")
     parser.add_argument("--global-batch", type=int, default=4)
     parser.add_argument("--replay-cache-gib", type=int, default=128)
+    parser.add_argument("--replay-cache-dir", type=Path)
+    parser.add_argument("--replay-prepare-workers", type=int, default=4)
+    parser.add_argument(
+        "--cpu-threads", type=int, default=4, help="CPU threads per rollout/learner worker"
+    )
     parser.add_argument("--warm-start-checkpoint", type=Path)
     parser.add_argument("--iterations", type=int, default=10)
     args = parser.parse_args()
@@ -81,6 +86,7 @@ def main():
                     bootstrap_dir=args.bootstrap_dir,
                     gpus=args.gpus,
                     worker_python=args.worker_python,
+                    cpu_threads=args.cpu_threads,
                     baselines=not args.meta_only,
                     source_manifest=args.offline_dir / "cohort.json" if args.offline_dir else None,
                     enabled=not args.no_wandb,
@@ -103,6 +109,7 @@ def main():
             source_manifest=args.offline_dir / "cohort.json" if args.offline_dir else None,
             worker_python=args.worker_python,
             gpus=args.gpus,
+            cpu_threads=args.cpu_threads,
         )
     elif args.command in ("cycle-bootstrap", "cycle-collect"):
         if args.checkpoint is None or args.phase is None or args.scene_audit is None:
@@ -182,6 +189,9 @@ def main():
                     training_gpus=args.train_gpus,
                     global_batch=args.global_batch,
                     replay_cache_gib=args.replay_cache_gib,
+                    replay_cache_dir=args.replay_cache_dir,
+                    replay_prepare_workers=args.replay_prepare_workers,
+                    cpu_threads=args.cpu_threads,
                     stop_after_iterations=args.stop_after_iterations,
                     warm_start_checkpoint=args.warm_start_checkpoint,
                     total_iterations=args.iterations,

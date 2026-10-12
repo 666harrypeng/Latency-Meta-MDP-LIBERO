@@ -4,6 +4,7 @@ import gc
 import json
 import os
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -36,9 +37,13 @@ class IterationValidator:
         source_manifest=None,
         worker_python=None,
         gpus=None,
+        cpu_threads=4,
     ):
         self.root = Path(root).resolve()
-        self.worker_python = str(worker_python or self.root / ".venv-openpi/bin/python")
+        self.worker_python = str(worker_python or sys.executable)
+        if type(cpu_threads) is not int or cpu_threads < 1:
+            raise ValueError("worker CPU threads must be positive")
+        self.cpu_threads = cpu_threads
         self.gpus = gpus
         self.config_path, self.audit_path = Path(config_path).resolve(), Path(audit_path).resolve()
         self.output_dir = Path(output_dir).resolve()
@@ -146,17 +151,20 @@ class IterationValidator:
                     self.worker_python,
                     "--bootstrap-dir",
                     str(self.bootstrap_dir),
+                    "--cpu-threads",
+                    str(self.cpu_threads),
                 ]
             )
         if self.source_manifest is not None:
             validate_binding(self.protocol["source_manifest_sha256"], sha256(self.source_manifest))
             command.extend(["--offline-dir", str(self.source_manifest.parent)])
         env = dict(os.environ)
-        # Same pinned compatibility overlay as the existing local evaluator.
+        # The caller supplies its runtime overlays through PYTHONPATH.
         env["PYTHONPATH"] = os.pathsep.join(
-            str(self.root / p)
-            for p in ("outputs/analysis/conveyor-sort/conditioned-eval-v1/python-overlay", "src")
+            p for p in (env.get("PYTHONPATH", ""), str(self.root / "src")) if p
         )
+        for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+            env[key] = str(self.cpu_threads)
         device = next(self.model.parameters()).device if self.model is not None else None
         try:
             if device is not None and device.type == "cuda":
@@ -280,6 +288,7 @@ def run_monitor_series(
     source_manifest=None,
     worker_python=None,
     gpus=None,
+    cpu_threads=4,
 ):
     checkpoint_dir = Path(checkpoint_dir).resolve()
     entries = sorted(checkpoint_dir.glob("iteration-*/complete.json"))
@@ -301,6 +310,7 @@ def run_monitor_series(
         source_manifest=source_manifest,
         worker_python=worker_python,
         gpus=gpus,
+        cpu_threads=cpu_threads,
     )
     tracker = ValidationTracker(validator.output_dir, protocol=validator.protocol)
     validator.progress = tracker

@@ -58,15 +58,17 @@ def merge_shards(directory, count, *, require_all=True):
     return len(admitted)
 
 
-def worker_environment(device):
+def worker_environment(device, *, cpu_threads=4):
+    if type(cpu_threads) is not int or cpu_threads < 1:
+        raise ValueError("worker CPU threads must be positive")
     env = dict(
         os.environ,
         CUDA_VISIBLE_DEVICES=device,
         MUJOCO_EGL_DEVICE_ID=device,
         CUDA_DEVICE_ORDER="PCI_BUS_ID",
-        OMP_NUM_THREADS="4",
-        MKL_NUM_THREADS="4",
-        OPENBLAS_NUM_THREADS="4",
+        OMP_NUM_THREADS=str(cpu_threads),
+        MKL_NUM_THREADS=str(cpu_threads),
+        OPENBLAS_NUM_THREADS=str(cpu_threads),
         XLA_PYTHON_CLIENT_PREALLOCATE="false",
     )
     # The coordinator checked its parked direct parent. A worker has a different parent.
@@ -91,6 +93,7 @@ def run_parallel(
     bootstrap_dir,
     gpus,
     worker_python=None,
+    cpu_threads=4,
     baselines=False,
     source_manifest=None,
     enabled=True,
@@ -136,7 +139,7 @@ def run_parallel(
         execution = dict(
             gpus=devices,
             worker_python=str(worker_python or sys.executable),
-            cpu_threads_per_worker=4,
+            cpu_threads_per_worker=cpu_threads,
             host=os.uname().nodename,
             partition="manifest_index_mod_workers",
         )
@@ -188,7 +191,7 @@ def run_parallel(
                     command.append("--meta-only")
                 if source_manifest is not None:
                     command.extend(["--offline-dir", str(Path(source_manifest).resolve().parent)])
-                env = worker_environment(device)
+                env = worker_environment(device, cpu_threads=cpu_threads)
                 log = (worker / "execution.log").open("a")
                 logs.append(log)
                 processes.append(

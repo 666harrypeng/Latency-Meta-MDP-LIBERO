@@ -89,6 +89,16 @@ def test_worker_environment_maps_cuda_and_egl_without_parent_exemption(monkeypat
     assert "CONVEYOR_IDLE_LEARNER_PID" not in env
 
 
+def test_worker_environment_honors_runtime_cpu_allocation():
+    from latency_meta_mdp.meta.information.parallel import worker_environment
+
+    env = worker_environment("2", cpu_threads=7)
+    assert {env[k] for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")} == {"7"}
+    assert env["CUDA_VISIBLE_DEVICES"] == "2"
+    with pytest.raises(ValueError, match="threads"):
+        worker_environment("2", cpu_threads=0)
+
+
 def test_partial_merge_publishes_only_complete_verified_episodes(tmp_path):
     manifest = dict(
         binding={"policy": "fixed"}, episodes=[{"episode_id": "a"}, {"episode_id": "b"}]

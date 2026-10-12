@@ -108,7 +108,11 @@ def train_iterations(
         optimizer="Adam-reset-per-fitted-iteration",
     )
     if fitter is not None:
-        recipe["parallel_fqi"] = fitter_options
+        recipe["parallel_fqi"] = {
+            key: value
+            for key, value in (fitter_options or {}).items()
+            if key not in {"devices", "cache_bytes", "cpu_threads"}
+        }
     binding = {**binding, "recipe": recipe}
     receipt = _restore(output_dir, model, binding=binding)
     if receipt is None:

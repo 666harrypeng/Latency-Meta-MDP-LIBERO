@@ -96,6 +96,22 @@ def test_peer_exiting_first_does_not_hide_original_rank_failure(monkeypatch):
         module.fit_distributed(StageQ(), replay(), devices=["cpu", "cpu"], mode="bound")
 
 
+def test_learner_threads_are_runtime_options_and_must_be_positive(monkeypatch):
+    from latency_meta_mdp.meta.information import distributed_fqi as module
+
+    @contextmanager
+    def workers(devices, state, episodes, options, orders, directory):
+        assert options["cpu_threads"] == 2
+        raise RuntimeError("reached configured worker launch")
+        yield
+
+    monkeypatch.setattr(module, "worker_processes", workers)
+    with pytest.raises(ValueError, match="recipe"):
+        module.fit_distributed(StageQ(), replay(), devices=["cpu"], mode="bound", cpu_threads=0)
+    with pytest.raises(RuntimeError, match="configured worker"):
+        module.fit_distributed(StageQ(), replay(), devices=["cpu"], mode="bound", cpu_threads=2)
+
+
 def test_distributed_iteration_resume_matches_continuous(tmp_path):
     from latency_meta_mdp.meta.information.distributed_fqi import fit_distributed
     from latency_meta_mdp.meta.information.training import train_iterations
@@ -117,9 +133,14 @@ def test_distributed_iteration_resume_matches_continuous(tmp_path):
     np.random.seed(9)
     train_iterations(split, replay(), tmp_path / "split", stop_after_iterations=1, **kwargs)
     resumed = StageQ()
+    kwargs["fitter_options"] = dict(devices=["cpu", "cpu"], global_batch=4, cpu_threads=2)
     train_iterations(resumed, replay(), tmp_path / "split", **kwargs)
     for key, value in continuous.state_dict().items():
-        torch.testing.assert_close(value, resumed.state_dict()[key], rtol=0, atol=0)
+        torch.testing.assert_close(value, resumed.state_dict()[key], rtol=1e-4, atol=1e-6)
+
+    kwargs["fitter_options"]["global_batch"] = 2
+    with pytest.raises(ValueError, match="binding"):
+        train_iterations(resumed, replay(), tmp_path / "split", **kwargs)
 
 
 def test_global_batch_one_preserves_original_episode_optimizer_semantics():

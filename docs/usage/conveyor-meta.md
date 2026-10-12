@@ -112,6 +112,12 @@ For example, select physical devices with `--gpus 4,5,6,7`, and supply the same
 `--checkpoint`, `--phase`, `--scene-audit`, `--config`, and `--meta-only` options
 as `cycle-collect`, plus an existing `--bootstrap-dir`. Choose the combined
 OpenPI/Belief runtime with `--worker-python /absolute/path/to/python`.
+The same command accepts a single physical index for serial rollout execution.
+Set `--cpu-threads` for each rollout/learner process (default four). Supply any
+required compatibility overlays through the launch environment's `PYTHONPATH`;
+the validator preserves it and appends this checkout's `src`. The interpreter
+defaults to the calling Python executable. No host, device list or overlay path
+is selected by the implementation.
 
 Each worker writes its own directory. The coordinator verifies completion hashes,
 publishes relative episode links, and reports per-episode results to W&B as they
@@ -149,6 +155,13 @@ batch/data exposure and inspect closed-loop rewards when changing recipes.
 copy under `prepared-replay/` avoids repeated DEFLATE work across iterations;
 source data and cohort bindings remain unchanged. Allow additional disk space for
 these copies. Preparation checks both admitted source receipts and cached content.
+Use `--replay-cache-dir` to place or reuse these copies on suitable local storage
+and `--replay-prepare-workers` to bound concurrent preparation (default four).
+Learner hardware, CPU/cache allocation and paths are recorded separately in
+`execution-history.jsonl`; they are not part of the minibatch objective. A completed
+iteration can resume with a different device count while keeping global batch,
+replay, optimizer settings and source version fixed. Floating-point collective
+reduction order can cause small numerical differences across device counts.
 
 `--warm-start-checkpoint` initializes a new fit from a later compatible scheduler
 while `--checkpoint` continues to identify the policy that collected the online
@@ -157,8 +170,7 @@ outer-iteration budget; `--stop-after-iterations` supports bounded verification.
 Resume an unchanged recipe in the same output directory. Use a new output when
 changing the batch recipe or source code; preserve previous receipts and evidence.
 
-The launcher defaults to `.venv-openpi/bin/python` and the existing local evaluation
-overlay when runtime overrides are omitted. The runtime must contain both model
+The selected runtime must contain both model
 stacks, their fixed dependencies, cached vision weights and matching EGL libraries.
 
 Changing machines does not make old runs portable by rewriting their receipts.

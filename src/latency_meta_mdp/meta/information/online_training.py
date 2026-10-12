@@ -88,6 +88,9 @@ def run_online_training(
     training_gpus=None,
     global_batch=4,
     replay_cache_gib=128,
+    replay_cache_dir=None,
+    replay_prepare_workers=4,
+    cpu_threads=4,
     stop_after_iterations=None,
     warm_start_checkpoint=None,
     total_iterations=10,
@@ -223,18 +226,40 @@ def run_online_training(
         from latency_meta_mdp.meta.information.distributed_fqi import fit_distributed
         from latency_meta_mdp.meta.information.replay_preparation import prepare_replay
 
-        replay = prepare_replay(replay, output_dir / "prepared-replay", progress=admission("mixed"))
+        replay = prepare_replay(
+            replay,
+            replay_cache_dir or output_dir / "prepared-replay",
+            workers=replay_prepare_workers,
+            progress=admission("mixed"),
+        )
         fitter = fit_distributed
         fitter_options = dict(
             devices=[f"cuda:{i}" for i in range(len(devices))],
             global_batch=global_batch,
             cache_bytes=replay_cache_gib * 2**30,
+            cpu_threads=cpu_threads,
         )
         binding["parallel_training"] = dict(
             recipe="synchronous-episode-minibatch-v1",
-            physical_gpus=devices,
-            **fitter_options,
+            global_batch=global_batch,
         )
+        # Hardware affects execution, not the objective or replay identity.
+        import time
+
+        with (output_dir / "execution-history.jsonl").open("a") as stream:
+            stream.write(
+                json.dumps(
+                    dict(
+                        started_at=time.time(),
+                        host=os.uname().nodename,
+                        physical_gpus=devices,
+                        replay_cache_dir=str(replay_cache_dir or output_dir / "prepared-replay"),
+                        replay_prepare_workers=replay_prepare_workers,
+                        **fitter_options,
+                    )
+                )
+                + "\n"
+            )
     from latency_meta_mdp.meta.information.monitor import IterationValidator
 
     validator = None
@@ -248,6 +273,7 @@ def run_online_training(
             model=model,
             worker_python=worker_python,
             gpus=validation_gpus,
+            cpu_threads=cpu_threads,
         )
         binding["validation_protocol"] = validator.protocol
     tracker = OnlineFitTracker(
