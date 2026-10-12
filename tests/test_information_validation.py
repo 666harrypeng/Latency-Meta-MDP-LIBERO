@@ -200,7 +200,7 @@ def test_best_selection_keeps_incumbent_on_ties_and_rejects_cohort_change(tmp_pa
         record_validation(
             tmp_path,
             iteration=iteration,
-            metrics=metrics,
+            metrics=dict(metrics, selection_score=(0.2 + 0.4) / 2) if iteration == 1 else metrics,
             protocol=protocol,
             evaluation_sha256="evidence",
         )

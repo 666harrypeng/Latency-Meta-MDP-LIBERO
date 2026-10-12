@@ -103,8 +103,16 @@ def record_validation(directory, *, iteration, metrics, protocol, evaluation_sha
     incumbent = state["best_iteration"]
     if (
         incumbent is None
-        or metrics["selection_score"]
-        > state["completed"][str(incumbent)]["metrics"]["selection_score"]
+        or (
+            metrics["selection_score"]
+            > state["completed"][str(incumbent)]["metrics"]["selection_score"]
+            and not math.isclose(
+                metrics["selection_score"],
+                state["completed"][str(incumbent)]["metrics"]["selection_score"],
+                rel_tol=0,
+                abs_tol=1e-12,
+            )
+        )
     ):
         state["best_iteration"] = iteration
     atomic_json(path, state)
