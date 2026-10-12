@@ -24,6 +24,9 @@ def run_conveyor_policy_episode(
     scheduler=None,
     policy_alignment=None,
     minimum_decision_tick=10,
+    bootstrap_policy=None,
+    forecast_provider=None,
+    forecast_delay_history=None,
 ) -> dict:
     """Own and close a conveyor simulator; each delivery rewards but does not terminate.
 
@@ -42,7 +45,9 @@ def run_conveyor_policy_episode(
             simulation_time_reader=lambda: runtime.executor.ledger.time_us,
             delay_sampler=delay_sampler,
             policy=policy,
-            bootstrap_policy=lambda obs: policy(obs, None),
+            bootstrap_policy=bootstrap_policy,
+            forecast_provider=forecast_provider,
+            forecast_delay_history=forecast_delay_history,
             scheduler=FixedCursorScheduler(25) if scheduler is None else scheduler,
             policy_alignment=policy_alignment,
             minimum_decision_tick=minimum_decision_tick,

@@ -114,3 +114,57 @@ def test_five_tick_diagnostic_replans_at_actual_five_tick_intervals():
     )
     launches = [row["launch_formal_tick"] for row in report["request_ledger"]]
     assert launches == [5, 10, 15, 20, 25]
+
+
+@pytest.mark.parametrize("protocol", ["rtc", "sharp"])
+def test_conditioned_conveyor_uses_native_bootstrap_and_counts_forecasts(protocol):
+    from latency_meta_mdp.data.forecast.samples import DecodedForecast
+    from latency_meta_mdp.runtime.action_chunk_client import load_action_chunk_client_config
+    from latency_meta_mdp.runtime.conveyor_evaluation import run_conveyor_policy_episode
+    from latency_meta_mdp.runtime.rtc_protocol import RollingDelayHistory
+
+    class Provider:
+        def observe(self, observation, previous_action):
+            self.latest_tick = observation.formal_tick
+
+        def predict(self, context):
+            assert context.origin_tick == self.latest_tick
+            return DecodedForecast(
+                context.origin_tick,
+                context.origin_tick + context.estimated_delay_ticks,
+                context.estimated_delay_ticks,
+                context.buffer_version,
+                np.zeros((2, 224, 224, 3), np.uint8),
+                np.zeros(16, np.float32),
+            )
+
+    def actor(observation, context):
+        assert context.forecast.available
+        return np.zeros((50, 7))
+
+    rtc = protocol == "rtc"
+    client = (
+        load_rtc_client_config(Path("configs/runtime/client/rtc_observation_time_h50_v1.yaml"))
+        if rtc
+        else load_action_chunk_client_config(
+            Path("configs/runtime/client/sharp_return_time_h50_e25_v1.yaml")
+        )
+    )
+    report = run_conveyor_policy_episode(
+        runtime=ConveyorFixture(),
+        policy=actor,
+        bootstrap_policy=lambda obs: np.zeros((50, 7)),
+        forecast_provider=Provider(),
+        forecast_delay_history=(
+            None if rtc else RollingDelayHistory(capacity=10, initial_delays=(4,))
+        ),
+        client_config=client,
+        delay_sampler=lambda: 4,
+        maximum_steps=100,
+        policy_alignment="observation_time" if rtc else None,
+    )
+    assert report["bootstrap_calls"] == 1
+    assert report["forecast_calls"] == report["forecast_decodes"] == report["policy_calls"] > 0
+    assert report["parcels"]["successes"] == 2
+    assert report["starvation_ticks"] == 0
+    assert all(row["forecast_available"] for row in report["request_ledger"])
