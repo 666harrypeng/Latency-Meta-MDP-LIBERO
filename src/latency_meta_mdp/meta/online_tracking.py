@@ -131,7 +131,7 @@ class OnlineFitTracker:
         self.resume_iteration = (
             json.loads(checkpoints[-1].read_text())["iteration"] if checkpoints else 0
         )
-        discarded = [
+        interrupted = [
             dict(
                 sequence=item["sequence"],
                 attempt=item["event"].get("attempt", 1),
@@ -140,13 +140,14 @@ class OnlineFitTracker:
             for item in history
             if item["event"]["iteration"] > self.resume_iteration
         ]
-        if discarded:
-            (self.directory / f"discarded-before-attempt-{self.attempt}.json").write_text(
-                json.dumps(discarded, indent=2)
+        if interrupted:
+            (self.directory / f"interrupted-before-attempt-{self.attempt}.json").write_text(
+                json.dumps(interrupted, indent=2)
             )
-            self.run.summary["recovery/discarded_events"] = discarded
+            # Periodic checkpoints may retain part of an interrupted iteration.
+            self.run.summary["recovery/interrupted_events"] = interrupted
         self.run.summary["recovery/loss_axis"] = (
-            "Actual optimizer work; attempt curves distinguish rolled-back iterations"
+            "Actual optimizer work, including repeats after interruption"
         )
         for item in history:
             if item["sequence"] >= self.run.step:

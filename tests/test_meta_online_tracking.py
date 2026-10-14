@@ -114,3 +114,43 @@ def test_distributed_minibatch_counts_one_update_and_reports_source_contribution
     assert values["train/global_epoch"] == 2
     assert values["train/offline/combined_loss"] == 0.1
     assert values["train/online/combined_loss"] == 0.2
+
+
+def test_interrupted_iteration_events_are_not_all_labelled_discarded(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from latency_meta_mdp.meta import tracking_transport
+    from latency_meta_mdp.meta.online_tracking import OnlineFitTracker
+
+    # The W&B boundary is replaced; event parsing and recovery bookkeeping are real.
+    remote = SimpleNamespace(
+        url="offline-test",
+        step=0,
+        summary={},
+        define_metric=lambda *a, **k: None,
+        log=lambda *a, **k: None,
+    )
+    monkeypatch.setattr(tracking_transport, "start_run", lambda *a, **k: remote)
+    entries = [
+        dict(
+            sequence=i,
+            event=dict(
+                phase="fit",
+                iteration=1,
+                optimizer_update=i,
+                loss=0.1,
+                grad_norm=0.1,
+                actual_update=i,
+                attempt=1,
+            ),
+        )
+        for i in (1, 2, 3)
+    ]
+    (tmp_path / "events.jsonl").write_text("".join(json.dumps(x) + "\n" for x in entries))
+    tracker = OnlineFitTracker(tmp_path, binding={}, episodes=4, epochs=1)
+    assert tracker.actual_update == 3
+    # Some of these steps can be retained by periodic latest, so only interruption is known.
+    assert "recovery/discarded_events" not in remote.summary
+    assert len(remote.summary["recovery/interrupted_events"]) == 3
+    assert (tmp_path / "interrupted-before-attempt-2.json").exists()
