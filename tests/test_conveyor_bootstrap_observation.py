@@ -70,3 +70,55 @@ def test_bootstrap_accepts_only_identical_model_inputs(tmp_path, canonicalize):
     changed_pixel[0, 0, 0] += 1
     with pytest.raises(ValueError, match="observation"):
         cache(canonicalize(replace(canonical, image=changed_pixel)))
+
+
+def test_partial_preparation_resumes_after_render_change(tmp_path, monkeypatch):
+    import sys
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from latency_meta_mdp.envs.conveyor import config as scene_config
+    from latency_meta_mdp.envs.conveyor import task
+    from latency_meta_mdp.meta.information import cohort, collection, services
+    from latency_meta_mdp.runtime import policy_execution
+
+    monkeypatch.setitem(sys.modules, "jax", SimpleNamespace(random=SimpleNamespace(key=int)))
+    manifest = {"episodes": [{"scene": 1}]}
+    monkeypatch.setattr(
+        cohort, "prepare_cohort", lambda *a, **k: ({"task_config": "test"}, manifest)
+    )
+    monkeypatch.setattr(scene_config, "load_conveyor_spec", lambda *a: None)
+    monkeypatch.setattr(collection, "bootstrap_binding", lambda *a: {"model": "clean"})
+    monkeypatch.setattr(collection, "bootstrap_observation", lambda obs: obs)
+    image = np.zeros((224, 224, 3), dtype=np.uint8)
+    observation = PolicyObservation(0, image, image.copy(), np.zeros(16))
+    monkeypatch.setattr(
+        task,
+        "make_conveyor_runtime",
+        lambda *a, **k: SimpleNamespace(
+            executor=SimpleNamespace(initialize=lambda: observation),
+            env=SimpleNamespace(close=lambda: None),
+        ),
+    )
+
+    @contextmanager
+    def frozen(*a, **k):
+        yield SimpleNamespace(policy=SimpleNamespace())
+
+    monkeypatch.setattr(services, "frozen_services", frozen)
+    inferred = []
+
+    def infer(obs):
+        inferred.append(obs.image.copy())
+        return {"actions": np.zeros((50, 7))}
+
+    monkeypatch.setattr(policy_execution, "InProcessOpenpiPolicy", lambda *a, **k: infer)
+    cohort.prepare_bootstraps(None, tmp_path, root=tmp_path, audit_path=None)
+    cached = (tmp_path / "bootstrap/seed-1.npz").read_bytes()
+    image[0, 0, 0] = 1  # A later renderer can change the actual model input.
+    observation = replace(observation, image=image)
+    manifest["episodes"].append({"scene": 2})
+    cohort.prepare_bootstraps(None, tmp_path, root=tmp_path, audit_path=None)
+    assert len(inferred) == 3
+    assert (tmp_path / "bootstrap/seed-1.npz").read_bytes() == cached
+    assert (tmp_path / "bootstrap/seed-2.npz").is_file()

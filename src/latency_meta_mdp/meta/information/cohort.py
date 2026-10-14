@@ -147,6 +147,7 @@ def prepare_bootstraps(config_path, output_dir, *, root, audit_path, cycle=None)
                     identity=bootstrap_binding(root, config),
                     noise_rng=rng,
                     native_policy=actor,
+                    native_on_observation_miss=True,
                 )
                 cache(bootstrap_observation(obs))
                 print(f"BOOTSTRAP_COMPLETE {seed}", flush=True)
