@@ -320,7 +320,9 @@ def prepare_attention_replay(config, sources, *, root, cache_dir, workers=2, pro
         actions=config["actions"],
         episode_decisions=episodes.lengths,
         group_decisions={k: len(v) for k, v in replay.group_indices.items()},
-        action_mapping=[episodes.action_spec.from_v1(i) for i in range(8)],
+        action_mapping=[episodes.action_spec.from_v1(i) for i in range(8)]
+        if any(p["schema_version"] == 1 for p in provenance)
+        else None,
     )
     target = Path(cache_dir) / "conversions" / f"{identity_hash(receipt)}.json"
     target.parent.mkdir(parents=True, exist_ok=True)

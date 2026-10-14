@@ -48,6 +48,24 @@ def validation_metrics(rows, *, scenes, starvation_mode="guarded"):
     return result
 
 
+def verified_validation_metrics(checkpoint, evaluation, cached, protocol):
+    """Cached selection scores are derived data, never an authority on resume."""
+    from latency_meta_mdp.meta.information.config import validate_binding
+
+    validate_binding(
+        cached["checkpoint_receipt_sha256"], sha256(Path(checkpoint) / "complete.json")
+    )
+    summary = Path(evaluation) / "rollout-summary.json"
+    validate_binding(cached["evaluation_sha256"], sha256(summary))
+    metrics = validation_metrics(
+        json.loads(summary.read_text())["episodes"],
+        scenes=protocol["scenes"],
+        starvation_mode=protocol.get("starvation_mode", "guarded"),
+    )
+    validate_binding(cached["metrics"], metrics)
+    return metrics
+
+
 def retain_checkpoints(directory, *, best_iteration):
     """Keep all receipts, but only best/latest weights; publish intent before unlink."""
     directory = Path(directory)

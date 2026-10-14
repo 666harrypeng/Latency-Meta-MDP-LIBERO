@@ -12,7 +12,7 @@ from latency_meta_mdp.meta.information.campaign import (
     _link,
 )
 from latency_meta_mdp.meta.information.config import identity_hash, load_config, sha256
-from latency_meta_mdp.meta.information.validation import atomic_json
+from latency_meta_mdp.meta.information.validation import atomic_json, verified_validation_metrics
 
 
 def checkpoint_artifacts(checkpoint):
@@ -257,7 +257,9 @@ def run_attention_campaign(
         candidates, artifacts = [], {}
         for iteration, item in sorted(state["completed"].items(), key=lambda x: int(x[0])):
             checkpoint = directory / f"iteration-{int(iteration):04d}"
-            candidates.append(dict(checkpoint=str(checkpoint), metrics=item["metrics"]))
+            evaluation = directory / f"validation/iteration-{int(iteration):04d}"
+            metrics = verified_validation_metrics(checkpoint, evaluation, item, state["protocol"])
+            candidates.append(dict(checkpoint=str(checkpoint), metrics=metrics))
             for p in (
                 checkpoint / "state.pt",
                 checkpoint / "complete.json",

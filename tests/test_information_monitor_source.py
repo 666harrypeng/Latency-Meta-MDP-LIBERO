@@ -173,3 +173,53 @@ def test_validation_releases_blas_cache_but_rejects_live_tensors(
         gc.collect()
         torch._C._cuda_clearCublasWorkspaces()
         torch.cuda.empty_cache()
+
+
+def test_cached_validation_recomputes_metrics_before_reusing_selection(tmp_path):
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.monitor import IterationValidator
+    from latency_meta_mdp.meta.information.validation import validation_metrics
+
+    checkpoint = tmp_path / "fit/iteration-0001"
+    checkpoint.mkdir(parents=True)
+    (checkpoint / "complete.json").write_text("{}")
+    destination = tmp_path / "evaluation/iteration-0001"
+    destination.mkdir(parents=True)
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    rows = [
+        dict(
+            episode=dict(scene=s, regime=r, behavior="fqi", epsilon=0, split="validation"),
+            report=dict(
+                task_reward=0.1,
+                terminated=True,
+                truncated=False,
+                starvation_ticks=0,
+                parcels=dict(spawned=10, successes=1, misses=9, timeouts=0, active=0),
+            ),
+        )
+        for s in (1, 2, 3)
+        for r in ("zero", "nominal", "family")
+    ]
+    summary = destination / "rollout-summary.json"
+    summary.write_text(json.dumps(dict(episodes=rows)))
+    metrics = validation_metrics(rows, scenes=[1, 2, 3])
+    item = dict(
+        metrics=metrics,
+        checkpoint_receipt_sha256=sha256(checkpoint / "complete.json"),
+        evaluation_sha256=sha256(summary),
+    )
+    validator = object.__new__(IterationValidator)
+    validator.output_dir = destination.parent
+    validator.bootstrap_dir = bootstrap
+    validator.protocol = {"scenes": [1, 2, 3]}
+    validator.progress = None
+    validator.prune = False
+    state = dict(protocol=validator.protocol, completed={"1": item}, best_iteration=1)
+    state_path = checkpoint.parent / "validation-state.json"
+    state_path.write_text(json.dumps(state))
+    assert validator(checkpoint, {"iteration": 1}) == metrics
+    item["metrics"] = {key: 0.9 for key in metrics}
+    state_path.write_text(json.dumps(state))
+    with pytest.raises(ValueError, match="binding"):
+        validator(checkpoint, {"iteration": 1})

@@ -19,6 +19,7 @@ from latency_meta_mdp.meta.information.validation import (
     record_validation,
     retain_checkpoints,
     validation_metrics,
+    verified_validation_metrics,
 )
 
 
@@ -101,13 +102,9 @@ class IterationValidator:
             validate_binding(self.protocol, state["protocol"])
             previous = state["completed"].get(str(iteration))
             if previous is not None:
-                validate_binding(
-                    previous["checkpoint_receipt_sha256"], sha256(checkpoint / "complete.json")
+                metrics = verified_validation_metrics(
+                    checkpoint, destination, previous, self.protocol
                 )
-                validate_binding(
-                    previous["evaluation_sha256"], sha256(destination / "rollout-summary.json")
-                )
-                metrics = previous["metrics"]
                 if self.progress is not None:
                     self.progress(
                         dict(phase="validation_complete", iteration=iteration, metrics=metrics)

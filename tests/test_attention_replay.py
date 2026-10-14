@@ -118,3 +118,95 @@ def test_raw_mmap_retains_events_and_detects_source_mutation(tmp_path):
     (source / "audit.json").write_text('{"changed":true}')
     with pytest.raises(ValueError, match="changed"):
         load_packed_raw(entry)
+
+
+def test_v2_only_replay_does_not_require_unused_legacy_sleep_vocabulary(tmp_path):
+    import json
+
+    from attention_fixtures import small_config
+
+    from latency_meta_mdp.io.paths import repository_root
+    from latency_meta_mdp.meta.information.attention_replay import prepare_attention_replay
+    from latency_meta_mdp.meta.information.cohort import complete_attempt
+    from latency_meta_mdp.meta.information.config import identity_hash, sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.runtime.evaluate_conveyor import conveyor_delay_sampler
+
+    config = small_config()
+    config["actions"]["sleep_ticks"] = [1, 2, 3, 4, 6, 8, 12]
+    spec = ActionSpec(**config["actions"])
+    binding = dict(
+        schema_version=2,
+        assets=config["assets"],
+        mode="bound",
+        scope="starter_training",
+        code_hash="fixture",
+        config_hash=identity_hash(config),
+        actions=config["actions"],
+    )
+    ep = dict(
+        episode_id="v2-only",
+        scene=10000,
+        regime="zero",
+        behavior="lazy",
+        scheduler_seed=1,
+        policy_seed=0,
+        split="train",
+    )
+    manifest = dict(binding=binding, episodes=[ep])
+    (tmp_path / "cohort.json").write_text(json.dumps(manifest))
+    attempt = tmp_path / "episodes/v2-only/attempt-000"
+    attempt.mkdir(parents=True)
+    rec = StageRecorder("v2-only", action_spec=spec)
+    rec.start(
+        AttentionPacket(10, "G", decision_key=(10, 1), action_spec=spec),
+        0,
+        forced=False,
+        probability=1.0,
+    )
+    rec.add_reward(10, 0)
+    rec.finish(11, terminated=True)
+    _, delay = conveyor_delay_sampler(
+        repository_root(), regime="zero", scene_seed=10000, policy_seed=0
+    )
+    inner = dict(
+        assets=config["assets"]["identity"],
+        mode="bound",
+        scope="starter_training",
+        scene=10000,
+        code_hash="fixture",
+        scheduler_seed=1,
+        behavior="lazy",
+        policy_seed=0,
+        delay=delay,
+        actions=config["actions"],
+        pattern=None,
+    )
+    save_episode(attempt / "episode", rec, report={}, binding=inner)
+    (attempt / "summary.json").write_text(
+        json.dumps(
+            dict(
+                terminated=True,
+                truncated=False,
+                starvation_ticks=0,
+                scope="starter_training",
+                task_reward=0,
+                parcels=dict(spawned=10, successes=0, misses=10, timeouts=0, active=0),
+            )
+        )
+    )
+    complete_attempt(attempt, binding=dict(cohort=binding, episode=ep))
+    replay, receipt = prepare_attention_replay(
+        config,
+        [
+            dict(
+                path=str(tmp_path),
+                manifest_sha256=sha256(tmp_path / "cohort.json"),
+                group="startup",
+            )
+        ],
+        root=tmp_path,
+        cache_dir=tmp_path / "cache",
+    )
+    assert len(replay) == 1 and replay[0]["action"] == 0
+    assert receipt["action_mapping"] is None
