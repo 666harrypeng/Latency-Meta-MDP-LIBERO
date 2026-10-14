@@ -102,6 +102,54 @@ def save_episode(path, recorder, *, report, binding):
     temporary.replace(path / "complete.json")
 
 
+def save_evaluation_trace(path, recorder, *, report, binding):
+    """Retain scalar/action evidence, not unused training features, for evaluation."""
+    if not recorder.closed or report["scope"] != "evaluation":
+        raise ValueError("complete evaluation episode required")
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=False)
+    rows = []
+    for row in recorder.rows:
+        packet = {}
+        for field in fields(row["packet"]):
+            value = getattr(row["packet"], field.name)
+            if field.name.endswith("_tokens"):
+                packet[field.name + "_present"] = value is not None
+            else:
+                packet[field.name] = asdict(value) if field.name == "action_spec" else value
+        rows.append(
+            {
+                **{k: v for k, v in row.items() if k not in ("packet", "next_packet")},
+                "packet": packet,
+            }
+        )
+    events = []
+    for event in recorder.events:
+        payload = dict(event.payload)
+        if "visual" in payload:
+            payload["visual_shape"] = list(payload.pop("visual").shape)
+        events.append(
+            dict(
+                event_id=event.event_id,
+                kind=event.kind,
+                available_at=event.available_at,
+                represented_ticks=event.represented_ticks,
+                payload=payload,
+            )
+        )
+    trace = dict(
+        format="evaluation_trace_v1",
+        episode_id=recorder.episode_id,
+        binding=binding,
+        rows=rows,
+        events=events,
+        operations=recorder.operations,
+        summary=recorder.summary(),
+    )
+    (path / "records.json").write_text(json.dumps(trace, default=_json, allow_nan=False))
+    (path / "audit.json").write_text(json.dumps(report, default=_json, allow_nan=False))
+
+
 def load_episode(path, *, binding, raw=False):
     path = Path(path)
     receipt = json.loads((path / "complete.json").read_text())

@@ -139,3 +139,21 @@ def test_periodic_latest_resumes_fixed_target_and_adam_after_lost_work(tmp_path)
                 tensor, resumed_state["optimizer"]["state"][key][field], atol=0, rtol=0
             )
     assert not (tmp_path / "split/training-0001-latest.pt").exists()
+
+
+def test_validation_cadence_survives_unvalidated_checkpoint_resume(tmp_path):
+    from latency_meta_mdp.meta.information.attention_model import AttentionStageQ
+
+    config = small_config()
+    seen = []
+    options = dict(
+        validate_initial=True,
+        validation_every=2,
+        validate_checkpoint=lambda path, receipt: seen.append(receipt["iteration"]),
+    )
+    train(
+        AttentionStageQ(config), tiny_replay(config), tmp_path, stop_after_iterations=1, **options
+    )
+    assert seen == [0]
+    train(AttentionStageQ(config), tiny_replay(config), tmp_path, **options)
+    assert seen == [0, 2]

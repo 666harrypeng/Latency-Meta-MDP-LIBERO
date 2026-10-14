@@ -15,8 +15,10 @@ from latency_meta_mdp.meta.information.config import (
 from latency_meta_mdp.meta.information.validation import atomic_json, validation_metrics
 
 
-def _verify_artifacts(result):
+def _verify_artifacts(result, retired=None):
     for name, digest in result["artifacts"].items():
+        if not Path(name).exists() and (retired or {}).get(str(Path(name).resolve())) == digest:
+            continue
         if sha256(name) != digest:
             raise ValueError(f"campaign artifact hash differs: {name}")
 
@@ -24,9 +26,10 @@ def _verify_artifacts(result):
 class CampaignJournal:
     """Only complete hash-verified phases can be skipped after interruption."""
 
-    def __init__(self, directory, *, binding):
+    def __init__(self, directory, *, binding, allow_retired=False):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.allow_retired = allow_retired
         self.path = self.directory / "campaign-state.json"
         self.state = (
             json.loads(self.path.read_text())
@@ -39,7 +42,13 @@ class CampaignJournal:
     def run(self, name, operation):
         phase = self.state["phases"].setdefault(name, dict(attempts=[]))
         if "result" in phase:
-            _verify_artifacts(phase["result"])
+            path = self.directory / "replay-retired.json"
+            retired = (
+                json.loads(path.read_text())["files"]
+                if self.allow_retired and path.exists()
+                else {}
+            )
+            _verify_artifacts(phase["result"], retired)
             return phase["result"]
         if phase["attempts"] and phase["attempts"][-1]["status"] == "running":
             phase["attempts"][-1]["status"] = "interrupted"

@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from collections import OrderedDict
 from dataclasses import fields
 from pathlib import Path
 from types import MappingProxyType
@@ -123,9 +124,12 @@ def contexts_from_raw(raw, action_spec, *, config=None):
 class AttentionEpisodes:
     """Lazy context reconstruction; process spawn sends receipts, never feature arrays."""
 
-    def __init__(self, entries, action_spec, config):
+    def __init__(self, entries, action_spec, config, cache_size=128):
+        if type(cache_size) is not int or cache_size < 1:
+            raise ValueError("positive episode cache size required")
         self.entries, self.action_spec, self.config = entries, action_spec, config
-        self.loaded = {}
+        self.cache_size = cache_size
+        self.loaded = OrderedDict()
         self.lengths = []
         for entry in entries:
             rows = json.loads((entry.path / "records.json").read_text())["rows"]
@@ -141,14 +145,22 @@ class AttentionEpisodes:
             raise IndexError(index)
         self.entries[index].verify_unchanged()
         if index not in self.loaded:
+            while len(self.loaded) >= self.cache_size:
+                self.loaded.popitem(last=False)
             raw = load_packed_raw(self.entries[index])
             # Old recorder names collide between independent cohorts; source receipt is unique.
             raw["episode_id"] = self.entries[index].path.name + "/" + raw["episode_id"]
             self.loaded[index] = contexts_from_raw(raw, self.action_spec, config=self.config)
+        self.loaded.move_to_end(index)
         return self.loaded[index]
 
     def __getstate__(self):
-        return dict(entries=self.entries, action_spec=self.action_spec, config=self.config)
+        return dict(
+            entries=self.entries,
+            action_spec=self.action_spec,
+            config=self.config,
+            cache_size=self.cache_size,
+        )
 
     def __setstate__(self, state):
         self.__init__(**state)
@@ -258,23 +270,42 @@ def validate_sources(config, manifests):
             raise ValueError("training source contains evaluation scene")
 
 
-def prepare_attention_replay(config, sources, *, root, cache_dir, workers=2, progress=None):
+def prepare_attention_replay(
+    config,
+    sources,
+    *,
+    root,
+    cache_dir,
+    workers=2,
+    progress=None,
+    episode_cache_size=128,
+    cache_max_bytes=None,
+):
     """Only named, hash-pinned manifests; never discover additional cohorts on disk."""
     from concurrent.futures import ThreadPoolExecutor
 
     from latency_meta_mdp.meta.information.config import identity_hash, sha256, validate_binding
     from latency_meta_mdp.meta.information.memory_schema import ActionSpec
-    from latency_meta_mdp.meta.information.packed_replay import prepare_packed_episode
+    from latency_meta_mdp.meta.information.packed_replay import CacheBudget, prepare_packed_episode
     from latency_meta_mdp.meta.information.training import VerifiedReplay
     from latency_meta_mdp.meta.information.validation import atomic_json
 
     directories = [(Path(root) / s["path"]).resolve() for s in sources]
     manifests = []
     for source, directory in zip(sources, directories, strict=True):
-        if set(source) != {"path", "manifest_sha256", "group"}:
+        if set(source) - {"episode_ids"} != {"path", "manifest_sha256", "group"}:
             raise ValueError("source requires path, manifest hash and replay group")
         validate_binding(source["manifest_sha256"], sha256(directory / "cohort.json"))
-        manifests.append(json.loads((directory / "cohort.json").read_text()))
+        manifest = json.loads((directory / "cohort.json").read_text())
+        if "episode_ids" in source:
+            ids = source["episode_ids"]
+            if not ids or len(ids) != len(set(ids)):
+                raise ValueError("nonempty distinct replay episode subset required")
+            selected = [e for e in manifest["episodes"] if e["episode_id"] in ids]
+            if len(selected) != len(ids):
+                raise ValueError("replay subset contains unknown episodes")
+            manifest = dict(manifest, episodes=selected)
+        manifests.append(manifest)
     validate_sources(config, manifests)
     entries, groups, provenance = [], [], []
     seen = set()
@@ -297,9 +328,16 @@ def prepare_attention_replay(config, sources, *, root, cache_dir, workers=2, pro
                 )
             )
 
+    budget = CacheBudget(cache_dir, cache_max_bytes) if cache_max_bytes is not None else None
+
     def prepare(entry):
         return prepare_packed_episode(
-            entry[0], cache_dir, binding=entry[1], expected_receipt=entry[2], raw=True
+            entry[0],
+            cache_dir,
+            binding=entry[1],
+            expected_receipt=entry[2],
+            raw=True,
+            storage_budget=budget,
         )
 
     packed = []
@@ -308,7 +346,9 @@ def prepare_attention_replay(config, sources, *, root, cache_dir, workers=2, pro
             packed.append(entry)
             if progress:
                 progress(dict(phase="prepare_replay", episodes=len(packed), expected=len(entries)))
-    episodes = AttentionEpisodes(packed, ActionSpec(**config["actions"]), config["memory"])
+    episodes = AttentionEpisodes(
+        packed, ActionSpec(**config["actions"]), config["memory"], cache_size=episode_cache_size
+    )
     replay = DecisionReplay(episodes, groups)
     receipt = dict(
         format_version=2,

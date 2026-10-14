@@ -91,7 +91,7 @@ def run_episode(
     from latency_meta_mdp.envs.conveyor.config import load_conveyor_spec
     from latency_meta_mdp.envs.conveyor.task import make_conveyor_runtime
     from latency_meta_mdp.io.policy_video import DualCameraVideoWriter
-    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.dataset import save_episode, save_evaluation_trace
     from latency_meta_mdp.meta.information.memory_schema import ActionSpec
     from latency_meta_mdp.meta.information.perception import PerceptionAccess
     from latency_meta_mdp.meta.information.records import StageRecorder
@@ -133,7 +133,11 @@ def run_episode(
     from latency_meta_mdp.meta.information.archive import SourceArchive
 
     perception = PerceptionAccess(
-        engine, encoder, norm, recorder, source_archive=SourceArchive(output_dir / "sources")
+        engine,
+        encoder,
+        norm,
+        recorder,
+        source_archive=SourceArchive(output_dir / "sources") if scope != "evaluation" else None,
     )
     if diagnose:
         from latency_meta_mdp.meta.information.diagnostics import SnapshotProbe
@@ -219,7 +223,8 @@ def run_episode(
         result["cost_qualification"] = "Do not use this probe rollout for cost comparisons"
     result["bootstrap_cache"] = bootstrap.last_record
     result["scope"] = scope
-    save_episode(
+    save = save_evaluation_trace if scope == "evaluation" else save_episode
+    save(
         output_dir / "episode",
         recorder,
         report=result,

@@ -77,10 +77,19 @@ relative to the repository root. Obtain source hashes from existing verified
   ],
   "initial_checkpoint": null,
   "validation_bootstrap": "outputs/my-validation/bootstrap",
-  "startup": {"fitted_iterations": 40, "optimizer_updates": 500},
+  "startup": {"fitted_iterations": 40, "optimizer_updates": 500, "validation_every": 5},
   "global_batch": 64,
   "seed": 7,
   "reward_regression_policy": "report_only",
+  "retention": {
+    "recent_batches": 20,
+    "history_episodes": 96,
+    "max_online_bytes": 128849018880,
+    "max_cache_bytes": 240518168576,
+    "max_run_bytes": 386547056640,
+    "min_free_bytes": 34359738368,
+    "episode_cache_size": 1024
+  },
   "cycles": [
     {
       "generation": {
@@ -89,7 +98,7 @@ relative to the repository root. Obtain source hashes from existing verified
         "behaviors": ["fqi", "fqi", "fqi", "fqi", "fqi", "fqi", "periodic", "active"],
         "regimes": ["zero", "nominal", "family"], "epsilon": 0.2
       },
-      "fitted_iterations": 2, "optimizer_updates": 1000
+      "fitted_iterations": 2, "optimizer_updates": 1000, "validation_every": 2
     }
   ]
 }
@@ -99,16 +108,62 @@ These numbers are configuration examples, not an automatic launch or a convergen
 claim. `initial_checkpoint: null` initializes the new architecture; old GRU weights
 are not transplanted. An external attention checkpoint must match the full model
 and deployment binding. A zero startup iteration budget is useful for an
-engineering pilot. A null generation runs a fixed-data continuation.
+engineering pilot. Without `retention`, a null generation runs a fixed-data
+continuation. A bounded replay recipe requires collection in every online cycle.
 
 The startup incumbent is the best validated startup checkpoint. The first online
 collection uses it; subsequent collections use the latest fully validated policy.
-Every iteration has nine greedy validation episodes: three fixed validation seeds
-under zero, nominal and family delay. Initial startup validation adds nine more.
+Each configured validation boundary has nine greedy episodes: three fixed seeds
+under zero, nominal and family delay. `validation_every` defaults to one; the last
+FQI iteration in each phase is always evaluated. The example evaluates startup
+every five iterations, then once after both FQI iterations of each online cycle.
+Initial startup validation adds nine more. Checkpoint saves remain independent
+of validation cadence, and only evaluated checkpoints enter best-model selection.
 Best maximizes the integer delivered-ball count over nominal and family, retaining
 the incumbent on ties. Zero-delay results remain a separate curve. `report_only`
 records reward regressions without introducing extra evaluation or changing the
 budget; technical or integrity failures still stop advancement.
+
+Repeat the cycle definition with distinct generation identities to specify the
+desired number of cycles. With 100 cycles of 24 episodes, the example budgets
+2,400 new online episodes, 220,000 optimizer updates including startup, and 981
+validation episodes. Existing startup data and an optional separately collected
+grid are reused for all startup iterations; 40 iterations do not create 40 datasets.
+
+### Storage bounds
+
+`retention` is optional. It never retires startup sources or pre-existing external
+datasets. The active online replay contains the most recent 20 batches and a
+disjoint pool of up to 96 older episodes. Seeded random priorities retain at most
+32 episodes per delay regime, without selecting by success or length. A byte cap
+may shorten the recent window or history pool. A latest batch too large to fit
+causes a clear failure while preserving its files and the preceding checkpoint.
+
+The example limits active online payloads to 120 GiB, derived replay cache to
+224 GiB and the campaign directory to 360 GiB, with 32 GiB filesystem headroom.
+Choose these independently for the actual storage allocation. The active byte
+cap is not the instantaneous disk footprint: the current and previous cycle's
+inputs remain protected, and collection temporarily writes a new batch. Run/free
+space guards check phase boundaries; cache workers reserve bytes before writing
+arrays. Startup assets outside the campaign directory still consume filesystem
+quota. These checks do not reserve space against other users or external writers.
+
+Every cycle publishes its selected episode IDs and source hashes under
+`replay-state/`. Only after training and validation complete does cleanup retire
+unprotected online feature arrays, source frame archives and training videos.
+It preserves receipts, outcome summaries and lightweight provenance. A retirement
+receipt distinguishes deliberate removal from missing or corrupted evidence and
+permits the journal to resume past old phases. Old model checkpoints remain usable
+for inference; exact retraining of retired datasets is no longer supported.
+
+The shared mmap cache reuses identical packet/forecast features from observation
+events without changing floating-point values. Each learner also has a bounded
+LRU cache of reconstructed episode metadata (`episode_cache_size`); mapped feature
+pages remain managed by the OS. Set that capacity with host RAM and learner count
+in mind. Keeping the active episodes resident avoids repeated JSON/context work.
+Evaluation saves videos, actions, scheduler/state/event traces, object results and
+module timings, but omits unused training feature archives. Its trace format is
+explicitly `evaluation_trace_v1` and cannot be admitted as training replay.
 
 A generation can instead supply `patterns` shared across its listed scenes.
 `grid_generation(name, scenes)` constructs five relative request-window positions

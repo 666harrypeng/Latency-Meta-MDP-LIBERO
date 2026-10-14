@@ -111,10 +111,13 @@ def train_iterations(
     attention_options=None,
     initial_learning_state=None,
     checkpoint_every_updates=256,
+    validation_every=1,
 ):
     """Resume published iterations, with periodic latest snapshots for attention FQI."""
     if total_iterations < 1 or (stop_after_iterations is not None and stop_after_iterations < 1):
         raise ValueError("invalid fitted iteration budget")
+    if type(validation_every) is not int or validation_every < 1:
+        raise ValueError("validation_every must be a positive integer")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     recipe = dict(
@@ -128,6 +131,8 @@ def train_iterations(
         optimizer="Adam-reset-per-fitted-iteration",
         validate_initial=validate_initial,
     )
+    if validation_every != 1:
+        recipe["validation_every"] = validation_every
     learning_state = None
     if attention_options is not None:
         if type(checkpoint_every_updates) is not int or checkpoint_every_updates < 1:
@@ -179,6 +184,12 @@ def train_iterations(
 
     def validate(receipt):
         if validate_checkpoint is None:
+            return
+        iteration = receipt["iteration"]
+        if iteration == 0:
+            if not validate_initial:
+                return
+        elif iteration % validation_every and iteration != total_iterations:
             return
         checkpoint = output_dir / f"iteration-{receipt['iteration']:04d}"
         # Evaluation cannot alter the learner's random stream or training mode.

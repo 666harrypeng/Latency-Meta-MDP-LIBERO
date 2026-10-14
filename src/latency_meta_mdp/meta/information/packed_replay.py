@@ -5,9 +5,11 @@ Bellman targets are always recomputed by the learner.
 """
 
 import errno
+import hashlib
 import json
 import shutil
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -22,6 +24,26 @@ from latency_meta_mdp.meta.information.schema import ACTOR_FIELDS, ActorPacket
 _PACKED_FILES = ("records.json", "visual.npy")
 _SOURCE_FILES = ("records.json", "audit.json", "visual.npz")
 _ARRAY_FIELDS = ("current_proprio", "observed_proprio", "forecast_proprio", "buffer", "buffer_mask")
+
+
+class CacheBudget:
+    """Reserve conservative sizes before parallel workers allocate derived arrays."""
+
+    def __init__(self, directory, maximum):
+        from latency_meta_mdp.meta.information.replay_retention import tree_bytes
+
+        if type(maximum) is not int or maximum < 1:
+            raise ValueError("positive replay cache byte ceiling required")
+        self.maximum = maximum
+        self.used = tree_bytes(directory)
+        self.lock = threading.Lock()
+        self.reserve(0)
+
+    def reserve(self, size):
+        with self.lock:
+            if self.used + size > self.maximum:
+                raise RuntimeError("replay cache storage ceiling reached before array allocation")
+            self.used += size
 
 
 def _signature(path, names):
@@ -47,7 +69,9 @@ class PackedEntry:
             raise ValueError("packed replay changed after admission")
 
 
-def prepare_packed_episode(source, cache_root, *, binding, expected_receipt, raw=False):
+def prepare_packed_episode(
+    source, cache_root, *, binding, expected_receipt, raw=False, storage_budget=None
+):
     source, cache_root = Path(source).resolve(), Path(cache_root).resolve()
     before = _signature(source, _SOURCE_FILES)
     validate_binding(expected_receipt, sha256(source / "complete.json"))
@@ -79,18 +103,51 @@ def prepare_packed_episode(source, cache_root, *, binding, expected_receipt, raw
         rows = decoded["rows"] if raw else decoded
         pending = Path(tempfile.mkdtemp(prefix=".pending-", dir=format_root))
         try:
-            visuals, indices = [], {}
+            visuals, indices, hashes = [], {}, {}
+
+            def visual_index(value):
+                key = id(value)
+                if key not in indices:
+                    digest = hashlib.sha256(value.tobytes()).digest() if raw else key
+                    if digest not in hashes:
+                        hashes[digest] = len(visuals)
+                        visuals.append(value)
+                    # Keep the object alive so Python cannot reuse this identity.
+                    indices[key] = (value, hashes[digest])
+                return indices[key][1]
+
+            events = []
+            if raw:
+                # Keep observation frame groups contiguous for zero-copy mmap reads.
+                # Packet and forecast references reuse these exact feature bytes.
+                for event in decoded["events"]:
+                    payload = dict(event.payload)
+                    if event.kind == "observe":
+                        frames = payload["visual"]
+                        start = len(visuals)
+                        for value in frames:
+                            digest = hashlib.sha256(value.tobytes()).digest()
+                            hashes.setdefault(digest, len(visuals))
+                            visuals.append(value)
+                        payload["visual"] = [start, len(frames)]
+                    elif event.kind == "predict":
+                        payload["visual"] = [visual_index(payload["visual"]), 1]
+                    events.append(
+                        dict(
+                            event_id=event.event_id,
+                            kind=event.kind,
+                            available_at=event.available_at,
+                            represented_ticks=event.represented_ticks,
+                            payload=payload,
+                        )
+                    )
 
             def packet_values(packet):
                 values = {}
                 for field in fields(packet):
                     value = getattr(packet, field.name)
                     if field.name.endswith("_tokens") and value is not None:
-                        key = id(value)
-                        if key not in indices:
-                            indices[key] = len(visuals)
-                            visuals.append(value)
-                        value = indices[key]
+                        value = visual_index(value)
                     elif field.name == "action_spec":
                         value = asdict(value)
                     values[field.name] = value
@@ -105,28 +162,12 @@ def prepare_packed_episode(source, cache_root, *, binding, expected_receipt, raw
             ]
             packed = packed_rows
             if raw:
-                events = []
-                for event in decoded["events"]:
-                    payload = dict(event.payload)
-                    if event.kind in ("observe", "predict"):
-                        frames = (
-                            payload["visual"]
-                            if event.kind == "observe"
-                            else payload["visual"][None]
-                        )
-                        start = len(visuals)
-                        visuals.extend(frames)
-                        payload["visual"] = [start, len(frames)]
-                    events.append(
-                        dict(
-                            event_id=event.event_id,
-                            kind=event.kind,
-                            available_at=event.available_at,
-                            represented_ticks=event.represented_ticks,
-                            payload=payload,
-                        )
-                    )
                 packed = dict(episode_id=decoded["episode_id"], rows=packed_rows, events=events)
+            records_json = json.dumps(packed, default=_json, allow_nan=False)
+            if storage_budget is not None:
+                storage_budget.reserve(
+                    len(visuals) * 2 * 196 * 384 * 4 + len(records_json.encode()) + 65536
+                )
             pool = np.lib.format.open_memmap(
                 pending / "visual.npy",
                 mode="w+",
@@ -137,9 +178,7 @@ def prepare_packed_episode(source, cache_root, *, binding, expected_receipt, raw
                 pool[i] = value
             pool.flush()
             del pool
-            (pending / "records.json").write_text(
-                json.dumps(packed, default=_json, allow_nan=False)
-            )
+            (pending / "records.json").write_text(records_json)
             receipt = dict(expected, files={name: sha256(pending / name) for name in _PACKED_FILES})
             (pending / "complete.json").write_text(json.dumps(receipt, indent=2) + "\n")
             if before != _signature(source, _SOURCE_FILES):

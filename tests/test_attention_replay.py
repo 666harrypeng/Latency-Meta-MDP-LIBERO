@@ -120,7 +120,136 @@ def test_raw_mmap_retains_events_and_detects_source_mutation(tmp_path):
         load_packed_raw(entry)
 
 
-def test_v2_only_replay_does_not_require_unused_legacy_sleep_vocabulary(tmp_path):
+def test_raw_cache_reuses_observation_and_prediction_features_losslessly(tmp_path):
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.packed_replay import (
+        load_packed_raw,
+        prepare_packed_episode,
+    )
+
+    visual = np.random.default_rng(2).normal(size=(3, 2, 196, 384)).astype(np.float32)
+    recorder = StageRecorder("dedup", action_spec=ActionSpec())
+    packet = AttentionPacket(
+        10,
+        "G",
+        decision_key=(10, 4),
+        current_tick=10,
+        current_tokens=visual[-1],
+        forecast_tokens=visual[0],
+        forecast_tick=10,
+        forecast_buffer_version=0,
+    )
+    recorder.start(packet, 8, forced=False, probability=1.0)
+    recorder.events.extend(
+        [
+            PublicEvent(
+                "obs",
+                "observe",
+                (10, 1),
+                (2, 6, 10),
+                dict(visual=visual, proprio=np.zeros((3, 16))),
+            ),
+            PublicEvent(
+                "pred",
+                "predict",
+                (10, 2),
+                (30,),
+                dict(
+                    visual=visual[0],
+                    proprio=np.zeros(16),
+                    source_tick=10,
+                    query_ticks=20,
+                    buffer_version=0,
+                    prefix_hash="prefix",
+                ),
+            ),
+        ]
+    )
+    recorder.finish(11, terminated=True)
+    source = tmp_path / "source"
+    save_episode(source, recorder, report={}, binding={})
+    entry = prepare_packed_episode(
+        source,
+        tmp_path / "cache",
+        binding={},
+        expected_receipt=sha256(source / "complete.json"),
+        raw=True,
+    )
+    assert np.load(entry.path / "visual.npy", mmap_mode="r").shape[0] == 3
+    decoded = load_packed_raw(entry)
+    np.testing.assert_array_equal(decoded["events"][0].payload["visual"], visual)
+    np.testing.assert_array_equal(decoded["events"][1].payload["visual"], visual[0])
+    np.testing.assert_array_equal(decoded["rows"][0]["packet"].current_tokens, visual[-1])
+    np.testing.assert_array_equal(decoded["rows"][0]["packet"].forecast_tokens, visual[0])
+
+
+def test_evaluation_trace_keeps_decisions_and_actions_without_replay_features(tmp_path):
+    import json
+
+    from latency_meta_mdp.meta.information.dataset import save_evaluation_trace
+
+    rec = StageRecorder("evaluation", action_spec=ActionSpec())
+    visual = np.ones((2, 196, 384), np.float32)
+    rec.start(
+        AttentionPacket(10, "G", decision_key=(10, 1), current_tokens=visual, current_tick=10),
+        8,
+        forced=False,
+        probability=1.0,
+    )
+    rec.events.append(
+        PublicEvent(
+            "obs", "observe", (10, 2), (10,), dict(visual=visual[None], proprio=np.zeros((1, 16)))
+        )
+    )
+    rec.finish(11, terminated=True)
+    report = {"scope": "evaluation", "executed_actions": [[1, 2, 3]], "task_reward": 0.0}
+    save_evaluation_trace(tmp_path / "trace", rec, report=report, binding={"scope": "evaluation"})
+    trace = json.loads((tmp_path / "trace/records.json").read_text())
+    assert trace["format"] == "evaluation_trace_v1"
+    assert trace["rows"][0]["packet"]["current_tokens_present"]
+    assert trace["rows"][0]["packet"]["current_tick"] == 10
+    assert trace["rows"][0]["action"] == 8
+    assert trace["events"][0]["represented_ticks"] == [10]
+    assert trace["events"][0]["payload"]["visual_shape"] == [1, 2, 196, 384]
+    assert json.loads((tmp_path / "trace/audit.json").read_text()) == report
+    assert set(p.name for p in (tmp_path / "trace").iterdir()) == {"records.json", "audit.json"}
+
+
+def test_packed_cache_checks_budget_before_writing_visual_array(tmp_path):
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.packed_replay import CacheBudget, prepare_packed_episode
+
+    recorder = StageRecorder("budget", action_spec=ActionSpec())
+    recorder.start(AttentionPacket(10, "G", decision_key=(10, 1)), 8, forced=False, probability=1.0)
+    recorder.events.append(
+        PublicEvent(
+            "obs",
+            "observe",
+            (10, 2),
+            (10,),
+            dict(visual=np.zeros((1, 2, 196, 384)), proprio=np.zeros((1, 16))),
+        )
+    )
+    recorder.finish(11, terminated=True)
+    source, cache = tmp_path / "source", tmp_path / "cache"
+    save_episode(source, recorder, report={}, binding={})
+    with pytest.raises(RuntimeError, match="cache storage ceiling"):
+        prepare_packed_episode(
+            source,
+            cache,
+            binding={},
+            expected_receipt=sha256(source / "complete.json"),
+            raw=True,
+            storage_budget=CacheBudget(cache, 100),
+        )
+    assert not list(cache.rglob("visual.npy"))
+    assert not list(cache.rglob(".pending-*"))
+
+
+@pytest.mark.parametrize("subset", [False, True])
+def test_v2_only_replay_does_not_require_unused_legacy_sleep_vocabulary(tmp_path, subset):
     import json
 
     from attention_fixtures import small_config
@@ -154,6 +283,8 @@ def test_v2_only_replay_does_not_require_unused_legacy_sleep_vocabulary(tmp_path
         split="train",
     )
     manifest = dict(binding=binding, episodes=[ep])
+    if subset:
+        manifest["episodes"].append(dict(ep, episode_id="retired-episode"))
     (tmp_path / "cohort.json").write_text(json.dumps(manifest))
     attempt = tmp_path / "episodes/v2-only/attempt-000"
     attempt.mkdir(parents=True)
@@ -203,6 +334,7 @@ def test_v2_only_replay_does_not_require_unused_legacy_sleep_vocabulary(tmp_path
                 path=str(tmp_path),
                 manifest_sha256=sha256(tmp_path / "cohort.json"),
                 group="startup",
+                **({"episode_ids": ["v2-only"]} if subset else {}),
             )
         ],
         root=tmp_path,
@@ -210,3 +342,33 @@ def test_v2_only_replay_does_not_require_unused_legacy_sleep_vocabulary(tmp_path
     )
     assert len(replay) == 1 and replay[0]["action"] == 0
     assert receipt["action_mapping"] is None
+
+
+def test_episode_cache_evicts_and_reconstructs_identical_contexts(tmp_path):
+    from attention_fixtures import small_config
+
+    from latency_meta_mdp.meta.information.attention_replay import AttentionEpisodes
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.packed_replay import prepare_packed_episode
+
+    rec = StageRecorder("bounded", action_spec=ActionSpec())
+    rec.start(AttentionPacket(10, "G", decision_key=(10, 1)), 0, forced=False, probability=1.0)
+    rec.finish(11, terminated=True)
+    source = tmp_path / "source"
+    save_episode(source, rec, report={}, binding={"schema_version": 2})
+    entry = prepare_packed_episode(
+        source,
+        tmp_path / "cache",
+        binding={"schema_version": 2},
+        expected_receipt=sha256(source / "complete.json"),
+        raw=True,
+    )
+    episodes = AttentionEpisodes(
+        [entry, entry], ActionSpec(), small_config()["memory"], cache_size=1
+    )
+    first = episodes[0][0]["context"].decision
+    episodes[1]
+    assert len(episodes.loaded) == 1
+    assert episodes[0][0]["context"].decision == first
+    assert len(episodes.loaded) == 1

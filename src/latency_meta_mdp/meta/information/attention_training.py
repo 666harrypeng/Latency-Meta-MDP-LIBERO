@@ -59,6 +59,9 @@ def run_attention_training(
     worker_python=None,
     validate_initial=True,
     stop_after_iterations=None,
+    validation_every=1,
+    episode_cache_size=128,
+    replay_cache_max_bytes=None,
 ):
     from latency_meta_mdp.meta.information.attention_replay import prepare_attention_replay
     from latency_meta_mdp.meta.information.distributed_fqi import fit_attention_distributed
@@ -109,6 +112,8 @@ def run_attention_training(
         root=root,
         cache_dir=replay_cache_dir or output_dir / "replay-cache",
         workers=replay_prepare_workers,
+        episode_cache_size=episode_cache_size,
+        cache_max_bytes=replay_cache_max_bytes,
         progress=lambda event: print(json.dumps(event), flush=True),
     )
     atomic_json(output_dir / "replay-conversion.json", conversion)
@@ -194,6 +199,7 @@ def run_attention_training(
             initial_learning_state=state,
             validate_initial=validate_initial,
             stop_after_iterations=stop_after_iterations,
+            validation_every=validation_every,
         )
         success = True
         return result

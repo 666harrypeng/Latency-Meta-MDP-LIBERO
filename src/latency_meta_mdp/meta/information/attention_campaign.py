@@ -29,9 +29,9 @@ def checkpoint_artifacts(checkpoint):
 
 
 def attention_cycle_loop(
-    *, journal, recipe, initial, initial_metrics, collect, fit, startup_result=None
+    *, journal, recipe, initial, initial_metrics, collect, fit, startup_result=None, retention=None
 ):
-    """Advance only after every fitted iteration has complete validation."""
+    """Advance after the configured validation boundaries are complete."""
     if recipe["reward_regression_policy"] != "report_only":
         raise ValueError("v2 requires explicit report_only reward regression policy")
     parent, best, best_metrics = initial, initial, initial_metrics
@@ -50,14 +50,21 @@ def attention_cycle_loop(
 
     for index, definition in enumerate(recipe["cycles"], 1):
         if definition["generation"] is not None:
+            if retention is not None and "result" not in journal.state["phases"].get(
+                f"{index}/collect", {}
+            ):
+                retention.check_storage()
             collected = journal.run(f"{index}/collect", lambda: collect(index, definition, parent))
             online.append(collected["source"])
+        active = [
+            {**s, "group": "latest" if i == len(online) - 1 else "old"}
+            for i, s in enumerate(online)
+        ]
+        if retention is not None:
+            active = retention.select(index, collected["source"])
         sources = [
             *recipe["startup_sources"],
-            *[
-                {**s, "group": "latest" if i == len(online) - 1 else "old"}
-                for i, s in enumerate(online)
-            ],
+            *active,
         ]
         fitted = journal.run(
             f"{index}/fit_validate", lambda: fit(index, definition, parent, sources)
@@ -82,6 +89,8 @@ def attention_cycle_loop(
             **totals(),
         )
         atomic_json(journal.directory / "report.json", report)
+        if retention is not None:
+            retention.cleanup(index)
     if not results:
         report = dict(
             status="running",
@@ -111,8 +120,18 @@ def validate_recipe(config, recipe, audit, *, root):
         "seed",
         "reward_regression_policy",
     }
-    if set(recipe) != required or recipe["schema_version"] != 2 or not recipe["startup_sources"]:
+    if (
+        set(recipe) - {"retention"} != required
+        or recipe["schema_version"] != 2
+        or not recipe["startup_sources"]
+    ):
         raise ValueError("invalid attention campaign recipe fields")
+    if "retention" in recipe:
+        from latency_meta_mdp.meta.information.replay_retention import validate_retention
+
+        validate_retention(recipe["retention"])
+        if any(d["generation"] is None for d in recipe["cycles"]):
+            raise ValueError("bounded replay requires collection in every online cycle")
     if recipe["reward_regression_policy"] != "report_only":
         raise ValueError("attention reward regression policy must be report_only")
     if any(
@@ -122,17 +141,20 @@ def validate_recipe(config, recipe, audit, *, root):
         raise ValueError("invalid campaign batch/seed")
     if any(s["group"] != "startup" for s in recipe["startup_sources"]):
         raise ValueError("startup sources must use startup sampling group")
-    if set(recipe["startup"]) != {"fitted_iterations", "optimizer_updates"}:
+    if set(recipe["startup"]) - {"validation_every"} != {"fitted_iterations", "optimizer_updates"}:
         raise ValueError("explicit startup target and optimizer budgets required")
     planned = []
     for i, definition in enumerate([recipe["startup"], *recipe["cycles"]]):
         expected = {"fitted_iterations", "optimizer_updates"} | ({"generation"} if i else set())
-        if set(definition) != expected or any(
+        if set(definition) - {"validation_every"} != expected or any(
             type(definition[k]) is not int
             or definition[k] < (0 if i == 0 and k == "fitted_iterations" else 1)
             for k in ("fitted_iterations", "optimizer_updates")
         ):
             raise ValueError("invalid fitted-iteration/update budget")
+        cadence = definition.get("validation_every", 1)
+        if type(cadence) is not int or cadence < 1:
+            raise ValueError("invalid validation cadence")
         if i and definition["generation"] is not None:
             manifest = build_cycle_manifest(
                 config,
@@ -160,7 +182,11 @@ def validate_recipe(config, recipe, audit, *, root):
         validation_episodes=9
         * (
             int(recipe["startup"]["fitted_iterations"] > 0)
-            + sum(d["fitted_iterations"] for d in [recipe["startup"], *recipe["cycles"]])
+            + sum(
+                (d["fitted_iterations"] + d.get("validation_every", 1) - 1)
+                // d.get("validation_every", 1)
+                for d in [recipe["startup"], *recipe["cycles"]]
+            )
         ),
     )
 
@@ -254,6 +280,9 @@ def run_attention_campaign(
             audit_path=audit_path,
             worker_python=worker_python,
             validate_initial=initial,
+            validation_every=definition.get("validation_every", 1),
+            episode_cache_size=recipe.get("retention", {}).get("episode_cache_size", 128),
+            replay_cache_max_bytes=recipe.get("retention", {}).get("max_cache_bytes"),
         )
         state = json.loads((directory / "validation-state.json").read_text())
         candidates, artifacts = [], {}
@@ -350,7 +379,15 @@ def run_attention_campaign(
     with ExitStack() as stack:
         stack.enter_context(interrupt_on_termination())
         stack.enter_context(worker_lock(output_dir))
-        journal = CampaignJournal(output_dir, binding=binding)
+        journal = CampaignJournal(output_dir, binding=binding, allow_retired="retention" in recipe)
+        retention = None
+        if "retention" in recipe:
+            from latency_meta_mdp.meta.information.replay_retention import BoundedReplay
+
+            retention = BoundedReplay(
+                output_dir, recipe["retention"], seed=recipe["seed"], cache_dir=replay_cache_dir
+            )
+            retention.check_storage()
         initial = (
             (root / recipe["initial_checkpoint"]).resolve()
             if recipe["initial_checkpoint"]
@@ -382,6 +419,7 @@ def run_attention_campaign(
             collect=collect,
             fit=fit,
             startup_result=startup,
+            retention=retention,
         )
         result["planned_budget"] = planned
         atomic_json(output_dir / "report.json", result)
