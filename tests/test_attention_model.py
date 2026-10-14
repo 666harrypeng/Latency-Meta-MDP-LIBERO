@@ -22,6 +22,7 @@ def test_each_history_layer_rereads_full_inputs_and_all_branches_receive_gradien
     assert seen[0].shape[1] > 1000
     for layer in (model.visual.channel, model.history, model.forecast, model.critical):
         assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in layer.parameters())
+    assert [(layer.in_features, layer.out_features) for layer in model.scheduler] == [(12, 32)] * 2
     assert model.queries.shape == (8, 32)
     assert model(batch).shape == (2, 11)
     for hook in hooks:

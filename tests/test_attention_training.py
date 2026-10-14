@@ -72,3 +72,20 @@ def test_attention_validation_failure_resumes_without_extra_updates(tmp_path):
     )
     assert seen == [1, 1, 2]
     assert sha256(tmp_path / "iteration-0001/complete.json") == digest
+
+
+@pytest.mark.parametrize("updates,batch,devices", [(None, 64, "0"), (0, 64, "0"), (1, 7, "0,1")])
+def test_bad_budget_rejected_before_assets_or_replay(tmp_path, updates, batch, devices):
+    from latency_meta_mdp.meta.information.attention_training import run_attention_training
+
+    with pytest.raises(ValueError, match="optimizer_updates|global.batch"):
+        run_attention_training(
+            "configs/experiments/conveyor_sort/meta_attention_v2.yaml",
+            [],
+            tmp_path,
+            root=tmp_path,
+            total_iterations=2,
+            optimizer_updates=updates,
+            global_batch=batch,
+            training_gpus=devices,
+        )

@@ -17,7 +17,7 @@ class AttentionStageQ(nn.Module):
         self.time_factor = memory["tick_seconds"] / memory["time_scale"]
         self.visual = VisualTokenizer(width, heads, memory["spatial_tokens"])
         self.proprio = nn.Linear(16, width)
-        self.scheduler = nn.ModuleList([nn.Linear(8, width) for _ in range(3)])
+        self.scheduler = nn.ModuleList([nn.Linear(12, width) for _ in range(2)])
         self.action = nn.Linear(7, width)
         self.event = nn.Linear(16, width)
         self.forecast_metadata = nn.Linear(8, width)
@@ -64,8 +64,8 @@ class AttentionStageQ(nn.Module):
 
         now, yes = t["tick"][:, None], torch.ones((b, 1), device=critical.device, dtype=torch.bool)
         add(self.proprio(critical[:, :16])[:, None], now, yes, 0)
-        for i in range(3):
-            add(self.scheduler[i](critical[:, 16 + 8 * i : 24 + 8 * i])[:, None], now, yes, 1)
+        for i in range(2):
+            add(self.scheduler[i](critical[:, 16 + 12 * i : 28 + 12 * i])[:, None], now, yes, 1 + i)
         add(
             self.action(t["buffer"].masked_fill(~t["buffer_mask"][..., None], 0)),
             t["buffer_ticks"],

@@ -85,6 +85,18 @@ def run_attention_training(
         devices = [f"cuda:{i}" for i in range(len(physical))]
     elif device != "cpu":
         raise ValueError("use train-gpus for GPU fitting, including single GPU")
+    from latency_meta_mdp.meta.information.memory_schema import validate_batch
+
+    if type(optimizer_updates) is not int or optimizer_updates < 1:
+        raise ValueError("optimizer_updates must be a positive integer")
+    if type(global_batch) is not int or type(microbatch) is not int or microbatch < 1:
+        raise ValueError("global_batch and microbatch must be positive integers")
+    validate_batch(
+        global_batch=global_batch,
+        world_size=len(devices),
+        microbatch=microbatch,
+        accumulation=global_batch // (len(devices) * microbatch),
+    )
     verify_runtime_dependencies(root, config)
     verify_assets(root, config["assets"])
     random.seed(seed)

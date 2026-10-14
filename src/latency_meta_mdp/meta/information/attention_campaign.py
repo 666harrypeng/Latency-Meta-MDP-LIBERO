@@ -15,6 +15,19 @@ from latency_meta_mdp.meta.information.config import identity_hash, load_config,
 from latency_meta_mdp.meta.information.validation import atomic_json
 
 
+def checkpoint_artifacts(checkpoint):
+    """Pin both the receipt and its weights before a resumable campaign starts."""
+    checkpoint = Path(checkpoint).resolve()
+    receipt_path = checkpoint / "complete.json"
+    receipt = json.loads(receipt_path.read_text())
+    if receipt["files"] != {"state.pt": sha256(checkpoint / "state.pt")}:
+        raise ValueError("checkpoint artifact differs from its receipt")
+    return {
+        str(receipt_path): sha256(receipt_path),
+        str(checkpoint / "state.pt"): receipt["files"]["state.pt"],
+    }
+
+
 def attention_cycle_loop(*, journal, recipe, initial, initial_metrics, collect, fit):
     """Advance only after every fitted iteration has complete validation."""
     if recipe["reward_regression_policy"] != "report_only":
@@ -190,6 +203,11 @@ def run_attention_campaign(
     bootstrap = (root / recipe["validation_bootstrap"]).resolve()
     binding = dict(
         recipe=recipe,
+        initial_checkpoint=(
+            checkpoint_artifacts(root / recipe["initial_checkpoint"])
+            if recipe["initial_checkpoint"]
+            else None
+        ),
         config_sha256=sha256(config_path),
         audit_sha256=sha256(audit_path),
         code_hash=identity_hash(code),
@@ -232,6 +250,9 @@ def run_attention_campaign(
                 directory / f"validation/iteration-{int(iteration):04d}/rollout-summary.json",
             ):
                 artifacts[str(p)] = sha256(p)
+            artifacts.update(
+                _cohort_artifacts(directory / f"validation/iteration-{int(iteration):04d}")
+            )
         return dict(
             artifacts=artifacts,
             latest=str(directory / f"iteration-{result['completed_iterations']:04d}"),

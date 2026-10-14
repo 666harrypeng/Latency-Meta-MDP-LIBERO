@@ -61,3 +61,25 @@ def test_accumulated_online_replay_latest_parent_and_report_only_regression(tmp_
     assert result["latest"] == str(tmp_path / "2-1")
     assert result["validation_episodes"] == 36
     assert attention_cycle_loop(**args) == result
+
+
+def test_external_checkpoint_binding_detects_replacement_and_corruption(tmp_path):
+    import json
+
+    from latency_meta_mdp.meta.information.attention_campaign import checkpoint_artifacts
+    from latency_meta_mdp.meta.information.config import sha256
+
+    checkpoint = tmp_path / "input"
+    checkpoint.mkdir()
+    weights = checkpoint / "state.pt"
+    receipt = checkpoint / "complete.json"
+    weights.write_bytes(b"first")
+    receipt.write_text(json.dumps({"files": {"state.pt": sha256(weights)}}))
+    journal = CampaignJournal(tmp_path / "run", binding=checkpoint_artifacts(checkpoint))
+    assert journal is not None
+    weights.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="checkpoint artifact"):
+        checkpoint_artifacts(checkpoint)
+    receipt.write_text(json.dumps({"files": {"state.pt": sha256(weights)}}))
+    with pytest.raises(ValueError, match="binding"):
+        CampaignJournal(tmp_path / "run", binding=checkpoint_artifacts(checkpoint))
