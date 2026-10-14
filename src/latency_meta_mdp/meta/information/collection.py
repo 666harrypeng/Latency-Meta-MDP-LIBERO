@@ -116,7 +116,10 @@ def run_episode(
     from latency_meta_mdp.runtime.bootstrap_cache import CachedBootstrapPolicy
     from latency_meta_mdp.runtime.evaluate_conveyor import conveyor_delay_sampler
     from latency_meta_mdp.runtime.information_execution import run_information_episode
-    from latency_meta_mdp.runtime.policy_execution import InProcessRtcOpenpiPolicy
+    from latency_meta_mdp.runtime.policy_execution import (
+        InProcessOpenpiPolicy,
+        InProcessRtcOpenpiPolicy,
+    )
     from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
     action_spec = ActionSpec(**config["actions"]) if config["schema_version"] == 2 else None
@@ -142,10 +145,21 @@ def run_episode(
     policy._rng = jax.random.key(0)
     actor = InProcessRtcOpenpiPolicy(policy, noise_rng=rng)
     bootstrap_identity = bootstrap_binding(root, config)
+
+    def native_bootstrap(observation):
+        from latency_meta_mdp.meta.information.services import frozen_services
+
+        print("BOOTSTRAP_NATIVE observation cache miss", flush=True)
+        with frozen_services(root, config, bootstrap_only=True) as clean_services:
+            clean_services.policy._rng = jax.random.key(0)
+            return InProcessOpenpiPolicy(clean_services.policy, noise_rng=rng)(observation)
+
     bootstrap = CachedBootstrapPolicy(
         bootstrap_dir / f"seed-{seed}.npz",
         identity=bootstrap_identity,
         noise_rng=rng,
+        native_policy=native_bootstrap,
+        native_on_observation_miss=True,
     )
     recorder = StageRecorder(episode_id or f"smoke-{seed}", action_spec=action_spec)
     from latency_meta_mdp.meta.information.archive import SourceArchive

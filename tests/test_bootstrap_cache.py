@@ -52,3 +52,51 @@ def test_bootstrap_cache_rejects_wrong_model_and_missing_file(tmp_path):
     )(obs)
     with pytest.raises(ValueError, match="identity"):
         CachedBootstrapPolicy(path, identity={"revision": "b"}, noise_rng=rng)(obs)
+
+
+def test_opt_in_native_observation_miss_preserves_cache_and_noise(tmp_path):
+    from dataclasses import replace
+
+    obs = PolicyObservation(
+        0, np.zeros((4, 4, 3), np.uint8), np.zeros((4, 4, 3), np.uint8), np.zeros(16)
+    )
+    path = tmp_path / "bootstrap.npz"
+    CachedBootstrapPolicy(
+        path,
+        identity={"revision": "a"},
+        noise_rng=np.random.default_rng(0),
+        native_policy=lambda _: {"actions": np.zeros((50, 7))},
+    )(obs)
+    original = path.read_bytes()
+    rng = np.random.default_rng(9)
+    reference = np.random.default_rng(9)
+    expected = reference.standard_normal((50, 32), dtype=np.float32)[:, :7]
+    calls = []
+
+    def native(observation):
+        calls.append(observation)
+        return {"actions": rng.standard_normal((50, 32), dtype=np.float32)[:, :7]}
+
+    changed = replace(obs, image=np.ones_like(obs.image))
+    cache = CachedBootstrapPolicy(
+        path,
+        identity={"revision": "a"},
+        noise_rng=rng,
+        native_policy=native,
+        native_on_observation_miss=True,
+    )
+    np.testing.assert_array_equal(cache(changed)["actions"], expected)
+    np.testing.assert_array_equal(rng.standard_normal(10), reference.standard_normal(10))
+    assert calls == [changed]
+    assert path.read_bytes() == original
+    assert cache.last_record["cache_hit"] is False
+    assert cache.last_record["path"] is None
+    with pytest.raises(ValueError, match="identity"):
+        CachedBootstrapPolicy(
+            path,
+            identity={"revision": "wrong"},
+            noise_rng=rng,
+            native_policy=native,
+            native_on_observation_miss=True,
+        )(changed)
+    assert len(calls) == 1
