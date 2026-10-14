@@ -1,12 +1,14 @@
 """Fixed-target FQI on explicit decision contexts and a reproducible global batch."""
 
 import copy
+from pathlib import Path
 from time import perf_counter
 
 import numpy as np
 import torch
 from torch.nn import functional as F
 
+from latency_meta_mdp.meta.information.config import validate_binding
 from latency_meta_mdp.meta.information.fqi import model_hash
 from latency_meta_mdp.meta.information.memory import collate_contexts
 from latency_meta_mdp.meta.information.memory_schema import validate_batch
@@ -44,6 +46,7 @@ def fit_attention_iteration(
     bf16=False,
     rank=0,
     world_size=1,
+    checkpoint=None,
 ):
     if type(optimizer_updates) is not int or optimizer_updates < 1:
         raise ValueError("positive optimizer update budget required")
@@ -55,11 +58,25 @@ def fit_attention_iteration(
     )
     device = next(model.parameters()).device
     target = copy.deepcopy(model).eval().requires_grad_(False)
-    before = model_hash(target)
     # Sampling precedes fitting. Every rank sees the identical global stream.
-    global_plan = sampler.sample(global_batch * optimizer_updates).reshape(
-        optimizer_updates, global_batch
-    )
+    checkpoint_path = Path(checkpoint["path"]) if checkpoint else None
+    losses, gradients = [], []
+    next_update = 0
+    if checkpoint_path is not None and checkpoint_path.exists():
+        saved = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        validate_binding(checkpoint["binding"], saved["binding"])
+        model.load_state_dict(saved["model"])
+        optimizer.load_state_dict(saved["optimizer"])
+        target.load_state_dict(saved["target"])
+        sampler.load_state_dict(saved["sampler"])
+        global_plan = saved["global_plan"].numpy()
+        next_update = saved["next_update"]
+        losses, gradients = saved["losses"], saved["gradients"]
+    else:
+        global_plan = sampler.sample(global_batch * optimizer_updates).reshape(
+            optimizer_updates, global_batch
+        )
+    before = model_hash(target)
     local_plan = global_plan[:, rank::world_size]
     unique = np.unique(local_plan)
     targets = {}
@@ -85,10 +102,10 @@ def fit_attention_iteration(
     target_seconds = perf_counter() - started
     if progress:
         progress(dict(phase="targets", unique_decisions=len(unique), seconds=target_seconds))
-    losses, gradients = [], []
     fit_started = perf_counter()
     model.train()
-    for update, ids in enumerate(local_plan):
+    for update in range(next_update, optimizer_updates):
+        ids = local_plan[update]
         optimizer.zero_grad(set_to_none=True)
         total = torch.zeros((), device=device)
         for start in range(0, len(ids), microbatch):
@@ -135,6 +152,23 @@ def fit_attention_iteration(
         optimizer.step()
         losses.append(float(total.cpu()))
         gradients.append(float(norm))
+        if checkpoint and rank == 0 and (update + 1) % checkpoint["every_updates"] == 0:
+            temporary = checkpoint_path.with_suffix(".tmp")
+            torch.save(
+                dict(
+                    binding=checkpoint["binding"],
+                    model=model.state_dict(),
+                    optimizer=optimizer.state_dict(),
+                    target=target.state_dict(),
+                    sampler=sampler.state_dict(),
+                    global_plan=torch.from_numpy(global_plan),
+                    next_update=update + 1,
+                    losses=losses,
+                    gradients=gradients,
+                ),
+                temporary,
+            )
+            temporary.replace(checkpoint_path)
         if progress:
             progress(
                 dict(
@@ -149,6 +183,8 @@ def fit_attention_iteration(
         target_hash_before=before,
         target_hash_after=after,
         optimizer_updates=optimizer_updates,
+        resumed_updates=next_update,
+        performed_updates=optimizer_updates - next_update,
         transitions=len(replay),
         transition_visits=optimizer_updates * global_batch,
         unique_decisions=len(np.unique(global_plan)),

@@ -55,6 +55,7 @@ def main():
         "--microbatch", type=int, default=2, help="Decision contexts per rank forward/backward"
     )
     parser.add_argument("--bf16", action="store_true")
+    parser.add_argument("--checkpoint-every-updates", type=int, default=256)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--replay-manifest", type=Path, help="Hash-pinned v2 replay source list JSON"
@@ -98,6 +99,7 @@ def main():
             device="cpu",
             microbatch=args.microbatch,
             bf16=args.bf16,
+            checkpoint_every_updates=args.checkpoint_every_updates,
             cpu_threads=args.cpu_threads,
             replay_cache_dir=args.replay_cache_dir,
             replay_prepare_workers=args.replay_prepare_workers,
@@ -133,6 +135,7 @@ def main():
                     replay_prepare_workers=args.replay_prepare_workers,
                     microbatch=args.microbatch,
                     bf16=args.bf16,
+                    checkpoint_every_updates=args.checkpoint_every_updates,
                     dry_run=args.dry_run,
                 ),
                 indent=2,

@@ -110,8 +110,9 @@ def train_iterations(
     validate_initial=True,
     attention_options=None,
     initial_learning_state=None,
+    checkpoint_every_updates=256,
 ):
-    """Resume only published complete iterations; restart an interrupted iteration."""
+    """Resume published iterations, with periodic latest snapshots for attention FQI."""
     if total_iterations < 1 or (stop_after_iterations is not None and stop_after_iterations < 1):
         raise ValueError("invalid fitted iteration budget")
     output_dir = Path(output_dir)
@@ -129,6 +130,8 @@ def train_iterations(
     )
     learning_state = None
     if attention_options is not None:
+        if type(checkpoint_every_updates) is not int or checkpoint_every_updates < 1:
+            raise ValueError("checkpoint_every_updates must be a positive integer")
         from latency_meta_mdp.meta.information.attention_replay import DecisionSampler
 
         learning_state = dict(
@@ -171,6 +174,9 @@ def train_iterations(
             learning_state=learning_state,
         )
 
+    # A completed iteration supersedes its periodic recovery snapshot.
+    (output_dir / f"training-{receipt['iteration']:04d}-latest.pt").unlink(missing_ok=True)
+
     def validate(receipt):
         if validate_checkpoint is None:
             return
@@ -199,6 +205,7 @@ def train_iterations(
         last = min(last, first + stop_after_iterations)
     for iteration in range(first + 1, last + 1):
         started = perf_counter()
+        latest_training = output_dir / f"training-{iteration:04d}-latest.pt"
 
         def notify(value):
             if progress is not None:
@@ -226,6 +233,11 @@ def train_iterations(
                 progress=notify,
                 **learning_state,
                 **attention_options,
+                checkpoint=dict(
+                    path=str(latest_training),
+                    binding=dict(training=binding, iteration=iteration),
+                    every_updates=checkpoint_every_updates,
+                ),
             )
             previous_updates = (receipt.get("metrics") or {}).get("ancestor_optimizer_updates", 0)
             if not previous_updates and initial_learning_state is not None:
@@ -235,9 +247,10 @@ def train_iterations(
             raise ValueError("frozen target changed during regression")
         metrics["seconds"] = perf_counter() - started
         metrics["transition_visits_per_second"] = (
-            metrics.get("transition_visits", (1 + epochs) * metrics["transitions"])
-            / metrics["seconds"]
-        )
+            metrics["performed_updates"] * attention_options["global_batch"]
+            if "performed_updates" in metrics
+            else metrics.get("transition_visits", (1 + epochs) * metrics["transitions"])
+        ) / metrics["seconds"]
         if getattr(episodes, "cache", None) is not None:
             metrics["replay_cache"] = episodes.cache.metrics()
         if next(model.parameters()).device.type == "cuda":
@@ -250,6 +263,7 @@ def train_iterations(
             metrics=metrics,
             learning_state=learning_state,
         )
+        latest_training.unlink(missing_ok=True)
         status = dict(
             completed_iterations=iteration,
             total_iterations=total_iterations,

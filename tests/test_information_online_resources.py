@@ -4,6 +4,21 @@ import os
 import pytest
 
 
+def test_gpu_locks_use_configured_cache_and_separate_compute_nodes(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information import resources
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "project-cache"))
+    monkeypatch.setattr("socket.gethostname", lambda: "node-a")
+    first = resources.gpu_lock_directory("0")
+    assert first == tmp_path / "project-cache/conveyor-meta/gpu-locks/node-a/0"
+    monkeypatch.setattr("socket.gethostname", lambda: "node-b")
+    second = resources.gpu_lock_directory("0")
+    with resources.worker_lock(first), resources.worker_lock(second):
+        with pytest.raises(RuntimeError, match="already owns"):
+            with resources.worker_lock(second):
+                pass
+
+
 def test_learner_uses_physical_gpu_order_before_source_admission(tmp_path, monkeypatch):
     from latency_meta_mdp.meta.information import config, online_training
 

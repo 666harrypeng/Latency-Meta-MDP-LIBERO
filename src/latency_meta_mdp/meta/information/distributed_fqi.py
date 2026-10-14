@@ -368,6 +368,7 @@ def fit_distributed(
             remaining -= (len(order) + global_batch - 1) // global_batch
     state = {k: v.detach().clone() for k, v in model.state_dict().items()}
     from latency_meta_mdp.meta.information.resources import (
+        gpu_lock_directory,
         gpu_processes,
         interrupt_on_termination,
         worker_lock,
@@ -380,7 +381,7 @@ def fit_distributed(
             if len(physical) != len(devices) or any(not d.isdigit() for d in physical):
                 raise ValueError("set explicit CUDA_VISIBLE_DEVICES for learner ranks")
             for d in sorted(physical, key=int):
-                stack.enter_context(worker_lock(Path.home() / ".cache/conveyor-meta/gpu-locks" / d))
+                stack.enter_context(worker_lock(gpu_lock_directory(d)))
             if gpu_processes()[0]:
                 raise RuntimeError("selected learner GPU already active")
         directory = stack.enter_context(tempfile.TemporaryDirectory(prefix="conveyor-fqi-"))
@@ -443,7 +444,9 @@ def _attention_worker(rank, world, device, state, replay, options, directory):
     model = AttentionStageQ(options["config"]).to(device)
     model.load_state_dict(state["model"])
     optimizer = torch.optim.Adam(model.parameters())
-    optimizer.load_state_dict(state["optimizer"])
+    # Spawn shares CPU tensor storage. Adam keeps its step counters on CPU even
+    # for CUDA parameters, so each rank must own a private restored state.
+    optimizer.load_state_dict(copy.deepcopy(state["optimizer"]))
     sampler = DecisionSampler(replay, seed=0)
     sampler.load_state_dict(state["sampler"])
 
@@ -486,6 +489,7 @@ def fit_attention_distributed(
     """Disposable ranks; the coordinator retains weights, Adam and sampler state."""
     from latency_meta_mdp.meta.information.memory_schema import validate_batch
     from latency_meta_mdp.meta.information.resources import (
+        gpu_lock_directory,
         gpu_processes,
         interrupt_on_termination,
         worker_lock,
@@ -510,9 +514,7 @@ def fit_attention_distributed(
             if len(physical) != len(devices) or any(not d.isdigit() for d in physical):
                 raise ValueError("set explicit CUDA_VISIBLE_DEVICES for learner ranks")
             for device in sorted(physical, key=int):
-                stack.enter_context(
-                    worker_lock(Path.home() / ".cache/conveyor-meta/gpu-locks" / device)
-                )
+                stack.enter_context(worker_lock(gpu_lock_directory(device)))
             if gpu_processes()[0]:
                 raise RuntimeError("selected learner GPU already active")
         directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="attention-fqi-")))

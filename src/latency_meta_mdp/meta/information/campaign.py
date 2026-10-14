@@ -138,9 +138,9 @@ def _verified_reference(path, manifest, scenes):
 
 def _bootstrap(command, *, root, directory, device, cpu_threads):
     from latency_meta_mdp.meta.information.parallel import worker_environment
-    from latency_meta_mdp.meta.information.resources import worker_lock
+    from latency_meta_mdp.meta.information.resources import gpu_lock_directory, worker_lock
 
-    with worker_lock(Path.home() / ".cache/conveyor-meta/gpu-locks" / device):
+    with worker_lock(gpu_lock_directory(device)):
         with (directory / "bootstrap.log").open("a") as log:
             process = subprocess.Popen(
                 command,
@@ -177,6 +177,7 @@ def run_campaign(
     replay_prepare_workers=4,
     microbatch=2,
     bf16=False,
+    checkpoint_every_updates=256,
     dry_run=False,
 ):
     """Scientific cohorts/budgets come from recipe JSON; execution resources are arguments."""
@@ -215,6 +216,7 @@ def run_campaign(
             replay_prepare_workers=replay_prepare_workers,
             microbatch=microbatch,
             bf16=bf16,
+            checkpoint_every_updates=checkpoint_every_updates,
             dry_run=dry_run,
         )
     if dry_run or bf16:

@@ -89,3 +89,53 @@ def test_bad_budget_rejected_before_assets_or_replay(tmp_path, updates, batch, d
             global_batch=batch,
             training_gpus=devices,
         )
+
+
+def test_periodic_latest_resumes_fixed_target_and_adam_after_lost_work(tmp_path):
+    from latency_meta_mdp.meta.information.attention_model import AttentionStageQ
+    from latency_meta_mdp.meta.information.training import train_iterations
+
+    torch.manual_seed(19)
+    initial = AttentionStageQ(small_config())
+    replay = tiny_replay(initial.config)
+    # Include bootstrapping: refreshing the target at resume would change results.
+    replay.episodes[0][0]["terminated"] = False
+    replay.episodes[0][0]["next_context"] = replay.episodes[0][0]["context"]
+    replay.episodes[0][0]["next_legal"] = replay.episodes[0][0]["legal"]
+    options = dict(
+        binding=dict(mode="bound", seed=3),
+        total_iterations=1,
+        epochs=1,
+        learning_rate=0.001,
+        conservative_weight=0.01,
+        attention_options=dict(global_batch=2, microbatch=1, optimizer_updates=4),
+        checkpoint_every_updates=2,
+    )
+    full = copy.deepcopy(initial)
+    train_iterations(full, replay, tmp_path / "full", **options)
+
+    def interrupt(event):
+        if event["phase"] == "fit" and event["optimizer_update"] == 3:
+            raise RuntimeError("time limit")
+
+    with pytest.raises(RuntimeError, match="time limit"):
+        train_iterations(
+            copy.deepcopy(initial), replay, tmp_path / "split", progress=interrupt, **options
+        )
+    saved = torch.load(tmp_path / "split/training-0001-latest.pt", weights_only=True)
+    assert saved["next_update"] == 2
+    restored = copy.deepcopy(initial)
+    events = []
+    train_iterations(restored, replay, tmp_path / "split", progress=events.append, **options)
+    assert [e["optimizer_update"] for e in events if e["phase"] == "fit"] == [3, 4]
+    for k, v in full.state_dict().items():
+        torch.testing.assert_close(v, restored.state_dict()[k], atol=0, rtol=0)
+    resumed_state = torch.load(tmp_path / "split/latest/state.pt", weights_only=True)
+    reference_state = torch.load(tmp_path / "full/latest/state.pt", weights_only=True)
+    assert resumed_state["sampler"] == reference_state["sampler"]
+    for key, value in reference_state["optimizer"]["state"].items():
+        for field, tensor in value.items():
+            torch.testing.assert_close(
+                tensor, resumed_state["optimizer"]["state"][key][field], atol=0, rtol=0
+            )
+    assert not (tmp_path / "split/training-0001-latest.pt").exists()

@@ -128,8 +128,9 @@ def test_worker_tracker_does_not_treat_partial_matrix_as_complete_evaluation(tmp
 
 @pytest.mark.parametrize("failed", [False, True])
 @pytest.mark.parametrize("extra_devices", [False, True])
+@pytest.mark.parametrize("relocated", [False, True, "different_shards"])
 def test_parallel_orchestrator_merges_or_stops_only_its_children(
-    tmp_path, monkeypatch, failed, extra_devices
+    tmp_path, monkeypatch, failed, extra_devices, relocated
 ):
     from latency_meta_mdp.meta import cycle_tracking
     from latency_meta_mdp.meta.information import cycle, parallel
@@ -195,6 +196,16 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
     monkeypatch.setattr(parallel.subprocess, "Popen", launch)
     bootstrap = tmp_path / "bootstrap"
     bootstrap.mkdir()
+    previous_execution = dict(
+        gpus=["0"] if relocated == "different_shards" else ["0", "1"],
+        worker_python="/previous/environment/python",
+        cpu_threads_per_worker=2,
+        host="previous-node",
+        partition="manifest_index_mod_workers",
+    )
+    if relocated:
+        (tmp_path / "result").mkdir()
+        (tmp_path / "result/execution.json").write_text(json.dumps(previous_execution))
     kwargs = dict(
         root=tmp_path,
         audit_path=tmp_path / "audit.json",
@@ -204,6 +215,11 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
         gpus="4,5,6,7" if extra_devices else "4,5",
         enabled=False,
     )
+    if relocated == "different_shards":
+        with pytest.raises(ValueError, match="binding"):
+            parallel.run_parallel(tmp_path / "config", tmp_path / "result", **kwargs)
+        assert not children
+        return
     if failed:
         with pytest.raises(RuntimeError, match="worker failed"):
             parallel.run_parallel(tmp_path / "config", tmp_path / "result", **kwargs)
@@ -214,6 +230,12 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
             == 2
         )
         assert len(list((tmp_path / "result/episodes").iterdir())) == 2
+        if relocated:
+            assert (
+                json.loads((tmp_path / "result/execution.json").read_text()) == previous_execution
+            )
+            history = (tmp_path / "result/execution-history.jsonl").read_text().splitlines()
+            assert json.loads(history[-1])["gpus"] == ["4", "5"]
     import os
 
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "0"

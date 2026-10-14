@@ -151,8 +151,32 @@ services resident for their assigned episodes. The synchronous learner releases
 its GPU processes before validation. On restart, retain the recipe, source
 checkout and output path; the journal reuses complete verified phases, restores
 optimizer/sampler state and finishes pending validation before further updates.
-Runtime device changes are allowed at completed learner iteration boundaries;
-existing rollout shard layouts remain fixed. Do not edit a running source snapshot.
+Learner device IDs and world size may change on restart while keeping global batch
+compatible with the selected world size and microbatch; existing rollout shard
+layouts remain fixed. Do not edit a running source snapshot.
+
+For Slurm, keep the checkout, source manifests, caches and output directory on
+persistent project storage, and use the same command and scientific recipe in
+each allocation. Set `XDG_CACHE_HOME` explicitly; GPU locks use that cache and
+include the compute hostname. A resumed rollout may use a different node, device
+IDs or CPU allocation, while retaining its original worker count and episode
+partition. Execution history records each allocation's host, devices and Slurm
+job ID. Allocate only the devices assigned to the job.
+
+Use `--checkpoint-every-updates 256` (the default) to periodically overwrite the
+current iteration's `training-NNNN-latest.pt`. It saves model, Adam, fixed FQI target,
+sampled decision order and current update position with an atomic replacement.
+Restarting the same command loads this snapshot automatically; unsaved updates
+may be repeated. The save interval is a runtime setting, independent of GPU count.
+Completed iterations still publish `iteration-NNNN` and `latest`; recovery
+snapshots do not enter model selection before the iteration and validation finish.
+
+Complete episode receipts are reused; interrupted episodes restart. Pending
+validation finishes before learning advances. After a job reaches its time limit,
+submit the same command against the same persistent workspace and output directory.
+There is no automatic job renewal or chaining. Count rolled-back optimization as
+consumed work; resubmission does not increase the scientific update budget. A
+process must release its writer lock before another controller resumes the run.
 
 Per-episode artifacts include video, action/decision/event traces, object outcomes,
 module invocation counts and total/mean/p50/p95 timings. `model_pipeline_seconds`

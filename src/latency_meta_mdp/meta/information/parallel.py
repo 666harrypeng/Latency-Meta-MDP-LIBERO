@@ -101,7 +101,11 @@ def run_parallel(
 ):
     from latency_meta_mdp.meta.cycle_tracking import CycleTracker
     from latency_meta_mdp.meta.information.cycle import prepare_cycle
-    from latency_meta_mdp.meta.information.resources import interrupt_on_termination, worker_lock
+    from latency_meta_mdp.meta.information.resources import (
+        gpu_lock_directory,
+        interrupt_on_termination,
+        worker_lock,
+    )
     from latency_meta_mdp.meta.information.validation import atomic_json
 
     root, output_dir = Path(root).resolve(), Path(output_dir).resolve()
@@ -136,9 +140,7 @@ def run_parallel(
         # invent episodes or start empty model workers to fill that allocation.
         devices = devices[: len(manifest["episodes"])]
         for device in sorted(devices, key=int):
-            stack.enter_context(
-                worker_lock(Path.home() / ".cache/conveyor-meta/gpu-locks" / device)
-            )
+            stack.enter_context(worker_lock(gpu_lock_directory(device)))
         for i in range(len(devices)):
             partition_manifest(manifest, i, len(devices))
         if generation is not None:
@@ -148,13 +150,22 @@ def run_parallel(
             worker_python=str(worker_python or sys.executable),
             cpu_threads_per_worker=cpu_threads,
             host=os.uname().nodename,
+            job_id=os.environ.get("SLURM_JOB_ID"),
             partition="manifest_index_mod_workers",
         )
         path = output_dir / "execution.json"
         if path.exists():
-            validate_binding(execution, json.loads(path.read_text()))
+            previous_execution = json.loads(path.read_text())
+            # Shard identities stay fixed; a resumed allocation may move to
+            # another node and use different physical devices or CPU resources.
+            validate_binding(
+                (len(previous_execution["gpus"]), previous_execution["partition"]),
+                (len(devices), execution["partition"]),
+            )
         else:
             atomic_json(path, execution)
+        with (output_dir / "execution-history.jsonl").open("a") as stream:
+            stream.write(json.dumps(execution) + "\n")
         atomic_json(
             output_dir / "admission.json",
             dict(shared_pids=os.environ.get("CONVEYOR_SHARED_GPU_PIDS", "")),

@@ -2,9 +2,16 @@
 
 import fcntl
 import os
+import socket
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
+
+
+def gpu_lock_directory(device):
+    """Local GPU identities must not conflict across nodes on a shared filesystem."""
+    cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return cache / "conveyor-meta/gpu-locks" / socket.gethostname() / device
 
 
 def selected_gpu_processes(inventory, active, *, visible=None, allowed=""):

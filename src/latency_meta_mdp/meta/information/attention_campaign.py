@@ -180,6 +180,7 @@ def run_attention_campaign(
     replay_prepare_workers=2,
     microbatch=2,
     bf16=False,
+    checkpoint_every_updates=256,
     dry_run=False,
 ):
     from latency_meta_mdp.meta.information.attention_training import (
@@ -244,6 +245,7 @@ def run_attention_campaign(
             training_gpus=training_gpus,
             microbatch=microbatch,
             bf16=bf16,
+            checkpoint_every_updates=checkpoint_every_updates,
             cpu_threads=cpu_threads,
             replay_cache_dir=replay_cache_dir or output_dir / "replay-cache",
             replay_prepare_workers=replay_prepare_workers,
