@@ -4,6 +4,24 @@ import json
 from pathlib import Path
 
 
+def bootstrap_observation(observation):
+    """Bind bootstrap reuse to the exact RGB inputs of the pinned pi05 model.
+
+    OpenPI resizes both cameras to 224 before inference. Renderers can differ
+    by one raw pixel level that disappears in this transform; no tolerance is
+    applied to the resulting pixels, proprio, prompt, or formal tick.
+    """
+    from dataclasses import replace
+
+    from openpi_client.image_tools import resize_with_pad
+
+    return replace(
+        observation,
+        image=resize_with_pad(observation.image, 224, 224),
+        wrist_image=resize_with_pad(observation.wrist_image, 224, 224),
+    )
+
+
 def resolve_scheduler(behavior, seed, scheduler, *, action_spec=None, pattern=None):
     from latency_meta_mdp.meta.information.behaviors import RuleScheduler
     from latency_meta_mdp.meta.information.fqi import FqiScheduler
@@ -199,7 +217,7 @@ def run_episode(
         result = run_information_episode(
             runtime=runtime,
             policy=lambda obs, ctx: actor(obs, ctx)["actions"],
-            bootstrap_policy=lambda obs: bootstrap(obs)["actions"],
+            bootstrap_policy=lambda obs: bootstrap(bootstrap_observation(obs))["actions"],
             perception=perception,
             scheduler=scheduler,
             recorder=recorder,
@@ -257,6 +275,7 @@ def bootstrap_binding(root, config):
         checkpoint_revision=identity["clean_baseline"]["revision"],
         checkpoint_step=identity["clean_baseline"]["step"],
         normalization_sha256=identity["normalization_sha256"],
+        observation_encoding="pi05-openpi-resize224-bilinear-v1",
         policy_seed=0,
         task_spec_sha256=sha256(root / config["task_config"]),
         patches={p.name: sha256(p) for p in patches},

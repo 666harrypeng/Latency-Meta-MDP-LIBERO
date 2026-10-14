@@ -110,7 +110,10 @@ def prepare_cohort(config_path, output_dir, *, root, audit_path):
 
 
 def prepare_bootstraps(config_path, output_dir, *, root, audit_path, cycle=None):
-    from latency_meta_mdp.meta.information.collection import bootstrap_binding
+    from latency_meta_mdp.meta.information.collection import (
+        bootstrap_binding,
+        bootstrap_observation,
+    )
     from latency_meta_mdp.meta.information.services import frozen_services
 
     if cycle is None:
@@ -145,7 +148,7 @@ def prepare_bootstraps(config_path, output_dir, *, root, audit_path, cycle=None)
                     noise_rng=rng,
                     native_policy=actor,
                 )
-                cache(obs)
+                cache(bootstrap_observation(obs))
                 print(f"BOOTSTRAP_COMPLETE {seed}", flush=True)
             finally:
                 runtime.env.close()
