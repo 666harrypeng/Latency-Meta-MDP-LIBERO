@@ -113,10 +113,6 @@ def run_parallel(
     with ExitStack() as stack:
         stack.enter_context(interrupt_on_termination())
         stack.enter_context(worker_lock(output_dir))
-        for device in sorted(devices, key=int):
-            stack.enter_context(
-                worker_lock(Path.home() / ".cache/conveyor-meta/gpu-locks" / device)
-            )
         previous = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = gpus
         try:
@@ -136,6 +132,13 @@ def run_parallel(
                 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
             else:
                 os.environ["CUDA_VISIBLE_DEVICES"] = previous
+        # A resource allocation may exceed a small scientific cohort. Do not
+        # invent episodes or start empty model workers to fill that allocation.
+        devices = devices[: len(manifest["episodes"])]
+        for device in sorted(devices, key=int):
+            stack.enter_context(
+                worker_lock(Path.home() / ".cache/conveyor-meta/gpu-locks" / device)
+            )
         for i in range(len(devices)):
             partition_manifest(manifest, i, len(devices))
         if generation is not None:

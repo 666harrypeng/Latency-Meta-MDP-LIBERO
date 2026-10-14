@@ -28,12 +28,26 @@ def checkpoint_artifacts(checkpoint):
     }
 
 
-def attention_cycle_loop(*, journal, recipe, initial, initial_metrics, collect, fit):
+def attention_cycle_loop(
+    *, journal, recipe, initial, initial_metrics, collect, fit, startup_result=None
+):
     """Advance only after every fitted iteration has complete validation."""
     if recipe["reward_regression_policy"] != "report_only":
         raise ValueError("v2 requires explicit report_only reward regression policy")
     parent, best, best_metrics = initial, initial, initial_metrics
     online, results = [], []
+
+    def totals():
+        work = ([startup_result] if startup_result is not None else []) + results
+        return dict(
+            startup=startup_result,
+            optimizer_updates=sum(r["optimizer_updates"] for r in work),
+            observed_optimizer_updates=sum(
+                r.get("observed_optimizer_updates", r["optimizer_updates"]) for r in work
+            ),
+            validation_episodes=sum(r["validation_episodes"] for r in work),
+        )
+
     for index, definition in enumerate(recipe["cycles"], 1):
         if definition["generation"] is not None:
             collected = journal.run(f"{index}/collect", lambda: collect(index, definition, parent))
@@ -65,8 +79,7 @@ def attention_cycle_loop(*, journal, recipe, initial, initial_metrics, collect, 
             latest=str(parent),
             cycles=results,
             reward_regression_policy="report_only",
-            optimizer_updates=sum(r["optimizer_updates"] for r in results),
-            validation_episodes=sum(r["validation_episodes"] for r in results),
+            **totals(),
         )
         atomic_json(journal.directory / "report.json", report)
     if not results:
@@ -76,8 +89,7 @@ def attention_cycle_loop(*, journal, recipe, initial, initial_metrics, collect, 
             best_metrics=best_metrics,
             latest=str(parent),
             cycles=[],
-            optimizer_updates=0,
-            validation_episodes=0,
+            **totals(),
             reward_regression_policy="report_only",
         )
     report["status"] = "complete"
@@ -217,6 +229,8 @@ def run_attention_campaign(
     )
 
     def fit_directory(directory, definition, parent, sources, *, initial=False):
+        from latency_meta_mdp.meta.online_tracking import recover_events
+
         result = run_attention_training(
             config_path,
             sources,
@@ -258,6 +272,10 @@ def run_attention_campaign(
             latest=str(directory / f"iteration-{result['completed_iterations']:04d}"),
             candidates=candidates,
             optimizer_updates=definition["fitted_iterations"] * definition["optimizer_updates"],
+            observed_optimizer_updates=sum(
+                item["event"]["phase"] == "fit"
+                for item in recover_events(directory / "events.jsonl")
+            ),
             validation_episodes=9 * len(candidates),
             training=result,
         )
@@ -336,7 +354,7 @@ def run_attention_campaign(
                 config, output_dir / "initial", root=root, seed=recipe["seed"]
             )
         )
-        initial_metrics = None
+        initial_metrics, startup = None, None
         if recipe["startup"]["fitted_iterations"]:
             startup = journal.run(
                 "startup/fit_validate",
@@ -359,6 +377,7 @@ def run_attention_campaign(
             initial_metrics=initial_metrics,
             collect=collect,
             fit=fit,
+            startup_result=startup,
         )
         result["planned_budget"] = planned
         atomic_json(output_dir / "report.json", result)

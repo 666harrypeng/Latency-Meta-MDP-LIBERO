@@ -1,5 +1,9 @@
 # Conveyor information scheduler
 
+For the explicit-memory attention scheduler and continuous v2 FQI recipes, see
+[Conveyor attention Meta](conveyor-attention-meta.md). The recurrent model and
+episode-batch descriptions on this page refer to schema v1.
+
 `scripts/run_conveyor_meta.py` is the entrypoint for the conveyor information
 scheduler. Its experiment configuration is
 [`meta_information.yaml`](../../configs/experiments/conveyor_sort/meta_information.yaml).

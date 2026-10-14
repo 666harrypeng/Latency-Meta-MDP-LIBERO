@@ -50,6 +50,9 @@ def test_accumulated_online_replay_latest_parent_and_report_only_regression(tmp_
         initial_metrics=None,
         collect=collect,
         fit=fit,
+        startup_result=dict(
+            optimizer_updates=20, validation_episodes=27, observed_optimizer_updates=25
+        ),
     )
     with pytest.raises(RuntimeError):
         attention_cycle_loop(**args)
@@ -59,7 +62,9 @@ def test_accumulated_online_replay_latest_parent_and_report_only_regression(tmp_
     assert calls[-1] == ("fit", 2, ["startup", "old", "latest"])
     assert result["best"] == str(tmp_path / "1-0")
     assert result["latest"] == str(tmp_path / "2-1")
-    assert result["validation_episodes"] == 36
+    assert result["validation_episodes"] == 63
+    assert result["optimizer_updates"] == 32
+    assert result["observed_optimizer_updates"] == 37
     assert attention_cycle_loop(**args) == result
 
 

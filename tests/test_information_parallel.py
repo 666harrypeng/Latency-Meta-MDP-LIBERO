@@ -127,7 +127,10 @@ def test_worker_tracker_does_not_treat_partial_matrix_as_complete_evaluation(tmp
 
 
 @pytest.mark.parametrize("failed", [False, True])
-def test_parallel_orchestrator_merges_or_stops_only_its_children(tmp_path, monkeypatch, failed):
+@pytest.mark.parametrize("extra_devices", [False, True])
+def test_parallel_orchestrator_merges_or_stops_only_its_children(
+    tmp_path, monkeypatch, failed, extra_devices
+):
     from latency_meta_mdp.meta import cycle_tracking
     from latency_meta_mdp.meta.information import cycle, parallel
     from latency_meta_mdp.meta.information.cohort import complete_attempt
@@ -198,7 +201,7 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(tmp_path, monke
         checkpoint=tmp_path / "checkpoint",
         phase="monitor",
         bootstrap_dir=bootstrap,
-        gpus="4,5",
+        gpus="4,5,6,7" if extra_devices else "4,5",
         enabled=False,
     )
     if failed:
