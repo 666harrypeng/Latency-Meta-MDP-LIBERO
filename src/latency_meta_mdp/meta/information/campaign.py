@@ -175,6 +175,9 @@ def run_campaign(
     cpu_threads=4,
     replay_cache_dir=None,
     replay_prepare_workers=4,
+    microbatch=2,
+    bf16=False,
+    dry_run=False,
 ):
     """Scientific cohorts/budgets come from recipe JSON; execution resources are arguments."""
     from contextlib import ExitStack
@@ -195,6 +198,27 @@ def run_campaign(
 
     root, output_dir = Path(root).resolve(), Path(output_dir).resolve()
     recipe = json.loads(Path(recipe_path).read_text())
+    if recipe.get("schema_version") == 2:
+        from latency_meta_mdp.meta.information.attention_campaign import run_attention_campaign
+
+        return run_attention_campaign(
+            config_path,
+            output_dir,
+            root=root,
+            recipe_path=recipe_path,
+            audit_path=audit_path,
+            gpus=gpus,
+            training_gpus=training_gpus,
+            worker_python=worker_python,
+            cpu_threads=cpu_threads,
+            replay_cache_dir=replay_cache_dir,
+            replay_prepare_workers=replay_prepare_workers,
+            microbatch=microbatch,
+            bf16=bf16,
+            dry_run=dry_run,
+        )
+    if dry_run or bf16:
+        raise ValueError("dry-run/AMP require explicit v2 recipe")
     required = {
         "initial_checkpoint",
         "behavior_checkpoint",

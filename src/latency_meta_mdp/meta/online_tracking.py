@@ -30,6 +30,14 @@ def fit_metrics(event, *, episodes, epochs):
             **{f"validation/{k}": v for k, v in event["metrics"].items()},
         }
     if phase == "fit":
+        if "optimizer_update" in event:
+            return {
+                "train/update": event.get("actual_update", event["optimizer_update"]),
+                "train/iteration": iteration,
+                "train/combined_loss": event["loss"],
+                "train/grad_norm": event["grad_norm"],
+                "train/attempt": event.get("attempt", 1),
+            }
         source = event["source"]
         if source not in ("offline", "online", "mixed"):
             raise ValueError("invalid training source")
@@ -66,9 +74,14 @@ def fit_metrics(event, *, episodes, epochs):
                 f"fqi/replay_cache/{k}": v
                 for k, v in event["metrics"].get("replay_cache", {}).items()
             },
-            **{f"fqi/{k}": v for k, v in event["metrics"].items() if isinstance(v, (float, int))},
+            **{f"fqi/{k}": v for k, v in event["metrics"].items() if isinstance(v, float | int)},
         }
-    return {"progress/iteration": iteration, "progress/target_episode": event["episode"]}
+    return {
+        "progress/iteration": iteration,
+        "progress/target_decisions" if phase == "targets" else "progress/target_episode": event.get(
+            "unique_decisions", event.get("episode", 0)
+        ),
+    }
 
 
 class OnlineFitTracker:
@@ -94,7 +107,7 @@ class OnlineFitTracker:
             id=state["id"],
             resume="allow",
             name=self.directory.name,
-            group="conveyor-meta-bound-fqi-cycle-v1",
+            group=f"conveyor-meta-bound-fqi-cycle-v{binding.get('schema_version', 1)}",
             job_type="online-refit",
             tags=["conveyor", "meta", "fqi", "bound", "lambda0"],
             config=binding,

@@ -14,7 +14,9 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
-def validation_metrics(rows, *, scenes):
+def validation_metrics(rows, *, scenes, starvation_mode="guarded"):
+    if starvation_mode not in ("guarded", "allow_hold"):
+        raise ValueError("unknown validation starvation protocol")
     expected = {(s, r) for s in scenes for r in ("zero", "nominal", "family")}
     if len(set(scenes)) != 3 or len(rows) != 9:
         raise ValueError("validation requires three distinct paired scenes and nine episodes")
@@ -31,7 +33,7 @@ def validation_metrics(rows, *, scenes):
             or ep["split"] != "validation"
             or not report["terminated"]
             or report["truncated"]
-            or report["starvation_ticks"]
+            or (report["starvation_ticks"] and starvation_mode != "allow_hold")
             or p["spawned"] != 10
             or p["active"]
             or sum(p[k] for k in ("successes", "misses", "timeouts")) != 10
@@ -101,17 +103,14 @@ def record_validation(directory, *, iteration, metrics, protocol, evaluation_sha
         validate_binding(item, state["completed"][str(iteration)])
     state["completed"][str(iteration)] = item
     incumbent = state["best_iteration"]
-    if (
-        incumbent is None
-        or (
-            metrics["selection_score"]
-            > state["completed"][str(incumbent)]["metrics"]["selection_score"]
-            and not math.isclose(
-                metrics["selection_score"],
-                state["completed"][str(incumbent)]["metrics"]["selection_score"],
-                rel_tol=0,
-                abs_tol=1e-12,
-            )
+    if incumbent is None or (
+        metrics["selection_score"]
+        > state["completed"][str(incumbent)]["metrics"]["selection_score"]
+        and not math.isclose(
+            metrics["selection_score"],
+            state["completed"][str(incumbent)]["metrics"]["selection_score"],
+            rel_tol=0,
+            abs_tol=1e-12,
         )
     ):
         state["best_iteration"] = iteration

@@ -111,6 +111,8 @@ def _worker(rank, devices, state, episodes, options, orders, directory):
 
 
 def _fit_worker(rank, world, device, state, episodes, options, orders, directory):
+    if options.get("architecture") == "attention":
+        return _attention_worker(rank, world, device, state, episodes, options, directory)
     # Replay wrappers are metadata-only at spawn. A rank retains decoded episodes
     # across target/regression passes; the total host allowance is divided by ranks.
     from latency_meta_mdp.meta.information.packed_replay import PackedReplay
@@ -431,3 +433,116 @@ def fit_distributed(
             )
             model.load_state_dict(result["model"])
             return result["metrics"]
+
+
+def _attention_worker(rank, world, device, state, replay, options, directory):
+    from latency_meta_mdp.meta.information.attention_fqi import fit_attention_iteration
+    from latency_meta_mdp.meta.information.attention_model import AttentionStageQ
+    from latency_meta_mdp.meta.information.attention_replay import DecisionSampler
+
+    model = AttentionStageQ(options["config"]).to(device)
+    model.load_state_dict(state["model"])
+    optimizer = torch.optim.Adam(model.parameters())
+    optimizer.load_state_dict(state["optimizer"])
+    sampler = DecisionSampler(replay, seed=0)
+    sampler.load_state_dict(state["sampler"])
+
+    def report(event):
+        if rank == 0:
+            with (directory / "progress.jsonl").open("a") as stream:
+                stream.write(json.dumps(event) + "\n")
+
+    metrics = fit_attention_iteration(
+        model,
+        replay,
+        optimizer=optimizer,
+        sampler=sampler,
+        rank=rank,
+        world_size=world,
+        progress=report,
+        **options["fit"],
+    )
+    ranks = _gather(
+        dict(model_hash=model_hash(model), target_seconds=metrics["target_seconds"]), world
+    )
+    if len({r["model_hash"] for r in ranks}) != 1:
+        raise ValueError("attention learner ranks diverged")
+    if rank == 0:
+        metrics.update(ranks=world, rank_metrics=ranks, global_batch=options["fit"]["global_batch"])
+        torch.save(
+            dict(
+                model=model.cpu().state_dict(),
+                optimizer=optimizer.state_dict(),
+                sampler=sampler.state_dict(),
+                metrics=metrics,
+            ),
+            directory / "result.pt",
+        )
+
+
+def fit_attention_distributed(
+    model, replay, *, devices, optimizer, sampler, cpu_threads=4, progress=None, **fit
+):
+    """Disposable ranks; the coordinator retains weights, Adam and sampler state."""
+    from latency_meta_mdp.meta.information.memory_schema import validate_batch
+    from latency_meta_mdp.meta.information.resources import (
+        gpu_processes,
+        interrupt_on_termination,
+        worker_lock,
+    )
+
+    if not devices or next(model.parameters()).device.type != "cpu" or cpu_threads < 1:
+        raise ValueError("attention coordinator must be CPU with explicit learner devices")
+    validate_batch(
+        global_batch=fit["global_batch"],
+        world_size=len(devices),
+        microbatch=fit["microbatch"],
+        accumulation=fit["global_batch"] // (len(devices) * fit["microbatch"]),
+    )
+    state = dict(
+        model=model.state_dict(), optimizer=optimizer.state_dict(), sampler=sampler.state_dict()
+    )
+    options = dict(architecture="attention", config=model.config, fit=fit, cpu_threads=cpu_threads)
+    with ExitStack() as stack:
+        stack.enter_context(interrupt_on_termination())
+        if any(torch.device(d).type == "cuda" for d in devices):
+            physical = os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")
+            if len(physical) != len(devices) or any(not d.isdigit() for d in physical):
+                raise ValueError("set explicit CUDA_VISIBLE_DEVICES for learner ranks")
+            for device in sorted(physical, key=int):
+                stack.enter_context(
+                    worker_lock(Path.home() / ".cache/conveyor-meta/gpu-locks" / device)
+                )
+            if gpu_processes()[0]:
+                raise RuntimeError("selected learner GPU already active")
+        directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="attention-fqi-")))
+        offset = 0
+
+        def drain():
+            nonlocal offset
+            path = directory / "progress.jsonl"
+            if path.exists():
+                with path.open() as stream:
+                    stream.seek(offset)
+                    for line in stream:
+                        if not line.endswith("\n"):
+                            break
+                        if progress:
+                            progress(json.loads(line))
+                        offset += len(line.encode())
+
+        with worker_processes(devices, state, replay, options, None, str(directory)) as processes:
+            while True:
+                drain()
+                if any(p.exitcode not in (None, 0) for p in processes):
+                    details = "\n".join(p.read_text() for p in directory.glob("failure-*.txt"))
+                    raise RuntimeError(f"attention FQI worker failed: {details}")
+                if all(p.exitcode == 0 for p in processes):
+                    break
+                sleep(0.1)
+            drain()
+        result = torch.load(directory / "result.pt", map_location="cpu", weights_only=True)
+        model.load_state_dict(result["model"])
+        optimizer.load_state_dict(result["optimizer"])
+        sampler.load_state_dict(result["sampler"])
+        return result["metrics"]

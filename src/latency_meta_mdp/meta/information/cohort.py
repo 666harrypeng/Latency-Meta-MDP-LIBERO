@@ -41,10 +41,12 @@ def build_manifest(config, audit, *, root, code_hash):
         mode=config["mode"],
         code_hash=code_hash,
         scene_audit_hash=identity_hash(audit),
-        schema_version=1,
+        schema_version=config.get("schema_version", 1),
         task_id="conveyor_sort",
         scope="starter_training",
     )
+    if config.get("schema_version", 1) == 2:
+        binding["actions"] = config["actions"]
     return dict(binding=binding, episodes=episodes)
 
 
@@ -229,8 +231,15 @@ def collect_cohort(
                     scope=manifest["binding"].get("scope", "starter_training"),
                     scheduler=scheduler,
                     learned_binding=learned,
+                    episode_id=episode["episode_id"],
+                    pattern=episode.get("pattern"),
                 )
-                if not result["terminated"] or result["truncated"] or result["starvation_ticks"]:
+                allow_hold = config.get("actions", {}).get("starvation_mode") == "allow_hold"
+                if (
+                    not result["terminated"]
+                    or result["truncated"]
+                    or (result["starvation_ticks"] and not allow_hold)
+                ):
                     raise ValueError(
                         "episode failed collection contract; preserve attempt for audit"
                     )

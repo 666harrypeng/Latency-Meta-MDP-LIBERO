@@ -22,6 +22,25 @@ from latency_meta_mdp.runtime.rtc_protocol import (
 )
 
 
+def executable_prefix(state, *, allow_hold=False, horizon=20):
+    """Declare actual zero-arm/gripper-hold controls through the pending horizon.
+
+    The scheduler's buffer mask still describes remaining VLA actions. Only the
+    predictor/request plan promotes these known hold controls, never the full padding.
+    """
+    controls, mask = state.unread_action_buffer, state.unread_action_mask
+    if allow_hold:
+        if type(horizon) is not int or not 0 <= horizon <= 20:
+            raise ValueError("invalid declared hold horizon")
+        controls, mask = controls.copy(), mask.copy()
+        remaining = state.remaining_actions
+        if remaining < horizon:
+            if np.any(controls[remaining:horizon, :6]):
+                raise ValueError("hold prefix must have zero arm delta")
+            mask[:horizon] = True
+    return controls, mask
+
+
 class RtcActionChunkClient:
     def __init__(
         self,
@@ -32,6 +51,7 @@ class RtcActionChunkClient:
         simulation_time_reader,
         monotonic_ns,
         on_chunk_install=None,
+        allow_hold=False,
     ):
         if not isinstance(config, RtcActionChunkClientConfig):
             raise TypeError("RTC client requires its own configuration")
@@ -43,6 +63,7 @@ class RtcActionChunkClient:
         self._simulation_time_reader = simulation_time_reader
         self._clock = monotonic_ns
         self._on_chunk_install = on_chunk_install
+        self.allow_hold = allow_hold
         self.delay_history = RollingDelayHistory(
             capacity=config.delay_history_capacity,
             initial_delays=config.initial_delay_ticks,
@@ -59,6 +80,10 @@ class RtcActionChunkClient:
     @property
     def events(self):
         return tuple(self._events)
+
+    @property
+    def buffer_version(self):
+        return self._buffer_version
 
     def _validate_controls(self, actions):
         for action in actions:
@@ -198,13 +223,18 @@ class RtcActionChunkClient:
                 if launch:
 
                     def run_inference(launch_context):
+                        controls, mask = executable_prefix(
+                            state,
+                            allow_hold=self.allow_hold,
+                            horizon=self.config.maximum_delay_ticks,
+                        )
                         context = RtcInferenceContext(
                             request_id=launch_context.request_id,
                             origin_tick=formal_tick,
                             observation=observation,
                             buffer_version=state.buffer_version,
-                            previous_actions=state.unread_action_buffer,
-                            previous_action_mask=state.unread_action_mask,
+                            previous_actions=controls,
+                            previous_action_mask=mask,
                             estimated_delay_ticks=state.estimated_delay_ticks,
                         )
                         self._pending_context = context

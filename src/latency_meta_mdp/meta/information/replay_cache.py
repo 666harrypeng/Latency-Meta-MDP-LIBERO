@@ -22,7 +22,7 @@ def _size(value, seen):
     size = sys.getsizeof(value)
     if isinstance(value, dict):
         return size + sum(_size(k, seen) + _size(v, seen) for k, v in value.items())
-    if isinstance(value, (tuple, list)):
+    if isinstance(value, tuple | list):
         return size + sum(_size(v, seen) for v in value)
     if is_dataclass(value):
         return size + sum(_size(getattr(value, f.name), seen) for f in fields(value))

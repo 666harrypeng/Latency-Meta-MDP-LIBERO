@@ -52,14 +52,17 @@ def load_config(path):
         "training",
         "output_dir",
     }
+    version = config.get("schema_version") if isinstance(config, dict) else None
+    if version == 2:
+        keys |= {"model", "memory", "actions"}
     if not isinstance(config, dict) or set(config) != keys:
         raise ValueError("information config has missing or unknown fields")
-    if config["schema_version"] != 1 or config["task_id"] != "conveyor_sort":
+    if version not in (1, 2) or config["task_id"] != "conveyor_sort":
         raise ValueError("unsupported information experiment")
     if config["mode"] not in ("bound", "split"):
         raise ValueError("invalid information mode")
     training = config["training"]
-    if set(training) != {
+    training_keys = {
         "algorithm",
         "gamma",
         "budget_lambda",
@@ -67,7 +70,11 @@ def load_config(path):
         "fitted_iterations",
         "epochs_per_iteration",
         "conservative_weight",
-    }:
+    }
+    if version == 2:
+        training_keys |= {"optimizer_updates", "global_batch", "grad_clip", "optimizer_policy"}
+        validate_attention_config(config)
+    if set(training) != training_keys:
         raise ValueError("training has missing or unknown fields")
     if training["algorithm"] != "fqi" or training["gamma"] != 1 or training["budget_lambda"] != 0:
         raise ValueError(
@@ -130,3 +137,78 @@ def load_config(path):
             raise ValueError("loaded forecast/normalization asset binding differs")
     validate_splits(config["splits"], excluded=config["excluded_scenes"])
     return config
+
+
+def validate_attention_config(config):
+    from latency_meta_mdp.meta.information.memory_schema import ActionSpec
+
+    if config["mode"] != "bound":
+        raise ValueError("attention v2 requires bound Observe/Predict")
+    actions = config["actions"]
+    if set(actions) != {"version", "sleep_ticks", "starvation_mode", "reserve"}:
+        raise ValueError("invalid action fields")
+    ActionSpec(**actions)
+    model = config["model"]
+    if set(model) != {
+        "architecture_id",
+        "width",
+        "num_queries",
+        "num_heads",
+        "ffn_width",
+        "dropout",
+    }:
+        raise ValueError("invalid model fields")
+    if (
+        model["architecture_id"] != "attention_memory_v2"
+        or model["dropout"] != 0
+        or any(
+            type(model[k]) is not int or model[k] < 1
+            for k in ("width", "num_queries", "num_heads", "ffn_width")
+        )
+        or model["width"] % model["num_heads"]
+        or (model["width"] // model["num_heads"]) % 2
+    ):
+        raise ValueError("invalid attention model dimensions")
+    memory = config["memory"]
+    if set(memory) != {
+        "visual_frames",
+        "recent_frames",
+        "execution_records",
+        "scheduler_events",
+        "spatial_tokens",
+        "lag_seconds",
+        "tick_seconds",
+        "time_scale",
+        "episode_ticks",
+    }:
+        raise ValueError("invalid memory fields")
+    if (
+        any(
+            type(memory[k]) is not int or memory[k] < 1
+            for k in (
+                "visual_frames",
+                "recent_frames",
+                "execution_records",
+                "scheduler_events",
+                "spatial_tokens",
+                "episode_ticks",
+            )
+        )
+        or memory["recent_frames"] != 3
+        or memory["visual_frames"] < 3 + len(memory["lag_seconds"])
+        or any(
+            type(x) not in (int, float) or not 0 < x < float("inf")
+            for x in [memory["tick_seconds"], memory["time_scale"], *memory["lag_seconds"]]
+        )
+    ):
+        raise ValueError("invalid memory capacities/time scales")
+    training = config["training"]
+    if (
+        any(
+            type(training[k]) is not int or training[k] < 1
+            for k in ("optimizer_updates", "global_batch")
+        )
+        or not 0 < training["grad_clip"] < float("inf")
+        or training["optimizer_policy"] != "persistent"
+    ):
+        raise ValueError("invalid attention training budget/optimizer")

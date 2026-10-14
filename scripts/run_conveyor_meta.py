@@ -51,6 +51,14 @@ def main():
     parser.add_argument("--num-shards", type=int)
     parser.add_argument("--train-gpus", help="Physical GPUs for synchronous FQI updates")
     parser.add_argument("--global-batch", type=int, default=4)
+    parser.add_argument(
+        "--microbatch", type=int, default=2, help="Decision contexts per rank forward/backward"
+    )
+    parser.add_argument("--bf16", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--replay-manifest", type=Path, help="Hash-pinned v2 replay source list JSON"
+    )
     parser.add_argument("--replay-cache-gib", type=int, default=128)
     parser.add_argument("--replay-cache-dir", type=Path)
     parser.add_argument("--replay-prepare-workers", type=int, default=4)
@@ -71,6 +79,37 @@ def main():
 
         os.environ["CONVEYOR_SHARED_GPU_PIDS"] = args.allow_shared_pids
     root = Path(__file__).resolve().parents[1]
+    if args.command in ("train", "online-train") and args.replay_manifest is not None:
+        if args.bootstrap_dir is None or args.scene_audit is None:
+            parser.error("attention training requires validation bootstrap-dir and scene-audit")
+        from latency_meta_mdp.meta.information.attention_training import run_attention_training
+
+        result = run_attention_training(
+            args.config,
+            json.loads(args.replay_manifest.read_text()),
+            args.output_dir,
+            root=root,
+            checkpoint=args.warm_start_checkpoint or args.checkpoint,
+            seed=args.seed or 0,
+            total_iterations=args.iterations,
+            optimizer_updates=args.optimizer_updates,
+            global_batch=args.global_batch,
+            training_gpus=args.train_gpus,
+            device="cpu",
+            microbatch=args.microbatch,
+            bf16=args.bf16,
+            cpu_threads=args.cpu_threads,
+            replay_cache_dir=args.replay_cache_dir,
+            replay_prepare_workers=args.replay_prepare_workers,
+            validation_bootstrap=args.bootstrap_dir,
+            validation_gpus=args.gpus,
+            audit_path=args.scene_audit,
+            worker_python=args.worker_python,
+            validate_initial=not args.skip_initial_validation,
+            stop_after_iterations=args.stop_after_iterations,
+        )
+        print(json.dumps(result, indent=2))
+        return
     if args.command == "campaign":
         if any(
             v is None for v in (args.campaign_recipe, args.scene_audit, args.gpus, args.train_gpus)
@@ -92,6 +131,9 @@ def main():
                     cpu_threads=args.cpu_threads,
                     replay_cache_dir=args.replay_cache_dir,
                     replay_prepare_workers=args.replay_prepare_workers,
+                    microbatch=args.microbatch,
+                    bf16=args.bf16,
+                    dry_run=args.dry_run,
                 ),
                 indent=2,
             )

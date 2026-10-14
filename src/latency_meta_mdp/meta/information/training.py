@@ -13,7 +13,7 @@ from latency_meta_mdp.meta.information.config import sha256, validate_binding
 from latency_meta_mdp.meta.information.fqi import fit_iteration, model_hash
 
 
-def _save(path, model, *, binding, iteration, metrics):
+def _save(path, model, *, binding, iteration, metrics, learning_state=None):
     path = Path(path)
     target = path / f"iteration-{iteration:04d}"
     if target.exists():
@@ -29,6 +29,14 @@ def _save(path, model, *, binding, iteration, metrics):
         python_rng=random.getstate(),
         numpy_rng=(numpy_rng[0], numpy_rng[1].tolist(), *numpy_rng[2:]),
     )
+    if hasattr(model, "config"):
+        state["model_config"] = model.config
+    if learning_state is not None:
+        state.update(
+            model_config=model.config,
+            optimizer=learning_state["optimizer"].state_dict(),
+            sampler=learning_state["sampler"].state_dict(),
+        )
     torch.save(state, temporary / "state.pt")
     receipt = dict(
         binding=binding,
@@ -36,7 +44,11 @@ def _save(path, model, *, binding, iteration, metrics):
         metrics=metrics,
         model_hash=model_hash(model),
         files={"state.pt": sha256(temporary / "state.pt")},
-        recovery="outer iteration boundary; next target is current Q; Adam resets each iteration",
+        recovery=(
+            "outer iteration boundary; persistent Adam and global decision sampler"
+            if learning_state is not None
+            else "outer iteration boundary; next target is current Q; Adam resets each iteration"
+        ),
     )
     (temporary / "complete.json").write_text(json.dumps(receipt, indent=2) + "\n")
     temporary.rename(target)
@@ -47,7 +59,7 @@ def _save(path, model, *, binding, iteration, metrics):
     return receipt
 
 
-def _restore(path, model, *, binding):
+def _restore(path, model, *, binding, learning_state=None):
     entries = sorted(Path(path).glob("iteration-*"))
     if not entries:
         return None
@@ -65,6 +77,10 @@ def _restore(path, model, *, binding):
             raise ValueError("checkpoint hash differs")
     state = torch.load(entries[-1] / "state.pt", map_location="cpu", weights_only=True)
     model.load_state_dict(state["model"], strict=True)
+    if learning_state is not None:
+        validate_binding(model.config, state["model_config"])
+        learning_state["optimizer"].load_state_dict(state["optimizer"])
+        learning_state["sampler"].load_state_dict(state["sampler"])
     if model_hash(model) != receipt["model_hash"]:
         raise ValueError("restored model hash differs")
     torch.set_rng_state(state["torch_rng"])
@@ -92,6 +108,8 @@ def train_iterations(
     fitter=None,
     fitter_options=None,
     validate_initial=True,
+    attention_options=None,
+    initial_learning_state=None,
 ):
     """Resume only published complete iterations; restart an interrupted iteration."""
     if total_iterations < 1 or (stop_after_iterations is not None and stop_after_iterations < 1):
@@ -109,6 +127,32 @@ def train_iterations(
         optimizer="Adam-reset-per-fitted-iteration",
         validate_initial=validate_initial,
     )
+    learning_state = None
+    if attention_options is not None:
+        from latency_meta_mdp.meta.information.attention_replay import DecisionSampler
+
+        learning_state = dict(
+            optimizer=torch.optim.Adam(model.parameters(), lr=learning_rate),
+            sampler=DecisionSampler(episodes, seed=binding.get("seed", 0)),
+        )
+        if initial_learning_state is not None:
+            learning_state["optimizer"].load_state_dict(initial_learning_state["optimizer"])
+            learning_state["sampler"].load_state_dict(initial_learning_state["sampler"])
+        recipe.pop("epochs")
+        recipe.pop("chunk_size")
+        recipe.update(
+            optimizer="Adam-persistent",
+            batch_unit="decision-context",
+            attention_fqi={
+                k: v
+                for k, v in attention_options.items()
+                if k not in ("devices", "microbatch", "cpu_threads")
+            },
+        )
+        binding = {
+            **binding,
+            "architecture": {k: model.config[k] for k in ("model", "memory", "actions")},
+        }
     if fitter is not None:
         recipe["parallel_fqi"] = {
             key: value
@@ -116,9 +160,16 @@ def train_iterations(
             if key not in {"devices", "cache_bytes", "cpu_threads"}
         }
     binding = {**binding, "recipe": recipe}
-    receipt = _restore(output_dir, model, binding=binding)
+    receipt = _restore(output_dir, model, binding=binding, learning_state=learning_state)
     if receipt is None:
-        receipt = _save(output_dir, model, binding=binding, iteration=0, metrics=None)
+        receipt = _save(
+            output_dir,
+            model,
+            binding=binding,
+            iteration=0,
+            metrics=None,
+            learning_state=learning_state,
+        )
 
     def validate(receipt):
         if validate_checkpoint is None:
@@ -153,17 +204,33 @@ def train_iterations(
             if progress is not None:
                 progress(dict(iteration=iteration, **value))
 
-        metrics = (fitter or fit_iteration)(
-            model,
-            episodes,
-            mode=binding["mode"],
-            epochs=epochs,
-            learning_rate=learning_rate,
-            conservative_weight=conservative_weight,
-            progress=notify,
-            sources=getattr(episodes, "sources", None),
-            **(fitter_options or {}),
-        )
+        if learning_state is None:
+            metrics = (fitter or fit_iteration)(
+                model,
+                episodes,
+                mode=binding["mode"],
+                epochs=epochs,
+                learning_rate=learning_rate,
+                conservative_weight=conservative_weight,
+                progress=notify,
+                sources=getattr(episodes, "sources", None),
+                **(fitter_options or {}),
+            )
+        else:
+            from latency_meta_mdp.meta.information.attention_fqi import fit_attention_iteration
+
+            metrics = (fitter or fit_attention_iteration)(
+                model,
+                episodes,
+                conservative_weight=conservative_weight,
+                progress=notify,
+                **learning_state,
+                **attention_options,
+            )
+            previous_updates = (receipt.get("metrics") or {}).get("ancestor_optimizer_updates", 0)
+            if not previous_updates and initial_learning_state is not None:
+                previous_updates = initial_learning_state.get("ancestor_optimizer_updates", 0)
+            metrics["ancestor_optimizer_updates"] = previous_updates + metrics["optimizer_updates"]
         if metrics["target_hash_before"] != metrics["target_hash_after"]:
             raise ValueError("frozen target changed during regression")
         metrics["seconds"] = perf_counter() - started
@@ -175,7 +242,14 @@ def train_iterations(
             metrics["replay_cache"] = episodes.cache.metrics()
         if next(model.parameters()).device.type == "cuda":
             metrics["cuda_peak_allocated_bytes"] = torch.cuda.max_memory_allocated()
-        receipt = _save(output_dir, model, binding=binding, iteration=iteration, metrics=metrics)
+        receipt = _save(
+            output_dir,
+            model,
+            binding=binding,
+            iteration=iteration,
+            metrics=metrics,
+            learning_state=learning_state,
+        )
         status = dict(
             completed_iterations=iteration,
             total_iterations=total_iterations,
@@ -222,7 +296,10 @@ class VerifiedReplay:
             if (
                 not summary["terminated"]
                 or summary["truncated"]
-                or summary["starvation_ticks"]
+                or (
+                    summary["starvation_ticks"]
+                    and cohort.get("actions", {}).get("starvation_mode") != "allow_hold"
+                )
                 or summary["scope"] != cohort["scope"]
                 or parcels["spawned"] != 10
                 or parcels["active"]
@@ -251,12 +328,14 @@ class VerifiedReplay:
                 delay=delay,
             )
             if cohort["scope"] == "online_training":
-                if cohort["phase"] != "online" or cohort["schema_version"] != 1:
+                if cohort["phase"] != "online" or cohort["schema_version"] not in (1, 2):
                     raise ValueError("invalid online training cohort")
                 if definition["behavior"] == "fqi":
                     from latency_meta_mdp.meta.information.cycle import policy_binding
 
                     expected["learned_policy"] = policy_binding(cohort, definition)
+            if cohort.get("schema_version", 1) == 2:
+                expected.update(actions=cohort["actions"], pattern=definition.get("pattern"))
             validate_binding(expected, actual)
             if actual["delay"]["regime"] != definition["regime"] or not inner["terminated"]:
                 raise ValueError("training delay/terminal binding differs")

@@ -8,8 +8,10 @@ from latency_meta_mdp.meta.information.schema import STAGES
 
 
 class StageRecorder:
-    def __init__(self, episode_id):
+    def __init__(self, episode_id, *, action_spec=None):
         self.episode_id = episode_id
+        self.action_spec = action_spec
+        self.events = []
         self.rows, self.operations = [], []
         self._ids = set()
         self._operation_counter = 0
@@ -20,7 +22,8 @@ class StageRecorder:
         self.prefix_cost = 0.0
 
     def start(self, packet, action, *, forced, probability):
-        if self.closed or type(action) is not int or not 0 <= action < 8:
+        count = 8 if self.action_spec is None else self.action_spec.num_actions
+        if self.closed or type(action) is not int or not 0 <= action < count:
             raise ValueError("invalid stage action")
         if type(forced) is not bool or not math.isfinite(probability) or not 0 < probability <= 1:
             raise ValueError("invalid stage behavior probability")
@@ -116,13 +119,38 @@ class StageRecorder:
         self.closed = True
 
     def summary(self):
+        import numpy as np
+
         components = {}
         for op in self.operations:
             components[op["component"]] = components.get(op["component"], 0) + op["seconds"]
+        stats = {}
+        for name in components:
+            values = [op["seconds"] for op in self.operations if op["component"] == name]
+            stats[name] = dict(
+                count=len(values),
+                total=components[name],
+                mean=float(np.mean(values)),
+                p50=float(np.percentile(values, 50)),
+                p95=float(np.percentile(values, 95)),
+            )
+        pipeline = (
+            "vla",
+            "dino",
+            "jepa",
+            "decoder",
+            "meta_q",
+            "feature_transfer",
+            "forecast_prepare_overhead",
+            "feature_cache",
+        )
         return dict(
             task_reward=self.prefix_reward + sum(r["task_reward"] for r in self.rows),
             measured_seconds=sum(components.values()),
             components=components,
+            component_statistics=stats,
+            model_pipeline_components=list(pipeline),
+            model_pipeline_seconds=sum(components.get(k, 0) for k in pipeline),
             prefix_reward=self.prefix_reward,
             prefix_cost=self.prefix_cost,
             raw_stages=len(self.rows),

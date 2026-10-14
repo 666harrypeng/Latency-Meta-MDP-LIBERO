@@ -98,12 +98,14 @@ class PerceptionAccess:
         self._encoder.keys = tuple((obs.formal_tick, view) for obs in history for view in (0, 1))
         return np.stack([im for obs in history for im in (obs.image, obs.wrist_image)])
 
-    def observe(self, context, *, prepare_history=False):
+    def observe(self, context, *, prepare_history=False, return_history=False):
         self._validate_observation(context)
         if context.origin_tick < 10 or len(self._history) < 9:
             raise ValueError("observe requires real warmup history")
         history = list(self._history)[::4] if prepare_history else [self._history[-1]]
-        tokens = self._encoder.encode(self._frames(history))[-2:]
+        tokens = self._encoder.encode(self._frames(history))
+        if not return_history:
+            tokens = tokens[-2:]
         with measured(self._recorder, "feature_transfer", self._encoder.device):
             current = tokens.float().cpu().numpy().copy()
         current.setflags(write=False)
@@ -112,6 +114,12 @@ class PerceptionAccess:
         if self._archive is not None:
             with self._recorder.measure("source_archive"):
                 self._archive.record(history, self._controls, context, kind="observe")
+        if return_history:
+            return dict(
+                source_ticks=tuple(obs.formal_tick for obs in history),
+                visual=current.reshape(len(history), 2, 196, 384),
+                proprio=np.stack([obs.state for obs in history]),
+            )
         return current
 
     def predict(self, context):

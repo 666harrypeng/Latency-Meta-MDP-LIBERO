@@ -7,6 +7,22 @@ from torch import nn
 from latency_meta_mdp.meta.information.schema import STAGES, ActorPacket
 
 
+def build_model(config, *, root=None):
+    if config.get("schema_version", 1) == 1:
+        return StageQ()
+    import json
+    from pathlib import Path
+
+    from latency_meta_mdp.meta.information.attention_model import AttentionStageQ
+    from latency_meta_mdp.meta.information.config import sha256
+
+    path = Path(root or ".") / config["assets"]["paths"]["normalization"]
+    expected = config["assets"]["identity"]["forecast_identity"]["jepa_normalization_sha256"]
+    if sha256(path) != expected:
+        raise ValueError("frozen attention proprio normalization differs")
+    return AttentionStageQ(config, normalization=json.loads(path.read_text()))
+
+
 def scalar_features(packet):
     delays = np.zeros(32, np.float32)
     valid = np.zeros(32, np.float32)

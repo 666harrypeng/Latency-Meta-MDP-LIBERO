@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-def resolve_scheduler(behavior, seed, scheduler):
+def resolve_scheduler(behavior, seed, scheduler, *, action_spec=None, pattern=None):
     from latency_meta_mdp.meta.information.behaviors import RuleScheduler
     from latency_meta_mdp.meta.information.fqi import FqiScheduler
 
@@ -14,6 +14,12 @@ def resolve_scheduler(behavior, seed, scheduler):
         return scheduler
     if scheduler is not None:
         raise ValueError("learned scheduler cannot be labeled as a rule")
+    if action_spec is not None:
+        from latency_meta_mdp.meta.information.behaviors import AttentionRuleScheduler
+
+        return AttentionRuleScheduler(
+            behavior, action_spec=action_spec, seed=seed, **(pattern or {})
+        )
     return RuleScheduler(behavior, period=25, seed=seed)
 
 
@@ -76,6 +82,8 @@ def run_episode(
     scope,
     scheduler=None,
     learned_binding=None,
+    episode_id=None,
+    pattern=None,
 ):
     import jax
     import numpy as np
@@ -84,6 +92,7 @@ def run_episode(
     from latency_meta_mdp.envs.conveyor.task import make_conveyor_runtime
     from latency_meta_mdp.io.policy_video import DualCameraVideoWriter
     from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.memory_schema import ActionSpec
     from latency_meta_mdp.meta.information.perception import PerceptionAccess
     from latency_meta_mdp.meta.information.records import StageRecorder
     from latency_meta_mdp.runtime.bootstrap_cache import CachedBootstrapPolicy
@@ -92,7 +101,10 @@ def run_episode(
     from latency_meta_mdp.runtime.policy_execution import InProcessRtcOpenpiPolicy
     from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
-    scheduler = resolve_scheduler(behavior, scheduler_seed, scheduler)
+    action_spec = ActionSpec(**config["actions"]) if config["schema_version"] == 2 else None
+    scheduler = resolve_scheduler(
+        behavior, scheduler_seed, scheduler, action_spec=action_spec, pattern=pattern
+    )
     if behavior == "fqi":
         from latency_meta_mdp.meta.information.deployment import scheduler_identity
 
@@ -117,7 +129,7 @@ def run_episode(
         identity=bootstrap_identity,
         noise_rng=rng,
     )
-    recorder = StageRecorder(f"smoke-{seed}")
+    recorder = StageRecorder(episode_id or f"smoke-{seed}", action_spec=action_spec)
     from latency_meta_mdp.meta.information.archive import SourceArchive
 
     perception = PerceptionAccess(
@@ -192,6 +204,7 @@ def run_episode(
             maximum_steps=maximum_steps,
             mode=config["mode"],
             record_observation=record,
+            action_spec=action_spec,
         )
     from collections import Counter
 
@@ -220,6 +233,7 @@ def run_episode(
             scheduler_seed=scheduler_seed,
             behavior=behavior,
             policy_seed=0,
+            **({"actions": config["actions"], "pattern": pattern} if action_spec else {}),
             **({"learned_policy": learned_binding} if learned_binding is not None else {}),
         ),
     )

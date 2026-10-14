@@ -73,6 +73,8 @@ class IterationValidator:
             selection="mean_nominal_family_incumbent_on_ties",
             delay="actual_zero_with_unchanged_RTC_estimator_and_reserve",
         )
+        if config.get("schema_version", 1) == 2:
+            self.protocol["starvation_mode"] = config["actions"]["starvation_mode"]
         if self.source_manifest is not None:
             self.protocol["source_manifest_sha256"] = sha256(self.source_manifest)
         protocol_file = self.output_dir / "protocol.json"
@@ -215,7 +217,11 @@ class IterationValidator:
         summary = json.loads((destination / "rollout-summary.json").read_text())
         if summary["completed"] != 9 or summary["expected"] != 9:
             raise ValueError("incomplete validation cohort")
-        metrics = validation_metrics(summary["episodes"], scenes=self.protocol["scenes"])
+        metrics = validation_metrics(
+            summary["episodes"],
+            scenes=self.protocol["scenes"],
+            starvation_mode=self.protocol.get("starvation_mode", "guarded"),
+        )
         state = record_validation(
             checkpoint.parent,
             iteration=iteration,

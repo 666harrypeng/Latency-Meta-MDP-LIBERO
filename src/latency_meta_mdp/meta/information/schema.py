@@ -91,8 +91,16 @@ class ActorPacket:
         object.__setattr__(self, "completed_delays", delays)
         if type(self.estimated_delay) is not int or not 0 <= self.estimated_delay <= 20:
             raise ValueError("invalid forecast query")
-        if not -1 <= self.previous_action < 8 or self.elapsed_ticks < 0 or self.plan_age < 0:
+        if (
+            not -1 <= self.previous_action < self.num_actions
+            or self.elapsed_ticks < 0
+            or self.plan_age < 0
+        ):
             raise ValueError("invalid scheduler history")
+
+    @property
+    def num_actions(self):
+        return 8
 
     @property
     def forecast_fresh(self):
