@@ -203,7 +203,7 @@ def collect_cohort(
             attempt = next_attempt(episodes_dir, episode["episode_id"])
             started = perf_counter()
             scheduler, learned = None, None
-            if episode["behavior"] == "fqi":
+            if episode["behavior"] in ("fqi", "actor"):
                 from latency_meta_mdp.meta.information.cycle import policy_binding
                 from latency_meta_mdp.meta.information.deployment import (
                     deployment_binding,
@@ -213,11 +213,14 @@ def collect_cohort(
                 learned = policy_binding(manifest["binding"], episode)
                 scheduler = load_scheduler(
                     learned["checkpoint"],
-                    deployment_binding(config),
+                    deployment_binding(
+                        config, algorithm=("actor" if episode["behavior"] == "actor" else "fqi")
+                    ),
                     device="cuda:0",
                     epsilon=episode["epsilon"],
                     seed=episode["scheduler_seed"],
                     source_manifest=learned.get("source_manifest"),
+                    deterministic=episode.get("deterministic", True),
                 )
             try:
                 result = run_episode(
@@ -237,6 +240,7 @@ def collect_cohort(
                     learned_binding=learned,
                     episode_id=episode["episode_id"],
                     pattern=episode.get("pattern"),
+                    delay_seed=episode.get("delay_seed", 0),
                 )
                 allow_hold = config.get("actions", {}).get("starvation_mode") == "allow_hold"
                 if (

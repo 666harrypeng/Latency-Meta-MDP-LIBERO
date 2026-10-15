@@ -1,0 +1,41 @@
+# Delta parallel experiment; model/assets/action protocol remain in meta_attention_v2.yaml.
+algorithm: iql_then_ppo
+seed: 17
+reward:
+  gamma: 1.0
+  budget_lambda: 0.0
+  gae_lambda: 1.0
+iql:
+  updates: 20000
+  global_batch: 1024
+  learning_rate: 0.0001
+  tau: 0.7
+  ema: 0.005
+  checkpoint_every: 500
+actor:
+  passes: [5, 10, 20]
+  global_batch: 1024
+  learning_rate: 0.0001
+  temperature: 0.1
+  maximum_weight: 20.0
+  checkpoint_every: 500
+calibration:
+  episodes: 48
+  fit_scenes: 12
+  epochs: 10
+  global_batch: 1024
+  learning_rate: 0.0001
+ppo:
+  cycles: 100
+  episodes: 96
+  epochs: 5
+  global_batch: 1024
+  actor_lr: 0.00003
+  learning_rate: 0.0001
+  clip: 0.2
+  target_kl: 0.01
+  entropy_coefficient: 0.001
+  grad_clip: 0.5
+pilot:
+  cycles: 2
+  episodes: 24

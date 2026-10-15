@@ -98,6 +98,7 @@ def run_parallel(
     source_manifest=None,
     enabled=True,
     generation=None,
+    on_episode=None,
 ):
     from latency_meta_mdp.meta.cycle_tracking import CycleTracker
     from latency_meta_mdp.meta.information.cycle import prepare_cycle
@@ -258,6 +259,8 @@ def run_parallel(
                                     status,
                                 )
                                 reported.add(ep["episode_id"])
+                                if on_episode is not None:
+                                    on_episode(status)
                                 break
                 if any(c not in (None, 0) for c in codes):
                     raise RuntimeError("rollout worker failed; inspect workers/*/execution.log")

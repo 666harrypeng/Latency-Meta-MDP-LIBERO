@@ -26,8 +26,14 @@ def resolve_scheduler(behavior, seed, scheduler, *, action_spec=None, pattern=No
     from latency_meta_mdp.meta.information.behaviors import RuleScheduler
     from latency_meta_mdp.meta.information.fqi import FqiScheduler
 
+    if behavior == "actor":
+        from latency_meta_mdp.meta.information.actor_deployment import ActorScheduler
+
+        if not isinstance(scheduler, ActorScheduler):
+            raise ValueError("actor requires an explicitly restored categorical scheduler")
+        return scheduler
     if behavior == "fqi":
-        if not isinstance(scheduler, FqiScheduler):
+        if not isinstance(scheduler, FqiScheduler) or getattr(scheduler, "algorithm", None):
             raise ValueError("fqi requires an explicitly restored scheduler")
         return scheduler
     if scheduler is not None:
@@ -102,6 +108,7 @@ def run_episode(
     learned_binding=None,
     episode_id=None,
     pattern=None,
+    delay_seed=0,
 ):
     import jax
     import numpy as np
@@ -126,10 +133,17 @@ def run_episode(
     scheduler = resolve_scheduler(
         behavior, scheduler_seed, scheduler, action_spec=action_spec, pattern=pattern
     )
-    if behavior == "fqi":
+    if behavior in ("fqi", "actor"):
         from latency_meta_mdp.meta.information.deployment import scheduler_identity
 
-        expected = dict(scheduler_identity(scheduler), epsilon=scheduler.epsilon)
+        expected = dict(
+            scheduler_identity(scheduler),
+            **(
+                {"deterministic": scheduler.deterministic}
+                if behavior == "actor"
+                else {"epsilon": scheduler.epsilon}
+            ),
+        )
         if learned_binding != expected:
             raise ValueError("learned policy binding differs")
     elif learned_binding is not None:
@@ -205,7 +219,7 @@ def run_episode(
             calibrate=True,
         )
     sampler, delay_identity = conveyor_delay_sampler(
-        root, regime=regime, scene_seed=seed, policy_seed=0
+        root, regime=regime, scene_seed=seed, policy_seed=delay_seed
     )
     spec = load_conveyor_spec(root / config["task_config"])
     print(f"Starting episode {seed}/{regime}/{behavior}", flush=True)
@@ -270,6 +284,7 @@ def run_episode(
             scheduler_seed=scheduler_seed,
             behavior=behavior,
             policy_seed=0,
+            **({"delay_seed": delay_seed} if behavior == "actor" else {}),
             **({"actions": config["actions"], "pattern": pattern} if action_spec else {}),
             **({"learned_policy": learned_binding} if learned_binding is not None else {}),
         ),

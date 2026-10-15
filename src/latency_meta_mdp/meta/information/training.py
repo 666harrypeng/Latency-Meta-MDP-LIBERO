@@ -339,7 +339,7 @@ class VerifiedReplay:
                 repository_root(),
                 regime=definition["regime"],
                 scene_seed=definition["scene"],
-                policy_seed=definition["policy_seed"],
+                policy_seed=definition.get("delay_seed", definition["policy_seed"]),
             )
             expected = dict(
                 assets=cohort["assets"]["identity"],
@@ -355,10 +355,12 @@ class VerifiedReplay:
             if cohort["scope"] == "online_training":
                 if cohort["phase"] != "online" or cohort["schema_version"] not in (1, 2):
                     raise ValueError("invalid online training cohort")
-                if definition["behavior"] == "fqi":
+                if definition["behavior"] in ("fqi", "actor"):
                     from latency_meta_mdp.meta.information.cycle import policy_binding
 
                     expected["learned_policy"] = policy_binding(cohort, definition)
+                if definition["behavior"] == "actor":
+                    expected["delay_seed"] = definition["delay_seed"]
             if cohort.get("schema_version", 1) == 2:
                 expected.update(actions=cohort["actions"], pattern=definition.get("pattern"))
             validate_binding(expected, actual)

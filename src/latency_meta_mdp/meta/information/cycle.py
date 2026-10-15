@@ -100,6 +100,12 @@ def build_cycle_manifest(
                     )
                 )
     binding = dict(base["binding"], scope=scope, policy=policy, phase=phase, baselines=baselines)
+    if policy.get("algorithm") == "actor":
+        if baselines or phase not in ("monitor", "smoke"):
+            raise ValueError("actor requires explicit online generation or meta-only evaluation")
+        for episode in episodes:
+            episode.update(behavior="actor", deterministic=True, delay_seed=0)
+            episode["episode_id"] = episode["episode_id"].replace("fqi", "actor")
     return dict(binding=binding, episodes=episodes)
 
 
@@ -164,7 +170,12 @@ def _attention_generation(base, config, generation, policy, phase, baselines):
         for p, pattern in enumerate(patterns):
             behavior = pattern["behavior"]
             options = {k: v for k, v in pattern.items() if k != "behavior"}
-            if behavior != "fqi":
+            if behavior == "actor":
+                if policy.get("algorithm") != "actor" or options or generation["epsilon"] != 0:
+                    raise ValueError(
+                        "actor generation requires categorical checkpoint and no epsilon"
+                    )
+            elif behavior != "fqi":
                 AttentionRuleScheduler(
                     behavior, action_spec=ActionSpec(**config["actions"]), **options
                 )
@@ -186,6 +197,11 @@ def _attention_generation(base, config, generation, policy, phase, baselines):
                 )
                 if options:
                     episode["pattern"] = options
+                if behavior == "actor":
+                    episode.update(
+                        deterministic=False,
+                        delay_seed=int(identity_hash([episode_id, "delay"])[:8], 16),
+                    )
                 episodes.append(episode)
     return dict(
         binding=dict(
@@ -227,8 +243,9 @@ def prepare_cycle(
     report = preflight(config_path, output_dir / "preflight", root=root)
     if report["compute_processes"]:
         raise RuntimeError("GPU compute process already active")
+    algorithm = json.loads((Path(checkpoint) / "complete.json").read_text())["binding"]["algorithm"]
     scheduler = load_scheduler(
-        checkpoint, deployment_binding(config), source_manifest=source_manifest
+        checkpoint, deployment_binding(config, algorithm=algorithm), source_manifest=source_manifest
     )
     policy = scheduler_identity(scheduler)
     manifest = build_cycle_manifest(
@@ -256,6 +273,8 @@ def prepare_cycle(
 
 
 def policy_binding(cohort, episode):
+    if episode["behavior"] == "actor":
+        return dict(cohort["policy"], deterministic=episode["deterministic"])
     return (
         dict(cohort["policy"], epsilon=episode["epsilon"]) if episode["behavior"] == "fqi" else None
     )

@@ -10,10 +10,12 @@ from latency_meta_mdp.meta.information.fqi import FqiScheduler, model_hash
 from latency_meta_mdp.meta.information.model import StageQ
 
 
-def deployment_binding(config):
+def deployment_binding(config, *, algorithm="fqi"):
+    if algorithm not in ("fqi", "actor"):
+        raise ValueError("unknown deployed scheduler algorithm")
     return dict(
         mode=config["mode"],
-        algorithm="fqi",
+        algorithm=algorithm,
         schema_version=config.get("schema_version", 1),
         assets=config["assets"]["identity"],
         config_hash=identity_hash(config),
@@ -28,11 +30,20 @@ def scheduler_identity(scheduler):
     )
     if scheduler.source_manifest is not None:
         identity["source_manifest"] = scheduler.source_manifest
+    if getattr(scheduler, "algorithm", None) == "actor":
+        identity["algorithm"] = "actor"
     return identity
 
 
 def load_scheduler(
-    checkpoint, expected, *, device="cpu", epsilon=0.0, seed=0, source_manifest=None
+    checkpoint,
+    expected,
+    *,
+    device="cpu",
+    epsilon=0.0,
+    seed=0,
+    source_manifest=None,
+    deterministic=True,
 ):
     checkpoint = Path(checkpoint)
     receipt = json.loads((checkpoint / "complete.json").read_text())
@@ -64,7 +75,14 @@ def load_scheduler(
         raise ValueError("deployment model hash differs")
     model.to(device).eval().requires_grad_(False)
     scheduler_class = AttentionScheduler if expected["schema_version"] == 2 else FqiScheduler
-    scheduler = scheduler_class(model, epsilon=epsilon, seed=seed)
+    if expected["algorithm"] == "actor":
+        from latency_meta_mdp.meta.information.actor_deployment import ActorScheduler
+
+        if expected["schema_version"] != 2:
+            raise ValueError("actor requires attention schema 2")
+        scheduler = ActorScheduler(model, epsilon=epsilon, seed=seed, deterministic=deterministic)
+    else:
+        scheduler = scheduler_class(model, epsilon=epsilon, seed=seed)
     scheduler.source_manifest = (
         str(Path(source_manifest).resolve()) if source_manifest is not None else None
     )

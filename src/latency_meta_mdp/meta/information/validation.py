@@ -28,7 +28,8 @@ def validation_metrics(rows, *, scenes, starvation_mode="guarded"):
         if (
             key not in expected
             or key in seen
-            or ep["behavior"] != "fqi"
+            or ep["behavior"] not in ("fqi", "actor")
+            or (ep["behavior"] == "actor" and not ep.get("deterministic", False))
             or ep["epsilon"] != 0
             or ep["split"] != "validation"
             or not report["terminated"]
