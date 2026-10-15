@@ -65,3 +65,43 @@ def test_raw_batch_retirement_requires_committed_cycle_and_valid_successor(tmp_p
     assert receipt["files"]["workers/0/records.json"] == sha256(audit / "workers/0/records.json")
     prune_batch(collection, successor_checkpoint=successor, receipts={"data": "pinned"})
     assert (audit / "workers/0/records.json").exists()
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_campaign_reports_actual_exit_status_to_wandb(tmp_path, monkeypatch, fails):
+    import sys
+    from types import SimpleNamespace
+
+    from latency_meta_mdp.meta.information import actor_campaign
+
+    exits = []
+
+    class FakeCampaign:
+        def __init__(self, args):
+            self.tracker = SimpleNamespace(
+                run=SimpleNamespace(finish=lambda **kw: exits.append(kw))
+            )
+
+        def run(self):
+            if fails:
+                raise RuntimeError("failed pilot")
+
+    monkeypatch.setattr(actor_campaign, "Campaign", FakeCampaign)
+    arguments = ["run_conveyor_actor"]
+    for key in (
+        "config",
+        "recipe",
+        "sources",
+        "scene-audit",
+        "bootstrap-dir",
+        "cache-dir",
+        "output-dir",
+    ):
+        arguments.extend(["--" + key, str(tmp_path / key)])
+    monkeypatch.setattr(sys, "argv", arguments + ["--gpus", "0"])
+    if fails:
+        with pytest.raises(RuntimeError, match="failed pilot"):
+            actor_campaign.main()
+    else:
+        actor_campaign.main()
+    assert exits == [{"exit_code": int(fails)}]

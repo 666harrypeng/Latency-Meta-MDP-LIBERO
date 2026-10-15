@@ -417,8 +417,9 @@ class Campaign:
                 "actor",
                 updates=math.ceil(len(replay) * passes / self.recipe["actor"]["global_batch"]),
             )
-            if (frozen / "latest").exists():
-                actor_state = load_state(frozen / "latest")
+            frozen_checkpoint = recover_latest(frozen)
+            if frozen_checkpoint is not None:
+                actor_state = load_state(frozen_checkpoint)
             else:
                 actor_state = self.train(
                     "actor",
@@ -432,7 +433,7 @@ class Campaign:
             checkpoint = self.export(actor_state, passes)
             metrics = self.validate(checkpoint)
             frozen = directory / f"actor-pass-{passes}"
-            if not (frozen / "latest").exists():
+            if frozen_checkpoint is None:
                 save_state(frozen, actor_state)
             if metrics["selection_score"] > best:
                 selected, best = frozen, metrics["selection_score"]
@@ -686,8 +687,10 @@ def main():
 
     with interrupt_on_termination(), worker_lock(Path(args.output_dir)):
         campaign = Campaign(args)
+        success = False
         try:
             campaign.run()
+            success = True
         finally:
             if campaign.tracker.run:
-                campaign.tracker.run.finish()
+                campaign.tracker.run.finish(exit_code=0 if success else 1)

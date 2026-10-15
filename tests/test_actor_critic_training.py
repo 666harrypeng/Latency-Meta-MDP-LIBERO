@@ -42,7 +42,8 @@ def test_balancing_equal_delay_then_mode_not_longest_episode():
     np.testing.assert_allclose(weights, [0.25, 1 / 12, 1 / 12, 1 / 12, 0.25, 0.25])
 
 
-def test_iql_resume_preserves_optimizers_rng_and_target(tmp_path):
+@pytest.mark.parametrize("resume_world", [1, 2])
+def test_iql_resume_preserves_optimizers_rng_and_target(tmp_path, resume_world):
     config = small_config()
     replay = rich_replay(config)
     state = initial_state(config, seed=7)
@@ -61,14 +62,20 @@ def test_iql_resume_preserves_optimizers_rng_and_target(tmp_path):
     fit("iql", state, replay, tmp_path / "resume", options=dict(opts, updates=1), devices=["cpu"])
     saved = load_state(tmp_path / "resume" / "latest")
     assert saved["step"] == 1 and saved["optimizers"]
-    fit("iql", saved, replay, tmp_path / "resume", options=opts, devices=["cpu"])
+    fit("iql", saved, replay, tmp_path / "resume", options=opts, devices=["cpu"] * resume_world)
     full, resumed = [load_state(tmp_path / x / "latest") for x in ("full", "resume")]
     for name in full["models"]:
         for key in full["models"][name]:
             torch.testing.assert_close(
-                full["models"][name][key], resumed["models"][name][key], rtol=0, atol=0
+                full["models"][name][key],
+                resumed["models"][name][key],
+                rtol=0 if resume_world == 1 else 3e-4,
+                atol=0 if resume_world == 1 else 3e-6,
             )
     assert full["step"] == resumed["step"] == 2
+    for name in full["optimizers"]:
+        for key, values in full["optimizers"][name]["state"].items():
+            assert values["step"] == resumed["optimizers"][name]["state"][key]["step"]
 
 
 def test_bad_world_batch_rejected_before_training(tmp_path):

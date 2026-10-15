@@ -283,7 +283,9 @@ def _learn(rank, world, device, phase, state, replay, directory, options, aux, p
     }
     for name, optimizer in optimizers.items():
         if name in state["optimizers"]:
-            optimizer.load_state_dict(state["optimizers"][name])
+            # Spawn shares CPU tensors, including Adam's step counter even on CUDA.
+            # Each rank must own its restored optimizer state before any update.
+            optimizer.load_state_dict(copy.deepcopy(state["optimizers"][name]))
     n, batch_size = len(replay), options["global_batch"]
     batches = math.ceil(n / batch_size)
     total = options["updates"] if phase in ("iql", "actor") else options["epochs"] * batches
