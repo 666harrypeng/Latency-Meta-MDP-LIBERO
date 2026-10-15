@@ -310,7 +310,7 @@ def prepare_attention_replay(
     entries, groups, provenance = [], [], []
     seen = set()
     for source, directory, manifest in zip(sources, directories, manifests, strict=True):
-        admitted = VerifiedReplay(directory, manifest, progress=progress)
+        admitted = VerifiedReplay(directory, manifest, progress=progress, workers=workers)
         for entry in admitted.entries:
             if entry[2] in seen:
                 raise ValueError("same physical rollout copied into multiple sources")

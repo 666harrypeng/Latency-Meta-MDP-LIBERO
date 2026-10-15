@@ -91,6 +91,39 @@ def test_mixed_replay_reads_both_sources_and_rejects_eval_and_changed_policy(tmp
         VerifiedReplay(tmp_path / "new", new)
 
 
+def test_parallel_admission_preserves_order_and_checks_archived_files(tmp_path, monkeypatch):
+    import threading
+
+    from latency_meta_mdp.meta.information import cohort
+    from latency_meta_mdp.meta.information.training import VerifiedReplay
+
+    first, attempt = make_replay(
+        tmp_path, scope="starter_training", scene=10000, behavior="active"
+    )
+    second, _ = make_replay(tmp_path, scope="starter_training", scene=10001, behavior="lazy")
+    manifest = dict(first, episodes=first["episodes"] + second["episodes"])
+    auxiliary = attempt / "archived-observation.bin"
+    auxiliary.write_bytes(b"original")
+    complete_attempt(attempt, binding=dict(cohort=first["binding"], episode=first["episodes"][0]))
+    serial = VerifiedReplay(tmp_path, manifest)
+    original = cohort.verify_complete
+    barrier = threading.Barrier(2, timeout=5)
+
+    def concurrent_check(*args, **kwargs):
+        barrier.wait()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cohort, "verify_complete", concurrent_check)
+    progress = []
+    parallel = VerifiedReplay(tmp_path, manifest, workers=2, progress=progress.append)
+    assert parallel.entries == serial.entries
+    assert parallel.receipts == serial.receipts
+    assert [p["episodes"] for p in progress] == [1, 2]
+    auxiliary.write_bytes(b"corrupted")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        VerifiedReplay(tmp_path, manifest, workers=2)
+
+
 def test_mixture_requires_explicit_collector_compatibility_and_train_scene_membership():
     from latency_meta_mdp.meta.information.config import identity_hash
     from latency_meta_mdp.meta.information.online_training import validate_mixture

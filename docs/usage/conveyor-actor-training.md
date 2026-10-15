@@ -10,6 +10,8 @@ The stage order is IQL value learning, weighted categorical actor extraction, fr
 
 Supply a JSON list of the three immutable startup sources, each with `path`, `manifest_sha256`, and `group: startup`. These must cover the approved448 episodes; the loader verifies actual completion receipts and hashes. Supply the existing scene audit and bootstrap directory separately. Training and validation seeds remain disjoint.
 
+`--prepare-workers` controls both episode hash admission and cache conversion. Admission preserves manifest order and checks all archived files, including auxiliary collection evidence. Let the campaign prepare its inputs once; a separate prepacking invocation repeats admission when the campaign starts. During learning, workers reuse packed inputs. A restart before offline completion rechecks startup; after offline completion the campaign restores the selected actor and skips startup preparation. Node-local caches may need rebuilding after moving to another node.
+
 Run from the canonical repository checkout in the qualified environment, inside tmux or its Slurm allocation. Keep the output on persistent storage and the reconstructable cache on node scratch. GPU IDs, microbatch and CPU resources are runtime choices:
 
 ```bash

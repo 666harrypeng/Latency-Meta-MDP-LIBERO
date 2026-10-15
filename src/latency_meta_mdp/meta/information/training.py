@@ -3,6 +3,7 @@
 import json
 import random
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import perf_counter
 
@@ -292,11 +293,13 @@ def train_iterations(
 class VerifiedReplay:
     """Hash-admitted episode stream with optional bounded host caching."""
 
-    def __init__(self, root, manifest, *, progress=None, cache=None):
+    def __init__(self, root, manifest, *, progress=None, cache=None, workers=1):
         from latency_meta_mdp.io.paths import repository_root
         from latency_meta_mdp.meta.information.cohort import verify_complete
         from latency_meta_mdp.runtime.evaluate_conveyor import conveyor_delay_sampler
 
+        if type(workers) is not int or workers < 1:
+            raise ValueError("positive admission worker count required")
         self.cache = cache
         root = Path(root)
         self.entries, self.receipts = [], {}
@@ -306,7 +309,7 @@ class VerifiedReplay:
         identities = [e["episode_id"] for e in manifest["episodes"]]
         if len(identities) != len(set(identities)):
             raise ValueError("duplicate training episode identity")
-        for definition in manifest["episodes"]:
+        def admit(definition):
             if definition["split"] != "train":
                 raise ValueError("non-training split in replay")
             matches = []
@@ -366,10 +369,19 @@ class VerifiedReplay:
             validate_binding(expected, actual)
             if actual["delay"]["regime"] != definition["regime"] or not inner["terminated"]:
                 raise ValueError("training delay/terminal binding differs")
-            self.entries.append((attempt / "episode", actual, sha256(inner_path)))
-            self.receipts[str(attempt.relative_to(root))] = sha256(attempt / "complete.json")
-            if progress is not None:
-                progress(dict(phase="admission", episodes=len(self.entries)))
+            return (
+                (attempt / "episode", actual, sha256(inner_path)),
+                str(attempt.relative_to(root)),
+                sha256(attempt / "complete.json"),
+            )
+
+        # Hash I/O can overlap; ordered consumption keeps replay and sampling identical.
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for entry, name, receipt_hash in pool.map(admit, manifest["episodes"]):
+                self.entries.append(entry)
+                self.receipts[name] = receipt_hash
+                if progress is not None:
+                    progress(dict(phase="admission", episodes=len(self.entries)))
 
     def __len__(self):
         return len(self.entries)
