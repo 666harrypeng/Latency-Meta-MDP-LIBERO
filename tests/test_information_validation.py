@@ -217,7 +217,8 @@ def test_best_selection_keeps_incumbent_on_ties_and_rejects_cohort_change(tmp_pa
         )
 
 
-def test_monitor_tracker_exports_three_separate_rewards(tmp_path):
+@pytest.mark.parametrize("behavior", ["fqi", "actor"])
+def test_monitor_tracker_exports_three_separate_rewards(tmp_path, behavior):
     from latency_meta_mdp.meta.cycle_tracking import CycleTracker
 
     definitions = [
@@ -225,7 +226,8 @@ def test_monitor_tracker_exports_three_separate_rewards(tmp_path):
             episode_id=f"{s}-{r}",
             scene=s,
             regime=r,
-            behavior="fqi",
+            behavior=behavior,
+            deterministic=True,
             epsilon=0.0,
             split="validation",
         )
@@ -253,7 +255,7 @@ def test_monitor_tracker_exports_three_separate_rewards(tmp_path):
         )
     tracker.close(success=True)
     result = json.loads((tmp_path / "evaluation.json").read_text())["metrics"]
-    assert result["fqi/zero/reward"] == pytest.approx(0.9)
-    assert result["fqi/nominal/reward"] == pytest.approx(0.2)
-    assert result["fqi/family/reward"] == pytest.approx(0.4)
-    assert result["fqi/selection_score"] == pytest.approx(0.3)
+    assert result[f"{behavior}/zero/reward"] == pytest.approx(0.9)
+    assert result[f"{behavior}/nominal/reward"] == pytest.approx(0.2)
+    assert result[f"{behavior}/family/reward"] == pytest.approx(0.4)
+    assert result[f"{behavior}/selection_score"] == pytest.approx(0.3)

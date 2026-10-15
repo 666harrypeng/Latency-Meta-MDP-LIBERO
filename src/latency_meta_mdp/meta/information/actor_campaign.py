@@ -24,6 +24,7 @@ from latency_meta_mdp.meta.information.actor_learning import (
     fit,
     initial_state,
     load_state,
+    recover_latest,
     restore_models,
     save_state,
 )
@@ -104,11 +105,32 @@ def prune_batch(directory, *, successor_checkpoint, receipts):
     load_state(successor_checkpoint)
     if not directory.name == "collection" or not (directory.parent / "complete.json").is_file():
         raise ValueError("only completed PPO cycle collection can be retired")
+    audit = directory.parent / "collection-audit"
+    manifest = audit / "manifest.json"
+    if not manifest.exists():
+        audit.mkdir(exist_ok=True)
+        files = {}
+        for source in sorted((directory / "workers").rglob("*")):
+            if (
+                source.is_symlink()
+                or not source.is_file()
+                or source.suffix not in (".json", ".jsonl", ".log", ".txt")
+            ):
+                continue
+            relative = source.relative_to(directory)
+            target = audit / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+            files[str(relative)] = sha256(source)
+        atomic_json(manifest, dict(files=files))
+    for name, digest in json.loads(manifest.read_text())["files"].items():
+        validate_binding(digest, sha256(audit / name))
     receipt = dict(
         collection=str(directory),
         successor=str(successor_checkpoint),
         successor_sha256=sha256(successor_checkpoint / "complete.json"),
         receipts=receipts,
+        scalar_audit_sha256=sha256(manifest),
     )
     atomic_json(directory.parent / "retired-batch.json", receipt)
     # Canonical episode links point inside workers. Delete only these owned payload subtrees.
@@ -233,8 +255,9 @@ class Campaign:
 
     def train(self, phase, state, replay, directory, options, **kwargs):
         directory = Path(directory)
-        if (directory / "latest").exists():
-            saved = load_state(directory / "latest")
+        checkpoint = recover_latest(directory)
+        if checkpoint is not None:
+            saved = load_state(checkpoint)
             validate_binding(saved.get("binding", {}), state.get("binding", {}))
             state = saved
         return fit(
@@ -537,6 +560,16 @@ class Campaign:
             actor_hash = model_hash(restore_models(state)["actor"])
             auxiliary = on_policy_auxiliary(
                 replay, scores, metadata, summaries, actor_hash=actor_hash
+            )
+            # Keep the exact scalar training targets after visual replay retirement.
+            np.savez_compressed(directory / "training-targets.npz", **auxiliary)
+            atomic_json(
+                directory / "training-targets.json",
+                dict(
+                    files={"training-targets.npz": sha256(directory / "training-targets.npz")},
+                    conversion=conversion,
+                    actor_hash=actor_hash,
+                ),
             )
             batch_binding = dict(
                 campaign=self.binding,

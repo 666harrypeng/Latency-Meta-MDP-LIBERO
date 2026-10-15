@@ -165,7 +165,9 @@ class CycleTracker:
 
             groups = summarize_rollouts(self.rows)
             metrics, paired = {}, {}
-            for behavior in sorted({r["episode"]["behavior"] for r in self.rows}):
+            behaviors = {r["episode"]["behavior"] for r in self.rows}
+            candidate = "actor" if "actor" in behaviors else "fqi"
+            for behavior in sorted(behaviors):
                 metrics[f"{behavior}/mean_task_return"] = (
                     sum(
                         groups[f"{behavior}/{regime}"]["mean_reward"]
@@ -173,15 +175,17 @@ class CycleTracker:
                     )
                     / 2
                 )
-                if behavior != "fqi":
-                    paired[behavior] = paired_summary(self.rows, reference=behavior)
+                if behavior != candidate and candidate in behaviors:
+                    paired[behavior] = paired_summary(
+                        self.rows, reference=behavior, candidate=candidate
+                    )
             if self.phase == "monitor":
                 from latency_meta_mdp.meta.information.validation import validation_metrics
 
                 separate = validation_metrics(
                     self.rows, scenes=sorted({r["episode"]["scene"] for r in self.rows})
                 )
-                metrics.update({f"fqi/{k}": v for k, v in separate.items()})
+                metrics.update({f"{candidate}/{k}": v for k, v in separate.items()})
             result = dict(metrics=metrics, paired=paired)
             (self.directory / "evaluation.json").write_text(json.dumps(result, indent=2) + "\n")
             if self.run is not None:

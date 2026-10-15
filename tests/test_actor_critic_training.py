@@ -84,6 +84,23 @@ def test_bad_world_batch_rejected_before_training(tmp_path):
         )
 
 
+@pytest.mark.parametrize("stale_pointer", [False, True])
+def test_resume_adopts_committed_checkpoint_after_pointer_interruption(tmp_path, stale_pointer):
+    from latency_meta_mdp.meta.information.actor_learning import recover_latest, save_state
+
+    state = initial_state(small_config())
+    first = save_state(tmp_path, state)
+    state.update(step=1, optimizers={"q1": {"state": {0: {"step": torch.tensor(1)}}}})
+    committed = save_state(tmp_path, state)
+    (tmp_path / "latest").unlink()
+    if stale_pointer:
+        (tmp_path / "latest").symlink_to(first.name, target_is_directory=True)
+    assert recover_latest(tmp_path).resolve() == committed
+    restored = load_state(tmp_path / "latest")
+    assert restored["step"] == 1
+    assert restored["optimizers"]["q1"]["state"][0]["step"].item() == 1
+
+
 def test_two_ranks_match_single_rank_with_uneven_terminal_minibatch(tmp_path):
     config = small_config()
     replay = rich_replay(config)
@@ -152,3 +169,55 @@ def test_new_training_phase_resets_fit_binding_and_does_not_inherit_adam(tmp_pat
         auxiliary=dict(returns=np.array([0.1, 0.1, 0.1], np.float32)),
     )
     assert fitted["step"] == 1 and set(fitted["optimizers"]) == {"v"}
+
+
+def test_ppo_actor_and_critic_match_across_one_and_two_ranks(tmp_path):
+    from latency_meta_mdp.meta.information.memory import collate_contexts
+
+    config = small_config()
+    replay = rich_replay(config)
+    actor = AttentionStageQ(config)
+    context = collate_contexts([replay[i]["context"] for i in range(len(replay))], device="cpu")
+    with torch.no_grad():
+        old_logits = actor(context).numpy()
+    state = dict(
+        config=config,
+        phase="ppo",
+        step=0,
+        epoch=0,
+        optimizers={},
+        models=dict(
+            actor=actor.state_dict(), v=initialize_from_encoder(actor, value=True).state_dict()
+        ),
+    )
+    options = dict(global_batch=4, microbatch=1, epochs=2, cpu_threads=1, actor_lr=3e-5)
+    auxiliary = dict(
+        returns=np.array([0.3, 0.2, 0.1], np.float32),
+        advantage=np.array([1.0, -0.3, -0.7], np.float32),
+        old_logits=old_logits,
+    )
+    results = [
+        fit(
+            "ppo",
+            state,
+            replay,
+            tmp_path / str(world),
+            options=options,
+            devices=["cpu"] * world,
+            auxiliary=auxiliary,
+        )
+        for world in (1, 2)
+    ]
+    for name in ("actor", "v"):
+        assert results[0]["optimizer_updates"][name] == 2
+        assert any(
+            not torch.equal(weight, state["models"][name][key])
+            for key, weight in results[0]["models"][name].items()
+        )
+        for key in results[0]["models"][name]:
+            torch.testing.assert_close(
+                results[0]["models"][name][key],
+                results[1]["models"][name][key],
+                atol=3e-7,
+                rtol=3e-5,
+            )

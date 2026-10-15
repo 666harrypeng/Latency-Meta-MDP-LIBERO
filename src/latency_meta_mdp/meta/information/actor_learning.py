@@ -91,11 +91,28 @@ def save_state(directory, state):
         ),
     )
     temporary.rename(target)
+    _publish_latest(directory, target)
+    return target
+
+
+def _publish_latest(directory, target):
     link = directory / ".latest.tmp"
     link.unlink(missing_ok=True)
     link.symlink_to(target.name, target_is_directory=True)
     link.replace(directory / "latest")
-    return target
+
+
+def recover_latest(directory):
+    """Adopt a committed checkpoint even if termination interrupted its pointer update."""
+    directory = Path(directory)
+    receipts = sorted(directory.glob("step-*-epoch-*/complete.json"))
+    if not receipts:
+        return None
+    newest = receipts[-1].parent
+    load_state(newest)  # Corruption is an error, never a silent rollback.
+    if not (directory / "latest").exists() or (directory / "latest").resolve() != newest:
+        _publish_latest(directory, newest)
+    return newest
 
 
 def load_state(checkpoint):
@@ -106,6 +123,8 @@ def load_state(checkpoint):
     state = torch.load(checkpoint / "state.pt", map_location="cpu", weights_only=True)
     if any(state[k] != receipt[k] for k in ("phase", "step", "epoch")):
         raise ValueError("actor/critic checkpoint counters differ")
+    if state.get("binding", {}) != receipt["binding"]:
+        raise ValueError("actor/critic checkpoint binding differs")
     return state
 
 

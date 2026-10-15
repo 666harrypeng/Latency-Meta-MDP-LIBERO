@@ -9,8 +9,14 @@ from time import perf_counter
 import numpy as np
 import torch
 
+from latency_meta_mdp.meta.information.actor_batches import score_models
 from latency_meta_mdp.meta.information.actor_critic import initialize_from_encoder, returns_to_go
-from latency_meta_mdp.meta.information.actor_learning import fit, initial_state, restore_models
+from latency_meta_mdp.meta.information.actor_learning import (
+    fit,
+    initial_state,
+    load_state,
+    restore_models,
+)
 from latency_meta_mdp.meta.information.attention_replay import prepare_attention_replay
 from latency_meta_mdp.meta.information.config import load_config
 from latency_meta_mdp.meta.information.fqi import model_hash
@@ -76,6 +82,16 @@ def main():
         results.append(fit("iql", state, replay, out / label, options=options, devices=gpu_list))
         times.append(perf_counter() - started)
     error = compare(*results)
+    first_checkpoint = sorted((out / "single").glob("step-00000001-epoch-*"))[0]
+    resumed = fit(
+        "iql",
+        load_state(first_checkpoint),
+        replay,
+        out / "resumed",
+        options=options,
+        devices=devices,
+    )
+    resume_error = compare(results[0], resumed)
     actor = initialize_from_encoder(restore_models(results[0])["v"])
     critic = initialize_from_encoder(actor, value=True)
     before = model_hash(actor)
@@ -88,7 +104,7 @@ def main():
         models=dict(actor=actor.state_dict(), v=critic.state_dict()),
     )
     # Full episodes remain intact, but this check fits only one optimizer minibatch.
-    count = min(8, len(replay))
+    count = min(7, len(replay))
     from latency_meta_mdp.meta.information.attention_replay import DecisionReplay
 
     rows = [replay[i] for i in range(count)]
@@ -111,9 +127,50 @@ def main():
         auxiliary=dict(returns=np.array(returns[:count], np.float32)),
     )
     assert model_hash(restore_models(calibrated)["actor"]) == before
+    scores = score_models(
+        state,
+        sample,
+        out / "ppo-scores",
+        devices=devices,
+        microbatch=args.microbatch,
+        kind="online",
+        binding=receipt,
+    )
+    # Numerical optimizer fixture on real public contexts; closed-loop PPO is tested in pilot.
+    auxiliary = dict(
+        old_logits=scores["old_logits"],
+        returns=np.array(returns[:count], np.float32),
+        advantage=np.linspace(-1, 1, count, dtype=np.float32),
+    )
+    ppo_options = dict(
+        global_batch=8,
+        microbatch=args.microbatch,
+        epochs=2,
+        learning_rate=1e-4,
+        actor_lr=3e-5,
+        target_kl=0.01,
+        cpu_threads=2,
+    )
+    ppo_results = [
+        fit(
+            "ppo",
+            state,
+            sample,
+            out / f"ppo-{len(gpu_list)}",
+            options=ppo_options,
+            devices=gpu_list,
+            auxiliary=auxiliary,
+        )
+        for gpu_list in (devices[:1], devices)
+    ]
+    ppo_error = compare(*ppo_results)
+    assert ppo_results[0]["optimizer_updates"]["actor"] > 0
+    assert model_hash(restore_models(ppo_results[0])["actor"]) != before
     report = dict(
         status="pass",
         one_two_rank_max_abs=error,
+        resumed_max_abs=resume_error,
+        ppo_one_two_rank_max_abs=ppo_error,
         wall_seconds=times,
         real_episodes=len(replay.episodes),
         decisions=len(replay),
