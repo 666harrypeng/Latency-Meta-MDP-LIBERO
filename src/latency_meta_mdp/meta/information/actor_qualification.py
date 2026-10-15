@@ -65,6 +65,11 @@ def main():
     norm = json.loads(Path(config["assets"]["paths"]["normalization"]).read_text())
     state = initial_state(config, normalization=norm, seed=17)
     state["binding"] = receipt
+    # A two-update check must exercise nonzero gradients despite sparse delivery rewards.
+    positive = np.array([replay[i]["task_reward"] > 0 for i in range(len(replay))])
+    if not positive.any():
+        raise ValueError("qualification source must include at least one real delivery")
+    probabilities = 0.5 / len(replay) + 0.5 * positive / positive.sum()
     options = dict(
         global_batch=8,
         microbatch=args.microbatch,
@@ -79,9 +84,20 @@ def main():
     results, times = [], []
     for label, gpu_list in [("single", devices[:1]), ("multi", devices)]:
         started = perf_counter()
-        results.append(fit("iql", state, replay, out / label, options=options, devices=gpu_list))
+        results.append(
+            fit(
+                "iql",
+                state,
+                replay,
+                out / label,
+                options=options,
+                devices=gpu_list,
+                probabilities=probabilities,
+            )
+        )
         times.append(perf_counter() - started)
     error = compare(*results)
+    assert model_hash(restore_models(results[0])["q1"]) != model_hash(restore_models(state)["q1"])
     first_checkpoint = sorted((out / "single").glob("step-00000001-epoch-*"))[0]
     resumed = fit(
         "iql",
@@ -90,6 +106,7 @@ def main():
         out / "resumed",
         options=options,
         devices=devices,
+        probabilities=probabilities,
     )
     resume_error = compare(results[0], resumed)
     actor = initialize_from_encoder(restore_models(results[0])["v"])
