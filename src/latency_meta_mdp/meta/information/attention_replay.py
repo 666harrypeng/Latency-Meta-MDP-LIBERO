@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import fields
 from pathlib import Path
 from types import MappingProxyType
@@ -143,11 +144,14 @@ class AttentionEpisodes:
         return len(self.entries)
 
     def __getitem__(self, index):
-        from latency_meta_mdp.meta.information.packed_replay import load_packed_raw
-
         if not 0 <= index < len(self):
             raise IndexError(index)
         self.entries[index].verify_unchanged()
+        return self._load_verified(index)
+
+    def _load_verified(self, index):
+        from latency_meta_mdp.meta.information.packed_replay import load_packed_raw
+
         if index not in self.loaded:
             while len(self.loaded) >= self.cache_size:
                 self.loaded.popitem(last=False)
@@ -212,6 +216,31 @@ class DecisionReplay:
         episode = int(np.searchsorted(self.ends, index, side="right"))
         start = 0 if episode == 0 else self.ends[episode - 1]
         return self.episodes[episode][int(index - start)]
+
+    @contextmanager
+    def batch(self, indices, *, executor=None):
+        """Verify each touched source around a batch read; preserve sampling order."""
+        indices = [int(i) for i in indices]
+        if any(not 0 <= i < len(self) for i in indices):
+            raise IndexError("decision batch index outside replay")
+        if not isinstance(self.episodes, AttentionEpisodes):
+            yield [self[i] for i in indices]
+            return
+        episodes = np.searchsorted(self.ends, indices, side="right")
+        unique = list(dict.fromkeys(int(i) for i in episodes))
+        entries = [self.episodes.entries[i] for i in unique]
+
+        def verify():
+            apply = map if executor is None else executor.map
+            list(apply(lambda entry: entry.verify_unchanged(), entries))
+
+        verify()
+        loaded = {i: self.episodes._load_verified(i) for i in unique}
+        yield [
+            loaded[episode][index - (int(self.ends[episode - 1]) if episode else 0)]
+            for index, episode in zip(indices, episodes, strict=True)
+        ]
+        verify()
 
 
 class DecisionSampler:

@@ -43,6 +43,9 @@ visual frames within a microbatch (including IQL successors) are transferred onc
 and expanded on the GPU; all model inputs and trainable tokenizers remain intact.
 `--no-prefetch` selects the synchronous learner path for diagnosis. Global batch,
 sample order and accumulation weights remain independent of runtime microbatch.
+Each microbatch verifies its unique episode sources and packed files before and
+after CPU collation. A bounded metadata thread pool overlaps filesystem checks;
+cached episodes still retain the original admission signatures and reject changes.
 
 `--precision fp32` is the default. `tf32` and `bf16` are opt-in learner modes that
 require hardware/numerical qualification; value objectives remain FP32. Scalar

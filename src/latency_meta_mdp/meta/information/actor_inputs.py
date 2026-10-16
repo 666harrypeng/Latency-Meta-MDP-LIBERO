@@ -1,6 +1,7 @@
 """Bounded CPU prefetch and lossless raw-frame transport for actor learners."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -54,27 +55,38 @@ class InputPipeline:
         self.replay, self.config, self.microbatch = replay, config, microbatch
         self.prefetch, self.pin_memory = prefetch, pin_memory
         self.pool = None
+        self.verifiers = None
 
     def __enter__(self):
         if self.prefetch:
             self.pool = ThreadPoolExecutor(max_workers=1)
+        self.verifiers = ThreadPoolExecutor(max_workers=8)
         return self
 
     def __exit__(self, *exc):
         if self.pool is not None:
             self.pool.shutdown(wait=True, cancel_futures=True)
+        if self.verifiers is not None:
+            self.verifiers.shutdown(wait=True, cancel_futures=True)
 
     def prepare(self, indices, successors):
-        rows = [self.replay[int(i)] for i in indices]
-        if any(not r["legal"][r["action"]] for r in rows):
-            raise ValueError("illegal training action")
-        future = [i for i, r in enumerate(rows) if successors and not r["terminated"]]
-        if any(rows[i]["next_context"] is None for i in future):
-            raise ValueError("nonterminal transition missing successor")
-        contexts = [r["context"] for r in rows] + [rows[i]["next_context"] for i in future]
-        batch = collate_contexts(contexts, config=self.config, compact_visual=self.prefetch)
-        if self.pin_memory:
-            batch = MemoryBatch({k: v.pin_memory() for k, v in batch.tensors.items()}, batch.refs)
+        read = (
+            self.replay.batch(indices, executor=self.verifiers)
+            if hasattr(self.replay, "batch")
+            else nullcontext([self.replay[int(i)] for i in indices])
+        )
+        with read as rows:
+            if any(not r["legal"][r["action"]] for r in rows):
+                raise ValueError("illegal training action")
+            future = [i for i, r in enumerate(rows) if successors and not r["terminated"]]
+            if any(rows[i]["next_context"] is None for i in future):
+                raise ValueError("nonterminal transition missing successor")
+            contexts = [r["context"] for r in rows] + [rows[i]["next_context"] for i in future]
+            batch = collate_contexts(contexts, config=self.config, compact_visual=self.prefetch)
+            if self.pin_memory:
+                batch = MemoryBatch(
+                    {k: v.pin_memory() for k, v in batch.tensors.items()}, batch.refs
+                )
         return InputBatch(indices, rows, future, batch)
 
     def batches(self, order, *, successors):

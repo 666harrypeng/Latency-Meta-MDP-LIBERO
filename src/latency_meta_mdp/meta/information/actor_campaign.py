@@ -29,6 +29,7 @@ from latency_meta_mdp.meta.information.actor_learning import (
     save_state,
 )
 from latency_meta_mdp.meta.information.attention_replay import (
+    AttentionEpisodes,
     DecisionReplay,
     prepare_attention_replay,
 )
@@ -44,17 +45,6 @@ from latency_meta_mdp.meta.information.monitor import IterationValidator
 from latency_meta_mdp.meta.information.parallel import run_parallel
 from latency_meta_mdp.meta.information.training import _save
 from latency_meta_mdp.meta.information.validation import atomic_json
-
-
-class EpisodeSubset:
-    def __init__(self, episodes, indices):
-        self.episodes, self.indices = episodes, indices
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, index):
-        return self.episodes[self.indices[index]]
 
 
 def generation(config, name, count, trial):
@@ -495,7 +485,15 @@ class Campaign:
         fit_indices = np.concatenate(
             [np.arange(starts[i], replay.ends[i]) for i in episode_indices]
         )
-        training = DecisionReplay(EpisodeSubset(replay.episodes, episode_indices))
+        episodes = replay.episodes
+        training = DecisionReplay(
+            AttentionEpisodes(
+                [episodes.entries[i] for i in episode_indices],
+                episodes.action_spec,
+                episodes.config,
+                cache_size=episodes.cache_size,
+            )
+        )
         state["binding"] = dict(
             campaign=self.binding,
             conversion=identity_hash(conversion),

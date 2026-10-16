@@ -7,6 +7,103 @@ from latency_meta_mdp.meta.information.memory_schema import ActionSpec, Attentio
 from latency_meta_mdp.meta.information.records import StageRecorder
 
 
+def _two_packed_episodes(tmp_path):
+    from latency_meta_mdp.meta.information.attention_replay import AttentionEpisodes, DecisionReplay
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.memory import DEFAULT_MEMORY
+    from latency_meta_mdp.meta.information.packed_replay import prepare_packed_episode
+
+    entries = []
+    for i in range(2):
+        recorder = StageRecorder(str(i), action_spec=ActionSpec())
+        for tick in (0, 1):
+            recorder.start(
+                AttentionPacket(tick, "G", decision_key=(tick, 1)),
+                0,
+                forced=False,
+                probability=1.0,
+            )
+        recorder.finish(2, terminated=True)
+        source = tmp_path / str(i)
+        save_episode(source, recorder, report={}, binding={})
+        entries.append(
+            prepare_packed_episode(
+                source, tmp_path / "cache", binding={},
+                expected_receipt=sha256(source / "complete.json"), raw=True,
+            )
+        )
+    replay = DecisionReplay(AttentionEpisodes(entries, ActionSpec(), DEFAULT_MEMORY))
+    # Isolate steady-state verification from the already tested cold decoder.
+    expected = [replay[i] for i in range(len(replay))]
+    return replay, expected
+
+
+def test_batch_checks_unique_sources_concurrently_and_preserves_order(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from latency_meta_mdp.meta.information.packed_replay import PackedEntry
+
+    replay, expected = _two_packed_episodes(tmp_path)
+    original, barrier, checked = PackedEntry.verify_unchanged, Barrier(2), []
+
+    def verify(entry):
+        barrier.wait(timeout=5)
+        original(entry)
+        checked.append(entry.path)
+
+    monkeypatch.setattr(PackedEntry, "verify_unchanged", verify)
+    order = [2, 0, 2, 1]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        with replay.batch(order, executor=executor) as rows:
+            assert all(row is expected[i] for row, i in zip(rows, order, strict=True))
+    assert len(checked) == 4  # each unique episode, before and after the read
+
+
+@pytest.mark.parametrize("location", ["source", "path"])
+def test_batch_rejects_source_or_cache_changes_during_read(tmp_path, location):
+    from concurrent.futures import ThreadPoolExecutor
+
+    replay, _ = _two_packed_episodes(tmp_path)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        with pytest.raises(ValueError, match="changed"):
+            with replay.batch([0, 2], executor=executor):
+                directory = getattr(replay.episodes.entries[0], location)
+                (directory / "records.json").write_text("{}")
+
+
+@pytest.mark.parametrize("subset", [False, True])
+def test_input_pipeline_checks_sources_after_collation(tmp_path, monkeypatch, subset):
+    from latency_meta_mdp.meta.information import actor_inputs
+    from latency_meta_mdp.meta.information.attention_replay import AttentionEpisodes, DecisionReplay
+    from latency_meta_mdp.meta.information.memory import DEFAULT_MEMORY
+
+    replay, _ = _two_packed_episodes(tmp_path)
+    if subset:
+        episodes = replay.episodes
+        replay = DecisionReplay(
+            AttentionEpisodes(
+                [episodes.entries[i] for i in [1, 0]],
+                episodes.action_spec,
+                episodes.config,
+                cache_size=episodes.cache_size,
+            )
+        )
+        assert replay[0]["context"].decision.episode_id.endswith("/1")
+    collate = actor_inputs.collate_contexts
+
+    def changed(*args, **kwargs):
+        batch = collate(*args, **kwargs)
+        (replay.episodes.entries[0].source / "audit.json").write_text("changed")
+        return batch
+
+    monkeypatch.setattr(actor_inputs, "collate_contexts", changed)
+    with actor_inputs.InputPipeline(replay, DEFAULT_MEMORY, microbatch=2) as pipeline:
+        with pytest.raises(ValueError, match="changed"):
+            list(pipeline.batches(np.array([0, 2]), successors=True))
+
+
 def test_versioned_episode_roundtrip_retains_forced_events_and_conserves_rewards(tmp_path):
     from latency_meta_mdp.meta.information.dataset import load_episode, save_episode
 
