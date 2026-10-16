@@ -6,6 +6,7 @@ import math
 import tempfile
 from datetime import timedelta
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 import torch
@@ -19,10 +20,10 @@ from latency_meta_mdp.meta.information.actor_critic import (
     ppo_loss,
     update_target,
 )
+from latency_meta_mdp.meta.information.actor_inputs import InputPipeline
 from latency_meta_mdp.meta.information.attention_model import AttentionStageQ
 from latency_meta_mdp.meta.information.config import identity_hash, sha256
 from latency_meta_mdp.meta.information.fqi import model_hash
-from latency_meta_mdp.meta.information.memory import collate_contexts
 from latency_meta_mdp.meta.information.validation import atomic_json
 
 
@@ -151,6 +152,8 @@ def fit(
     progress=None,
 ):
     """One stage per process group; the CPU coordinator never reserves accelerator memory."""
+    if options.get("precision", "fp32") not in ("fp32", "tf32", "bf16"):
+        raise ValueError("precision must be fp32, tf32 or bf16")
     world, batch = len(devices), options["global_batch"]
     if world < 1 or batch < 1 or batch % world:
         raise ValueError("global batch must be positive and divisible by learner world size")
@@ -170,7 +173,16 @@ def fit(
             options={
                 k: v
                 for k, v in options.items()
-                if k not in ("updates", "epochs", "checkpoint_every", "microbatch", "cpu_threads")
+                if k
+                not in (
+                    "updates",
+                    "epochs",
+                    "checkpoint_every",
+                    "microbatch",
+                    "cpu_threads",
+                    "prefetch",
+                )
+                and not (k == "precision" and v == "fp32")
             },
             data=state.get("binding", {}),
         )
@@ -217,8 +229,8 @@ def _worker(rank, devices, phase, state, replay, directory, work, options, aux, 
     world, device = len(devices), torch.device(devices[rank])
     torch.set_num_threads(options.get("cpu_threads", 2))
     torch.manual_seed(options.get("seed", 0))
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = options.get("precision") == "tf32"
+    torch.backends.cudnn.allow_tf32 = options.get("precision") == "tf32"
     if device.type == "cuda":
         torch.cuda.set_device(device)
     if world > 1:
@@ -230,18 +242,26 @@ def _worker(rank, devices, phase, state, replay, directory, work, options, aux, 
             timeout=timedelta(minutes=20),
         )
     try:
-        _learn(
-            rank,
-            world,
-            device,
-            phase,
-            state,
+        with InputPipeline(
             replay,
-            Path(directory),
-            options,
-            aux or {},
-            probabilities,
-        )
+            state["config"]["memory"],
+            microbatch=options["microbatch"],
+            prefetch=options.get("prefetch", True),
+            pin_memory=device.type == "cuda",
+        ) as inputs:
+            _learn(
+                rank,
+                world,
+                device,
+                phase,
+                state,
+                replay,
+                Path(directory),
+                options,
+                aux or {},
+                probabilities,
+                inputs,
+            )
     finally:
         if world > 1:
             dist.destroy_process_group()
@@ -267,7 +287,9 @@ def _sync_step(model, optimizer, world, clip):
     return float(norm)
 
 
-def _learn(rank, world, device, phase, state, replay, directory, options, aux, probabilities):
+def _learn(
+    rank, world, device, phase, state, replay, directory, options, aux, probabilities, inputs
+):
     models = restore_models(state, device)
     active = dict(iql=["q1", "q2", "v"], actor=["actor"], critic=["v"], ppo=["actor", "v"])[phase]
     for name, model in models.items():
@@ -299,6 +321,7 @@ def _learn(rank, world, device, phase, state, replay, directory, options, aux, p
     visits = state.get("sample_visits", 0)
     epoch_order = None
     for step in range(start, total):
+        update_started, input_seconds = perf_counter(), 0.0
         epoch, within = divmod(step, batches)
         if phase in ("iql", "actor"):
             order = np.random.default_rng(options.get("seed", 0) + step).choice(
@@ -313,57 +336,61 @@ def _learn(rank, world, device, phase, state, replay, directory, options, aux, p
             optimizer.zero_grad(set_to_none=True)
         sums = torch.zeros(5, dtype=torch.float64, device=device)
         own = order[rank::world]
-        for begin in range(0, len(own), options["microbatch"]):
-            indices = own[begin : begin + options["microbatch"]]
-            rows = [replay[int(i)] for i in indices]
-            context = collate_contexts(
-                [r["context"] for r in rows], device=device, config=state["config"]["memory"]
-            )
+        input_started = perf_counter()
+        for prepared in inputs.batches(own, successors=phase == "iql"):
+            prepared = prepared.to(device)
+            input_seconds += perf_counter() - input_started
+            indices, rows, context = prepared.indices, prepared.rows, prepared.context
             actions = torch.tensor([r["action"] for r in rows], device=device)
             legal = torch.as_tensor(np.stack([r["legal"] for r in rows]), device=device)
             if not legal.gather(1, actions[:, None]).all():
                 raise ValueError("illegal training action")
             losses = {}
-            if phase == "iql":
-                with torch.no_grad():
-                    qbar = torch.minimum(models["tq1"](context), models["tq2"](context))
-                    chosen = qbar.gather(1, actions[:, None]).squeeze(1)
-                    target = torch.tensor([r["task_reward"] for r in rows], device=device)
-                    future = [i for i, r in enumerate(rows) if not r["terminated"]]
-                    if future:
-                        if any(rows[i]["next_context"] is None for i in future):
-                            raise ValueError("nonterminal transition missing successor")
-                        next_batch = collate_contexts(
-                            [rows[i]["next_context"] for i in future],
-                            device=device,
-                            config=state["config"]["memory"],
+            with torch.autocast(
+                device_type=device.type,
+                dtype=torch.bfloat16,
+                enabled=options.get("precision") == "bf16",
+            ):
+                if phase == "iql":
+                    # Cache trainable casts first; no-grad successor evaluation must
+                    # not seed autocast's weight cache with detached value weights.
+                    value = models["v"](context).float()
+                    with torch.no_grad():
+                        qbar = torch.minimum(
+                            models["tq1"](context).float(), models["tq2"](context).float()
                         )
-                        target[future] += models["v"](next_batch)
-                losses["v"] = expectile_loss(models["v"](context), chosen, options.get("tau", 0.7))
-                for name in ("q1", "q2"):
-                    q = models[name](context).gather(1, actions[:, None]).squeeze(1)
-                    losses[name] = (q - target).square()
-            elif phase == "actor":
-                weights = torch.as_tensor(aux["weights"][indices], device=device)
-                losses["actor"] = -categorical(models["actor"](context), legal).log_prob(actions)
-                losses["actor"] = losses["actor"] * weights / aux["weight_mean"]
-            else:
-                target = torch.as_tensor(aux["returns"][indices], device=device)
-                losses["v"] = (models["v"](context) - target).square()
-                if phase == "ppo":
-                    with torch.set_grad_enabled(not actor_stopped):
-                        losses["actor"], metrics = ppo_loss(
-                            models["actor"](context),
-                            torch.as_tensor(aux["old_logits"][indices], device=device),
-                            legal,
-                            actions,
-                            torch.as_tensor(aux["advantage"][indices], device=device),
-                            clip=options.get("clip", 0.2),
-                            entropy_coefficient=options.get("entropy_coefficient", 0.001),
-                        )
-                    sums[1] += metrics["kl"].double().sum()
-                    sums[2] += metrics["entropy"].double().sum()
-                    sums[3] += metrics["clip_fraction"].double().sum()
+                        chosen = qbar.gather(1, actions[:, None]).squeeze(1)
+                        target = torch.tensor([r["task_reward"] for r in rows], device=device)
+                        future = prepared.future
+                        if future:
+                            target[future] += models["v"](prepared.following).float()
+                    losses["v"] = expectile_loss(value, chosen, options.get("tau", 0.7))
+                    for name in ("q1", "q2"):
+                        q = models[name](context).float().gather(1, actions[:, None]).squeeze(1)
+                        losses[name] = (q - target).square()
+                elif phase == "actor":
+                    weights = torch.as_tensor(aux["weights"][indices], device=device)
+                    losses["actor"] = -categorical(models["actor"](context), legal).log_prob(
+                        actions
+                    )
+                    losses["actor"] = losses["actor"] * weights / aux["weight_mean"]
+                else:
+                    target = torch.as_tensor(aux["returns"][indices], device=device)
+                    losses["v"] = (models["v"](context).float() - target).square()
+                    if phase == "ppo":
+                        with torch.set_grad_enabled(not actor_stopped):
+                            losses["actor"], metrics = ppo_loss(
+                                models["actor"](context),
+                                torch.as_tensor(aux["old_logits"][indices], device=device),
+                                legal,
+                                actions,
+                                torch.as_tensor(aux["advantage"][indices], device=device),
+                                clip=options.get("clip", 0.2),
+                                entropy_coefficient=options.get("entropy_coefficient", 0.001),
+                            )
+                        sums[1] += metrics["kl"].double().sum()
+                        sums[2] += metrics["entropy"].double().sum()
+                        sums[3] += metrics["clip_fraction"].double().sum()
             for name in names:
                 loss = losses[name].sum() / len(order)
                 if not torch.isfinite(loss):
@@ -371,6 +398,7 @@ def _learn(rank, world, device, phase, state, replay, directory, options, aux, p
                 loss.backward()
                 sums[0] += loss.detach().double()
             sums[4] += len(rows)
+            input_started = perf_counter()
         if world > 1:
             dist.all_reduce(sums)
         # All ranks make the same stop decision, before this minibatch's actor step.
@@ -401,6 +429,8 @@ def _learn(rank, world, device, phase, state, replay, directory, options, aux, p
             actor_updates=counts.get("actor", 0),
             value_updates=counts.get("v", 0),
             sample_visits=visits,
+            input_seconds=input_seconds,
+            update_seconds=perf_counter() - update_started,
         )
         if rank == 0 and (step % 10 == 0 or step + 1 == total):
             print("ACTOR_LEARN " + json.dumps(metrics), flush=True)

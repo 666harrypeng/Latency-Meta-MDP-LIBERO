@@ -160,10 +160,12 @@ class AttentionEpisodes:
             action_spec=self.action_spec,
             config=self.config,
             cache_size=self.cache_size,
+            lengths=self.lengths,
         )
 
     def __setstate__(self, state):
-        self.__init__(**state)
+        self.__dict__.update(state)
+        self.loaded = OrderedDict()
 
 
 class DecisionReplay:

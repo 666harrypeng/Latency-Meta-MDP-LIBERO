@@ -372,3 +372,36 @@ def test_episode_cache_evicts_and_reconstructs_identical_contexts(tmp_path):
     assert len(episodes.loaded) == 1
     assert episodes[0][0]["context"].decision == first
     assert len(episodes.loaded) == 1
+
+
+def test_spawn_keeps_admitted_lengths_without_rereading_every_episode(tmp_path):
+    import pickle
+
+    from attention_fixtures import small_config
+
+    from latency_meta_mdp.meta.information.attention_replay import AttentionEpisodes
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.packed_replay import prepare_packed_episode
+
+    recorder = StageRecorder("spawn", action_spec=ActionSpec())
+    recorder.start(AttentionPacket(10, "G", decision_key=(10, 1)), 8, forced=False, probability=1.0)
+    recorder.finish(11, terminated=True)
+    source = tmp_path / "source"
+    save_episode(source, recorder, report={}, binding={})
+    entry = prepare_packed_episode(
+        source,
+        tmp_path / "cache",
+        binding={},
+        expected_receipt=sha256(source / "complete.json"),
+        raw=True,
+    )
+    episodes = AttentionEpisodes([entry], ActionSpec(), small_config()["memory"])
+    serialized = pickle.dumps(episodes)
+    # Spawn needs only the previously admitted lengths; actual access must still
+    # reject changed source contents before using any cached context.
+    (entry.path / "records.json").unlink()
+    restored = pickle.loads(serialized)
+    assert restored.lengths == [1] and not restored.loaded
+    with pytest.raises((ValueError, FileNotFoundError)):
+        restored[0]

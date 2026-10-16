@@ -35,3 +35,19 @@ Use a distinct W&B project (default `latency-meta-mdp-robosuite-delta-ppo`) and 
 Rerun the same command/output directory after a time limit. The campaign checks recipe, source and data bindings; it restores complete checkpoints with Adam state. IQL/actor save every500updates; critic/PPO save at completed epoch boundaries. An interrupted epoch restarts from its prior completed boundary on the same frozen behavior-policy batch. Complete episodes are reused; interrupted episodes are excluded. The latest actor collects the next batch; best selection uses nominal/family validation, preserving the incumbent on ties.
 
 Only a committed cycle with a verified successor checkpoint can retire its large collection payload. Lightweight summaries, receipts, validation videos, model and optimizer checkpoints remain. Startup archive is retained. The cache has one global allowance across stages. Storage admission fails clearly rather than deleting data needed for recovery. Separate runtime quotas and free space still need verification before launch.
+
+## Learner throughput
+
+Learners and scalar scoring prefetch one CPU microbatch per rank. Repeated raw
+visual frames within a microbatch (including IQL successors) are transferred once
+and expanded on the GPU; all model inputs and trainable tokenizers remain intact.
+`--no-prefetch` selects the synchronous learner path for diagnosis. Global batch,
+sample order and accumulation weights remain independent of runtime microbatch.
+
+`--precision fp32` is the default. `tf32` and `bf16` are opt-in learner modes that
+require hardware/numerical qualification; value objectives remain FP32. Scalar
+scoring and rollout likelihood reconstruction retain FP32. Precision is checked
+when restoring a learner checkpoint. Compare complete-update throughput on the
+full admitted replay after initial context reconstruction, not just GPU occupancy
+or a small cache-resident fixture. `input_seconds` measures foreground input wait
+and transfer submission, not all background CPU work or synchronized transfer time.

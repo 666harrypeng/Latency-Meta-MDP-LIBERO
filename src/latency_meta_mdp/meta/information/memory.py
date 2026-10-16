@@ -145,7 +145,9 @@ def critical_features(packet):
     ).astype(np.float32)
 
 
-def collate_contexts(contexts, source_store=None, *, device="cpu", config=None):
+def collate_contexts(
+    contexts, source_store=None, *, device="cpu", config=None, compact_visual=False
+):
     """Pad raw public inputs; trainable features are exclusively model-owned."""
     if not contexts:
         raise ValueError("cannot collate empty decision batch")
@@ -180,12 +182,28 @@ def collate_contexts(contexts, source_store=None, *, device="cpu", config=None):
         forecast_mask=(),
         forecast_tick=(),
     )
+    if compact_visual:
+        shapes.pop("visual")
+        shapes.pop("forecast")
     arrays = {
         k: np.zeros(
             (b, *shape), bool if k.endswith("mask") else (np.int64 if k == "stage" else np.float32)
         )
         for k, shape in shapes.items()
     }
+    frames, frame_ids = [], {}
+    if compact_visual:
+        arrays["visual_index"] = np.full((b, n), -1, np.int64)
+        arrays["forecast_index"] = np.full(b, -1, np.int64)
+
+    def frame_index(event, index=None):
+        value = event.payload["visual"]
+        key = (id(value), index)
+        if key not in frame_ids:
+            frame_ids[key] = len(frames)
+            frames.append(value if index is None else value[index])
+        return frame_ids[key]
+
     for row, context in enumerate(contexts):
         packet = context.state
         arrays["critical"][row] = critical_features(packet)
@@ -196,7 +214,10 @@ def collate_contexts(contexts, source_store=None, *, device="cpu", config=None):
             if ref is None:
                 continue
             event, i = ref
-            arrays["visual"][row, j] = event.payload["visual"][i]
+            if compact_visual:
+                arrays["visual_index"][row, j] = frame_index(event, i)
+            else:
+                arrays["visual"][row, j] = event.payload["visual"][i]
             arrays["visual_proprio"][row, j] = event.payload["proprio"][i]
             arrays["visual_mask"][row, j] = True
             arrays["visual_ticks"][row, j] = event.represented_ticks[i]
@@ -219,11 +240,18 @@ def collate_contexts(contexts, source_store=None, *, device="cpu", config=None):
             arrays["event_ticks"][row, j] = event.available_at[0]
         forecast = context.forecast_ref
         if forecast is not None:
-            arrays["forecast"][row] = forecast.payload["visual"]
+            if compact_visual:
+                arrays["forecast_index"][row] = frame_index(forecast)
+            else:
+                arrays["forecast"][row] = forecast.payload["visual"]
             arrays["forecast_proprio"][row] = forecast.payload["proprio"]
             arrays["forecast_tick"][row] = forecast.represented_ticks[0]
             arrays["forecast_mask"][row] = True
             arrays["forecast_metadata"][row, :3] = [forecast.payload["query_ticks"] / 20, 1, 0]
+    if compact_visual:
+        arrays["visual_pool"] = (
+            np.stack(frames) if frames else np.zeros((1, 2, 196, 384), np.float32)
+        )
     return MemoryBatch(
         {k: torch.as_tensor(v, device=device) for k, v in arrays.items()},
         tuple(c.decision for c in contexts),

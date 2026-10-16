@@ -105,3 +105,38 @@ def test_campaign_reports_actual_exit_status_to_wandb(tmp_path, monkeypatch, fai
     else:
         actor_campaign.main()
     assert exits == [{"exit_code": int(fails)}]
+
+
+def test_campaign_scoring_keeps_rollout_precision_and_causal_inputs(tmp_path):
+    from types import SimpleNamespace
+
+    import numpy as np
+    import torch
+    from attention_fixtures import rich_replay
+
+    from latency_meta_mdp.meta.information.actor_campaign import Campaign
+    from latency_meta_mdp.meta.information.actor_critic import initialize_from_encoder
+    from latency_meta_mdp.meta.information.actor_learning import restore_models
+    from latency_meta_mdp.meta.information.memory import collate_contexts
+
+    config = small_config()
+    replay = rich_replay(config)
+    value = restore_models(initial_state(config, seed=17))["v"]
+    actor = initialize_from_encoder(value)
+    with torch.no_grad():
+        for head in actor.heads:
+            head.weight.normal_(std=0.03)
+    state = dict(config=config, models=dict(actor=actor.state_dict(), v=value.state_dict()))
+    campaign = object.__new__(Campaign)
+    campaign.devices = ["cpu"]
+    campaign.args = SimpleNamespace(
+        microbatch=2, cpu_threads=2, precision="bf16", no_prefetch=False
+    )
+    scored = campaign.score(state, replay, tmp_path / "score", "online", {"test": "public"})
+    with torch.no_grad():
+        expected = actor(
+            collate_contexts(
+                [replay[i]["context"] for i in range(len(replay))], config=config["memory"]
+            )
+        )
+    np.testing.assert_allclose(scored["old_logits"], expected.numpy(), atol=1e-6, rtol=1e-5)

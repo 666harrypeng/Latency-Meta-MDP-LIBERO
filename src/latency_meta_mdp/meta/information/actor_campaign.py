@@ -248,6 +248,8 @@ class Campaign:
         return dict(
             {k: v for k, v in recipe.items() if k in keys},
             microbatch=self.args.microbatch,
+            precision=getattr(self.args, "precision", "fp32"),
+            prefetch=not getattr(self.args, "no_prefetch", False),
             cpu_threads=self.args.cpu_threads,
             seed=self.recipe["seed"],
             **overrides,
@@ -674,6 +676,8 @@ def main():
     parser.add_argument("--cache-dir", required=True)
     parser.add_argument("--gpus", required=True)
     parser.add_argument("--microbatch", type=int, default=2)
+    parser.add_argument("--precision", choices=["fp32", "tf32", "bf16"], default="fp32")
+    parser.add_argument("--no-prefetch", action="store_true")
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument("--prepare-workers", type=int, default=4)
     parser.add_argument("--episode-cache", type=int, default=512)

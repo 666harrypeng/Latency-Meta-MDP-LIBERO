@@ -13,10 +13,10 @@ from latency_meta_mdp.meta.information.actor_critic import (
     categorical,
     returns_to_go,
 )
+from latency_meta_mdp.meta.information.actor_inputs import InputPipeline
 from latency_meta_mdp.meta.information.actor_learning import restore_models
 from latency_meta_mdp.meta.information.config import identity_hash, sha256, validate_binding
 from latency_meta_mdp.meta.information.fqi import model_hash
-from latency_meta_mdp.meta.information.memory import collate_contexts
 from latency_meta_mdp.meta.information.validation import atomic_json
 
 
@@ -70,12 +70,18 @@ def _score_worker(rank, state, replay, devices, microbatch, kind, work, cpu_thre
     # Contiguous episode/context visits avoid thrashing packed feature mmaps.
     indices = np.array_split(np.arange(len(replay)), len(devices))[rank]
     output = {}
-    with torch.inference_mode():
-        for start in range(0, len(indices), microbatch):
-            rows = [replay[int(i)] for i in indices[start : start + microbatch]]
-            batch = collate_contexts(
-                [r["context"] for r in rows], device=device, config=state["config"]["memory"]
-            )
+    with (
+        torch.inference_mode(),
+        InputPipeline(
+            replay,
+            state["config"]["memory"],
+            microbatch=microbatch,
+            pin_memory=device.type == "cuda",
+        ) as inputs,
+    ):
+        for step, prepared in enumerate(inputs.batches(indices, successors=False)):
+            prepared = prepared.to(device)
+            rows, batch = prepared.rows, prepared.context
             value = models["v"](batch)
             if kind == "iql":
                 actions = torch.tensor([r["action"] for r in rows], device=device)
@@ -85,9 +91,10 @@ def _score_worker(rank, state, replay, devices, microbatch, kind, work, cpu_thre
                 values = dict(old_logits=models["actor"](batch), old_values=value)
             for key, val in values.items():
                 output.setdefault(key, []).append(val.cpu().numpy())
-            if start % max(microbatch, 1024 // microbatch * microbatch) == 0:
+            if step % max(1, 1024 // microbatch) == 0:
                 print(
-                    f"ACTOR_SCORE rank={rank} kind={kind} decisions={start}/{len(indices)}",
+                    f"ACTOR_SCORE rank={rank} kind={kind} "
+                    f"decisions={step * microbatch}/{len(indices)}",
                     flush=True,
                 )
     np.savez(

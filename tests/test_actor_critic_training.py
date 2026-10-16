@@ -62,7 +62,14 @@ def test_iql_resume_preserves_optimizers_rng_and_target(tmp_path, resume_world):
     fit("iql", state, replay, tmp_path / "resume", options=dict(opts, updates=1), devices=["cpu"])
     saved = load_state(tmp_path / "resume" / "latest")
     assert saved["step"] == 1 and saved["optimizers"]
-    fit("iql", saved, replay, tmp_path / "resume", options=opts, devices=["cpu"] * resume_world)
+    fit(
+        "iql",
+        saved,
+        replay,
+        tmp_path / "resume",
+        options=dict(opts, precision="fp32"),
+        devices=["cpu"] * resume_world,
+    )
     full, resumed = [load_state(tmp_path / x / "latest") for x in ("full", "resume")]
     for name in full["models"]:
         for key in full["models"][name]:
@@ -228,3 +235,67 @@ def test_ppo_actor_and_critic_match_across_one_and_two_ranks(tmp_path):
                 atol=3e-7,
                 rtol=3e-5,
             )
+
+
+def test_prefetched_iql_matches_reference_updates_and_targets(tmp_path):
+    config = small_config()
+    replay = rich_replay(config)
+    state = initial_state(config, seed=73)
+    options = dict(global_batch=4, microbatch=2, updates=2, cpu_threads=1, learning_rate=1e-4)
+    reference = fit(
+        "iql",
+        state,
+        replay,
+        tmp_path / "reference",
+        options=dict(options, prefetch=False),
+        devices=["cpu"],
+    )
+    optimized = fit(
+        "iql",
+        state,
+        replay,
+        tmp_path / "optimized",
+        options=dict(options, prefetch=True),
+        devices=["cpu"],
+    )
+    assert optimized["optimizer_updates"] == reference["optimizer_updates"]
+    assert optimized["sample_visits"] == reference["sample_visits"] == 8
+    for name in reference["models"]:
+        for key in reference["models"][name]:
+            torch.testing.assert_close(
+                reference["models"][name][key], optimized["models"][name][key], rtol=0, atol=0
+            )
+    assert optimized["metrics"]["input_seconds"] >= 0
+    assert optimized["metrics"]["update_seconds"] > 0
+
+
+def test_unknown_precision_is_rejected_before_creating_workers(tmp_path):
+    config = small_config()
+    with pytest.raises(ValueError, match="precision"):
+        fit(
+            "iql",
+            initial_state(config),
+            rich_replay(config),
+            tmp_path,
+            options=dict(global_batch=4, microbatch=2, updates=1, precision="fp8"),
+            devices=["cpu"],
+        )
+
+
+def test_bf16_iql_keeps_value_head_gradients_after_successor_targets(tmp_path):
+    config = small_config()
+    replay = rich_replay(config)
+    state = initial_state(config, seed=7)
+    for name in ("tq1", "tq2"):
+        state["models"][name]["heads.1.bias"].fill_(0.5)
+    fitted = fit(
+        "iql",
+        state,
+        replay,
+        tmp_path / "bf16",
+        options=dict(global_batch=4, microbatch=2, updates=1, precision="bf16", learning_rate=1e-4),
+        devices=["cpu"],
+        probabilities=np.array([1.0, 0.0, 0.0]),
+    )
+    for key in ("heads.1.weight", "heads.1.bias"):
+        assert not torch.equal(fitted["models"]["v"][key], state["models"]["v"][key])
