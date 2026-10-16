@@ -120,6 +120,75 @@ def test_raw_mmap_retains_events_and_detects_source_mutation(tmp_path):
         load_packed_raw(entry)
 
 
+@pytest.mark.parametrize("exact", [True, False])
+def test_compact_raw_cache_requires_lossless_roundtrip_and_preserves_source(tmp_path, exact):
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.packed_replay import (
+        compact_packed_episode,
+        load_packed_raw,
+        prepare_packed_episode,
+    )
+
+    visual = np.random.default_rng(8).normal(size=(3, 2, 196, 384)).astype(np.float16)
+    visual = visual.astype(np.float32)
+    if not exact:
+        visual[-1, -1, -1, -1] = np.float32(0.12345678)
+    recorder = StageRecorder("compact", action_spec=ActionSpec())
+    recorder.events.append(
+        PublicEvent(
+            "obs", "observe", (10, 0), (2, 6, 10), dict(visual=visual, proprio=np.zeros((3, 16)))
+        )
+    )
+    recorder.start(AttentionPacket(10, "G", decision_key=(10, 1)), 8, forced=False, probability=1.0)
+    recorder.finish(11, terminated=True)
+    source, cache = tmp_path / "source", tmp_path / "cache"
+    save_episode(source, recorder, report={}, binding={"schema_version": 2})
+    original = prepare_packed_episode(
+        source,
+        cache,
+        binding={"schema_version": 2},
+        expected_receipt=sha256(source / "complete.json"),
+        raw=True,
+    )
+    digest = sha256(original.path / "visual.npy")
+    if exact:
+        from concurrent.futures import ThreadPoolExecutor
+        from pathlib import Path
+        from threading import Barrier
+        from unittest.mock import patch
+
+        from latency_meta_mdp.meta.information.packed_replay import CacheBudget
+        from latency_meta_mdp.meta.information.replay_retention import tree_bytes
+
+        budget = CacheBudget(cache, tree_bytes(cache) + 1)
+        assert compact_packed_episode(original, cache, storage_budget=budget) == original
+        barrier, rename = Barrier(2), Path.rename
+
+        def publish(path, destination):
+            barrier.wait(timeout=10)
+            return rename(path, destination)
+
+        with patch.object(Path, "rename", publish), ThreadPoolExecutor(max_workers=2) as workers:
+            futures = [workers.submit(compact_packed_episode, original, cache) for _ in range(2)]
+            results = [future.result() for future in futures]
+        assert results[0] == results[1]
+        compact = results[0]
+    else:
+        compact = compact_packed_episode(original, cache)
+    assert (compact.path != original.path) == exact
+    assert sha256(original.path / "visual.npy") == digest
+    pool = np.load(compact.path / "visual.npy", mmap_mode="r")
+    assert pool.dtype == (np.float16 if exact else np.float32)
+    restored = load_packed_raw(compact)["events"][0].payload["visual"]
+    np.testing.assert_array_equal(restored.astype(np.float32), visual)
+    assert not restored.flags.writeable
+    assert compact_packed_episode(original, cache) == compact
+    (source / "audit.json").write_text("{}")
+    with pytest.raises(ValueError, match="changed"):
+        compact.verify_unchanged()
+
+
 def test_raw_cache_reuses_observation_and_prediction_features_losslessly(tmp_path):
     from latency_meta_mdp.meta.information.config import sha256
     from latency_meta_mdp.meta.information.dataset import save_episode

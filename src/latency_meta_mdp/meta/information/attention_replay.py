@@ -292,7 +292,11 @@ def prepare_attention_replay(
 
     from latency_meta_mdp.meta.information.config import identity_hash, sha256, validate_binding
     from latency_meta_mdp.meta.information.memory_schema import ActionSpec
-    from latency_meta_mdp.meta.information.packed_replay import CacheBudget, prepare_packed_episode
+    from latency_meta_mdp.meta.information.packed_replay import (
+        CacheBudget,
+        compact_packed_episode,
+        prepare_packed_episode,
+    )
     from latency_meta_mdp.meta.information.training import VerifiedReplay
     from latency_meta_mdp.meta.information.validation import atomic_json
 
@@ -352,6 +356,11 @@ def prepare_attention_replay(
             packed.append(entry)
             if progress:
                 progress(dict(phase="prepare_replay", episodes=len(packed), expected=len(entries)))
+        # Required FP32 caches have first claim on the shared byte allowance.
+        def compact(entry):
+            return compact_packed_episode(entry, cache_dir, storage_budget=budget)
+
+        packed = list(pool.map(compact, packed))
     episodes = AttentionEpisodes(
         packed, ActionSpec(**config["actions"]), config["memory"], cache_size=episode_cache_size
     )

@@ -39,11 +39,14 @@ class CacheBudget:
         self.lock = threading.Lock()
         self.reserve(0)
 
-    def reserve(self, size):
+    def reserve(self, size, *, required=True):
         with self.lock:
             if self.used + size > self.maximum:
+                if not required:
+                    return False
                 raise RuntimeError("replay cache storage ceiling reached before array allocation")
             self.used += size
+            return True
 
 
 def _signature(path, names):
@@ -228,6 +231,80 @@ def _load(entry):
         row["next_packet"] = rows[i + 1]["packet"] if i + 1 < len(rows) else None
     entry.verify_unchanged()
     return rows
+
+
+def compact_packed_episode(entry, cache_root, *, storage_budget=None):
+    """Store admitted raw features in half only when every FP32 bit roundtrips.
+
+    Frozen vision services already emit half features, but source packets expose
+    FP32. This is lossless storage, not a change to model or training precision.
+    Keep the original cache and fall back to it for arbitrary FP32 inputs.
+    """
+    if not entry.raw:
+        raise ValueError("compact storage requires raw replay")
+    entry.verify_unchanged()
+    root = Path(cache_root) / "mmap-raw-f16-v1"
+    target = root / entry.path.name
+    original = json.loads((entry.path / "complete.json").read_text())
+    expected = dict(
+        format_version=3,
+        source_receipt_sha256=original["source_receipt_sha256"],
+        binding=original["binding"],
+        parent_receipt_sha256=sha256(entry.path / "complete.json"),
+    )
+    if target.exists():
+        before = _signature(target, _PACKED_FILES)
+        receipt = json.loads((target / "complete.json").read_text())
+        validate_binding(expected, {k: receipt[k] for k in expected})
+        if set(receipt["files"]) != set(_PACKED_FILES):
+            raise ValueError("compact replay file manifest differs")
+        for name, digest in receipt["files"].items():
+            validate_binding(digest, sha256(target / name))
+        if before != _signature(target, _PACKED_FILES):
+            raise ValueError("compact replay changed during verification")
+    else:
+        source = np.load(entry.path / "visual.npy", mmap_mode="r", allow_pickle=False)
+        if source.dtype != np.float32:
+            raise ValueError("compact source must be admitted FP32")
+        for start in range(0, len(source), 32):
+            values = source[start : start + 32]
+            with np.errstate(over="ignore", under="ignore"):
+                restored = values.astype(np.float16).astype(np.float32)
+            if not np.array_equal(values.view(np.uint32), restored.view(np.uint32)):
+                entry.verify_unchanged()
+                return entry
+        if storage_budget is not None and not storage_budget.reserve(
+            source.size * 2 + (entry.path / "records.json").stat().st_size + 65536, required=False
+        ):
+            return entry
+        root.mkdir(parents=True, exist_ok=True)
+        pending = Path(tempfile.mkdtemp(prefix=".pending-", dir=root))
+        try:
+            pool = np.lib.format.open_memmap(
+                pending / "visual.npy", mode="w+", dtype=np.float16, shape=source.shape
+            )
+            for start in range(0, len(source), 32):
+                pool[start : start + 32] = source[start : start + 32]
+            pool.flush()
+            del pool
+            shutil.copyfile(entry.path / "records.json", pending / "records.json")
+            receipt = dict(expected, files={name: sha256(pending / name) for name in _PACKED_FILES})
+            (pending / "complete.json").write_text(json.dumps(receipt, indent=2) + "\n")
+            entry.verify_unchanged()
+            try:
+                pending.rename(target)
+            except OSError as exc:
+                if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                    raise
+                return compact_packed_episode(entry, cache_root, storage_budget=storage_budget)
+        finally:
+            if pending.exists():
+                shutil.rmtree(pending)
+        before = _signature(target, _PACKED_FILES)
+    entry.verify_unchanged()
+    result = PackedEntry(entry.source, target, entry.source_signature, before, raw=True)
+    result.verify_unchanged()
+    return result
 
 
 def load_packed_raw(entry):

@@ -12,7 +12,7 @@ from latency_meta_mdp.meta.information.memory_schema import MemoryBatch
 def transfer_batch(batch, device):
     tensors = {k: v.to(device, non_blocking=True) for k, v in batch.tensors.items()}
     if "visual_pool" in tensors:
-        pool = tensors.pop("visual_pool")
+        pool = tensors.pop("visual_pool").float()
         for name in ("visual", "forecast"):
             index = tensors.pop(name + "_index")
             value = pool[index.clamp_min(0)]

@@ -80,3 +80,21 @@ def test_prefetch_propagates_missing_successor_and_invalid_action():
     with InputPipeline(replay, config["memory"], microbatch=1, prefetch=False) as pipeline:
         with pytest.raises(ValueError, match="illegal"):
             list(pipeline.batches(np.array([0]), successors=False))
+
+
+def test_half_storage_is_restored_to_exact_float32_before_model_input():
+    from latency_meta_mdp.meta.information.actor_inputs import transfer_batch
+    from latency_meta_mdp.meta.information.memory_schema import MemoryBatch
+
+    config = small_config()
+    contexts = [rich_replay(config)[0]["context"]]
+    compact = collate_contexts(contexts, config=config["memory"], compact_visual=True)
+    compact.tensors["visual_pool"] = compact.tensors["visual_pool"].half().float()
+    expected = transfer_batch(compact, "cpu")
+    half = MemoryBatch(
+        dict(compact.tensors, visual_pool=compact.tensors["visual_pool"].half()), compact.refs
+    )
+    result = transfer_batch(half, "cpu")
+    for key in ("visual", "forecast"):
+        assert result.tensors[key].dtype == torch.float32
+        torch.testing.assert_close(result.tensors[key], expected.tensors[key], rtol=0, atol=0)

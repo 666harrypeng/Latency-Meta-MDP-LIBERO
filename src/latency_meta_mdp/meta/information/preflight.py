@@ -1,8 +1,10 @@
 """Read-only checks before local information-scheduler experiments."""
 
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -52,10 +54,50 @@ def verify_runtime_dependencies(root, config):
         raise ValueError(f"runtime dependency outside asset binding: {sorted(missing)}")
 
 
-def verify_assets(root, assets):
+def _asset_signature(path):
+    resolved = path.resolve()
+    stat = resolved.stat()
+    return [
+        str(resolved),
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_size,
+        stat.st_mtime_ns,
+        stat.st_ctime_ns,
+    ]
+
+
+def _asset_digest(path, cache_dir):
+    if cache_dir is None:
+        return sha256(path)
+    before = _asset_signature(path)
+    cache = Path(cache_dir)
+    receipt = cache / (identity_hash(before[0]) + ".json")
+    if receipt.exists():
+        saved = json.loads(receipt.read_text())
+        if saved.get("signature") == before:
+            if _asset_signature(path) != before:
+                raise ValueError("asset changed during cached verification")
+            return saved["sha256"]
+    digest = sha256(path)
+    if _asset_signature(path) != before:
+        raise ValueError("asset changed during content verification")
+    cache.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", dir=cache, prefix=".pending-", delete=False) as f:
+        temporary = Path(f.name)
+        json.dump(dict(signature=before, sha256=digest), f)
+    try:
+        temporary.replace(receipt)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return digest
+
+
+def verify_assets(root, assets, *, cache_dir=None):
+    cache_dir = cache_dir or os.environ.get("META_ASSET_VERIFY_CACHE")
     for relative, expected in assets["files"].items():
         path = Path(root) / relative
-        if not path.is_file() or sha256(path) != expected:
+        if not path.is_file() or _asset_digest(path, cache_dir) != expected:
             raise ValueError(f"asset content differs: {relative}")
     if "paths" in assets:
         for kind in ("conditioned", "clean"):

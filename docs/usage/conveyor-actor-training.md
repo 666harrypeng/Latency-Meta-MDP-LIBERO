@@ -52,6 +52,19 @@ full admitted replay after initial context reconstruction, not just GPU occupanc
 or a small cache-resident fixture. `input_seconds` measures foreground input wait
 and transfer submission, not all background CPU work or synchronized transfer time.
 
+Raw replay can use a separate half-size feature cache when every FP32 feature
+roundtrips through FP16 with identical bits. Arbitrary FP32 episodes keep their
+original cache. Original files and provenance remain intact; cache admission checks
+the derivative hashes too. The compact transport restores FP32 on the accelerator
+before any model operation. This reduces active cache reads and transfer without changing
+features, model precision or sampled decisions; both caches count toward the limit.
+
+`META_ASSET_VERIFY_CACHE=/absolute/node/scratch/verified-assets` lets workers reuse
+full hashes of unchanged frozen assets. Each hit checks resolved path, device,
+inode, size, mtime and ctime against the prior full read and compares its digest to
+the configured hash. Changed files are rehashed; files changing during verification
+are rejected. Source-code hashes and checkpoint file coverage are still checked.
+
 `--rollout-scratch-dir /absolute/node/scratch` stages each in-flight episode locally,
 including source frames, audit and video, then copies it to persistent storage.
 The completion receipt is published only after every copied file passes its hash

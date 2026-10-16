@@ -190,7 +190,10 @@ class BoundedReplay:
                     if str(file) not in retired["files"]:
                         validate_binding(digest, sha256(file))
                         retired["files"][str(file)] = digest
-                doomed_cache.append(self.cache / "mmap-raw-v2" / record["packed_key"])
+                doomed_cache.extend(
+                    self.cache / name / record["packed_key"]
+                    for name in ("mmap-raw-v2", "mmap-raw-f16-v1")
+                )
         # Publish intent first; repeated cleanup after interruption is safe.
         atomic_json(retired_path, retired)
         for name, digest in retired["files"].items():

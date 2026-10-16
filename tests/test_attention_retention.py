@@ -80,6 +80,28 @@ def collection_reference(root, index):
     return dict(path=str(p), manifest_sha256=sha256(p / "cohort.json"), group="latest")
 
 
+def test_retirement_removes_both_cache_formats_and_preserves_recovery_inputs(tmp_path):
+    from latency_meta_mdp.meta.information.replay_retention import BoundedReplay
+
+    retention = BoundedReplay(tmp_path, limits(history_episodes=0), seed=4)
+    formats = ("mmap-raw-v2", "mmap-raw-f16-v1")
+    for index in range(1, 6):
+        retention.select(index, collection(tmp_path, index))
+        records = json.loads((retention.inventory_dir / f"{index:04d}.json").read_text())["records"]
+        for record in records:
+            for name in formats:
+                path = retention.cache / name / record["packed_key"]
+                path.mkdir(parents=True)
+                (path / "visual.npy").write_bytes(b"x")
+        retention.cleanup(index)
+    protected = set()
+    for index in (4, 5):
+        state = json.loads((retention.state_dir / f"{index:04d}.json").read_text())
+        protected.update(r["packed_key"] for batch in state["recent"] for r in batch)
+    for name in formats:
+        assert {p.name for p in (retention.cache / name).iterdir()} == protected
+
+
 def test_journal_distinguishes_retired_payload_from_missing_evidence(tmp_path):
     from latency_meta_mdp.meta.information.campaign import CampaignJournal
     from latency_meta_mdp.meta.information.replay_retention import BoundedReplay

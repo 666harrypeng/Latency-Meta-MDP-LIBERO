@@ -19,6 +19,96 @@ def test_hash_verification_rejects_missing_or_changed_asset(tmp_path):
         verify_assets(tmp_path, assets)
 
 
+def test_asset_digest_cache_reuses_only_unchanged_files_and_expected_hash(tmp_path, monkeypatch):
+    import os
+
+    from latency_meta_mdp.meta.information import preflight
+
+    file, cache = tmp_path / "weights", tmp_path / "verified"
+    file.write_bytes(b"original")
+    assets = {"files": {"weights": preflight.sha256(file)}}
+    digest, calls = preflight.sha256, []
+
+    def counted(path):
+        calls.append(path)
+        return digest(path)
+
+    monkeypatch.setattr(preflight, "sha256", counted)
+    verify_assets(tmp_path, assets, cache_dir=cache)
+    verify_assets(tmp_path, assets, cache_dir=cache)
+    assert len(calls) == 1
+    with pytest.raises(ValueError, match="asset"):
+        verify_assets(tmp_path, {"files": {"weights": "wrong"}}, cache_dir=cache)
+    before = file.stat()
+    file.write_bytes(b"mutated!")
+    os.utime(file, ns=(before.st_atime_ns, before.st_mtime_ns))
+    with pytest.raises(ValueError, match="asset"):
+        verify_assets(tmp_path, assets, cache_dir=cache)
+    assert len(calls) == 2  # ctime catches changes even with restored size/mtime.
+
+
+def test_asset_digest_cache_rejects_mutation_during_hash(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information import preflight
+
+    file = tmp_path / "weights"
+    file.write_bytes(b"original")
+    digest = preflight.sha256(file)
+
+    def changed(path):
+        path.write_bytes(b"mutated!")
+        return digest
+
+    monkeypatch.setattr(preflight, "sha256", changed)
+    with pytest.raises(ValueError, match="changed during"):
+        verify_assets(tmp_path, {"files": {"weights": digest}}, cache_dir=tmp_path / "verified")
+    assert not list((tmp_path / "verified").glob("*.json"))
+
+
+def test_asset_digest_cache_concurrent_first_publish(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from latency_meta_mdp.meta.information import preflight
+
+    file, cache = tmp_path / "weights", tmp_path / "verified"
+    file.write_bytes(b"original")
+    digest, barrier = preflight.sha256(file), Barrier(3)
+
+    def simultaneous(path):
+        barrier.wait(timeout=5)
+        return digest
+
+    monkeypatch.setattr(preflight, "sha256", simultaneous)
+    assets = {"files": {"weights": digest}}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(
+            pool.map(lambda _: verify_assets(tmp_path, assets, cache_dir=cache), range(3))
+        )
+    assert all(result == results[0] for result in results)
+    assert verify_assets(tmp_path, assets, cache_dir=cache) == results[0]
+    assert len(list(cache.iterdir())) == 1
+
+
+def test_asset_digest_cache_does_not_skip_checkpoint_coverage(tmp_path):
+    from latency_meta_mdp.meta.information.config import sha256
+
+    for name in ("conditioned", "clean"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "weights").write_bytes(b"original")
+    assets = {
+        "paths": {name: name for name in ("conditioned", "clean")},
+        "files": {
+            f"{name}/weights": sha256(tmp_path / name / "weights")
+            for name in ("conditioned", "clean")
+        },
+    }
+    cache = tmp_path / "verified"
+    verify_assets(tmp_path, assets, cache_dir=cache)
+    (tmp_path / "conditioned" / "unbound").write_bytes(b"new file")
+    with pytest.raises(ValueError, match="coverage"):
+        verify_assets(tmp_path, assets, cache_dir=cache)
+
+
 def test_experiment_config_rejects_algorithm_and_unknown_nested_keys(tmp_path):
     source = Path("configs/experiments/conveyor_sort/meta_information.yaml")
     config = load_config(source)
