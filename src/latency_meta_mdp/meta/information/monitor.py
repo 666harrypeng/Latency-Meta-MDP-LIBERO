@@ -40,6 +40,7 @@ class IterationValidator:
         gpus=None,
         cpu_threads=4,
         scratch_dir=None,
+        workers_per_gpu=1,
     ):
         self.root = Path(root).resolve()
         self.worker_python = str(worker_python or sys.executable)
@@ -48,6 +49,7 @@ class IterationValidator:
         self.cpu_threads = cpu_threads
         self.gpus = gpus
         self.scratch_dir = scratch_dir
+        self.workers_per_gpu = workers_per_gpu
         self.config_path, self.audit_path = Path(config_path).resolve(), Path(audit_path).resolve()
         self.output_dir = Path(output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -156,6 +158,8 @@ class IterationValidator:
                     str(self.bootstrap_dir),
                     "--cpu-threads",
                     str(self.cpu_threads),
+                    "--rollout-workers-per-gpu",
+                    str(self.workers_per_gpu),
                 ]
             )
         if self.source_manifest is not None:
@@ -297,6 +301,7 @@ def run_monitor_series(
     gpus=None,
     cpu_threads=4,
     scratch_dir=None,
+    workers_per_gpu=1,
 ):
     checkpoint_dir = Path(checkpoint_dir).resolve()
     entries = sorted(checkpoint_dir.glob("iteration-*/complete.json"))
@@ -320,6 +325,7 @@ def run_monitor_series(
         gpus=gpus,
         cpu_threads=cpu_threads,
         scratch_dir=scratch_dir,
+        workers_per_gpu=workers_per_gpu,
     )
     tracker = ValidationTracker(validator.output_dir, protocol=validator.protocol)
     validator.progress = tracker

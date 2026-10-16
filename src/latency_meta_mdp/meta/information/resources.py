@@ -41,6 +41,29 @@ def selected_gpu_processes(inventory, active, *, visible=None, allowed=""):
     return "\n".join(rows)
 
 
+def rollout_sibling_pids(active):
+    """Admit only live siblings of an explicitly identified rollout coordinator.
+
+    The coordinator checks and locks its devices before launching any workers.
+    Workers can then initialize concurrently without admitting unrelated jobs.
+    """
+    parent = os.environ.get("CONVEYOR_ROLLOUT_PARENT_PID")
+    if parent is None:
+        return ""
+    if parent != str(os.getppid()):
+        raise ValueError("rollout coordinator must be the worker's direct parent")
+    siblings = []
+    for line in active.splitlines():
+        pid = line.split(",", 2)[1].strip()
+        try:
+            status = (Path("/proc") / pid / "status").read_text()
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # A completed worker may leave the inventory before inspection.
+        if any(row.split() == ["PPid:", parent] for row in status.splitlines()):
+            siblings.append(pid)
+    return ",".join(siblings)
+
+
 def gpu_processes():
     inventory = subprocess.check_output(
         ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"], text=True
@@ -53,7 +76,11 @@ def gpu_processes():
         inventory,
         active,
         visible=os.environ.get("CUDA_VISIBLE_DEVICES"),
-        allowed=os.environ.get("CONVEYOR_SHARED_GPU_PIDS", ""),
+        allowed=",".join(
+            p
+            for p in (os.environ.get("CONVEYOR_SHARED_GPU_PIDS", ""), rollout_sibling_pids(active))
+            if p
+        ),
     )
     # Preserve the existing parked-learner check (only a synchronous direct parent).
     from latency_meta_mdp.meta.information.preflight import blocking_gpu_processes

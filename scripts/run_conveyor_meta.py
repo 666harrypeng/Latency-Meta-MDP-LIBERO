@@ -50,6 +50,7 @@ def main():
     parser.add_argument("--shard-index", type=int)
     parser.add_argument("--num-shards", type=int)
     parser.add_argument("--rollout-scratch-dir", type=Path)
+    parser.add_argument("--rollout-workers-per-gpu", type=int, default=1)
     parser.add_argument("--train-gpus", help="Physical GPUs for synchronous FQI updates")
     parser.add_argument("--global-batch", type=int, default=4)
     parser.add_argument(
@@ -169,6 +170,7 @@ def main():
                     source_manifest=args.offline_dir / "cohort.json" if args.offline_dir else None,
                     enabled=not args.no_wandb,
                     scratch_dir=args.rollout_scratch_dir,
+                    workers_per_gpu=args.rollout_workers_per_gpu,
                     generation=json.loads(args.generation.read_text()) if args.generation else None,
                 ),
                 indent=2,
@@ -191,6 +193,7 @@ def main():
             gpus=args.gpus,
             cpu_threads=args.cpu_threads,
             scratch_dir=args.rollout_scratch_dir,
+            workers_per_gpu=args.rollout_workers_per_gpu,
         )
     elif args.command in ("cycle-bootstrap", "cycle-collect"):
         if args.checkpoint is None or args.phase is None or args.scene_audit is None:

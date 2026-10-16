@@ -100,6 +100,7 @@ def run_parallel(
     generation=None,
     on_episode=None,
     scratch_dir=None,
+    workers_per_gpu=1,
 ):
     from latency_meta_mdp.meta.cycle_tracking import CycleTracker
     from latency_meta_mdp.meta.information.cycle import prepare_cycle
@@ -112,6 +113,8 @@ def run_parallel(
 
     root, output_dir = Path(root).resolve(), Path(output_dir).resolve()
     devices = gpus.split(",")
+    if type(workers_per_gpu) is not int or workers_per_gpu < 1:
+        raise ValueError("rollout workers per GPU must be positive")
     if not devices or len(set(devices)) != len(devices) or any(not d.isdigit() for d in devices):
         raise ValueError("gpus must be unique physical GPU indices")
     if not Path(bootstrap_dir).is_dir():
@@ -140,8 +143,8 @@ def run_parallel(
                 os.environ["CUDA_VISIBLE_DEVICES"] = previous
         # A resource allocation may exceed a small scientific cohort. Do not
         # invent episodes or start empty model workers to fill that allocation.
-        devices = devices[: len(manifest["episodes"])]
-        for device in sorted(devices, key=int):
+        devices = (devices * workers_per_gpu)[: len(manifest["episodes"])]
+        for device in sorted(set(devices), key=int):
             stack.enter_context(worker_lock(gpu_lock_directory(device)))
         for i in range(len(devices)):
             partition_manifest(manifest, i, len(devices))
@@ -216,6 +219,8 @@ def run_parallel(
                 if source_manifest is not None:
                     command.extend(["--offline-dir", str(Path(source_manifest).resolve().parent)])
                 env = worker_environment(device, cpu_threads=cpu_threads)
+                if workers_per_gpu > 1:
+                    env["CONVEYOR_ROLLOUT_PARENT_PID"] = str(os.getpid())
                 log = (worker / "execution.log").open("a")
                 logs.append(log)
                 processes.append(

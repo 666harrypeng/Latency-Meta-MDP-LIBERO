@@ -52,6 +52,7 @@ def test_monitor_binds_source_manifest_and_forwards_to_evaluator(tmp_path, monke
         worker_python="/custom/bin/python" if parallel else None,
         gpus="4,5,6,7" if parallel else None,
         cpu_threads=7,
+        workers_per_gpu=2,
     )
     assert validator.protocol["source_manifest_sha256"] == sha256(source)
 
@@ -65,6 +66,7 @@ def test_monitor_binds_source_manifest_and_forwards_to_evaluator(tmp_path, monke
             assert "parallel-collect" in command
             assert command[command.index("--gpus") + 1] == "4,5,6,7"
             assert command[command.index("--bootstrap-dir") + 1] == str(bootstrap)
+            assert command[command.index("--rollout-workers-per-gpu") + 1] == "2"
         else:
             assert command[0] == sys.executable
             assert "cycle-collect" in command
@@ -115,11 +117,14 @@ def test_monitor_cli_forwards_offline_manifest(tmp_path, monkeypatch):
             str(tmp_path),
             "--rollout-scratch-dir",
             str(tmp_path / "scratch"),
+            "--rollout-workers-per-gpu",
+            "2",
         ],
     )
     runpy.run_path("scripts/run_conveyor_meta.py", run_name="__main__")
     assert seen["source_manifest"] == tmp_path / "cohort.json"
     assert seen["scratch_dir"] == tmp_path / "scratch"
+    assert seen["workers_per_gpu"] == 2
 
 
 @pytest.mark.skipif(__import__("torch").cuda.is_available() is False, reason="CUDA required")

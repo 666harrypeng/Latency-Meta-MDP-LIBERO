@@ -73,6 +73,14 @@ remain excluded. Scratch is cleaned only after successful publication, and a
 failure receipt records its retained path. Publication time is logged separately
 as `EPISODE_PUBLISH` and included in total episode wall time, not model compute.
 
+`--rollout-workers-per-gpu` defaults to1. A value of2 starts two independent
+resident simulator/model workers per selected GPU for collection and validation.
+Qualify peak memory and complete-cohort throughput before increasing it; models
+are replicated, not jointly batched. The coordinator owns each GPU lock once and
+workers admit only its live child processes. Episode seeds and the frozen policy
+remain fixed. Resume keeps the same total shard count; physical GPU assignments
+may change, but an incomplete cohort cannot silently change its partition.
+
 Replay reconstructs contexts in causal event order. Visual lag lookups use a sorted
 time index while retaining the first actual acquisition of each frame; historical
 queries still filter by availability, including same-tick event ordinals.

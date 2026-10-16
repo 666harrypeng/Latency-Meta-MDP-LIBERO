@@ -126,11 +126,12 @@ def test_worker_tracker_does_not_treat_partial_matrix_as_complete_evaluation(tmp
     assert not (tmp_path / "evaluation.json").exists()
 
 
+@pytest.mark.parametrize("shared", [False, True])
 @pytest.mark.parametrize("failed", [False, True])
 @pytest.mark.parametrize("extra_devices", [False, True])
 @pytest.mark.parametrize("relocated", [False, True, "different_shards"])
 def test_parallel_orchestrator_merges_or_stops_only_its_children(
-    tmp_path, monkeypatch, failed, extra_devices, relocated
+    tmp_path, monkeypatch, failed, extra_devices, relocated, shared
 ):
     from latency_meta_mdp.meta import cycle_tracking
     from latency_meta_mdp.meta.information import cycle, parallel
@@ -178,7 +179,11 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
 
     def launch(command, *, env, **kwargs):
         index = int(command[command.index("--shard-index") + 1])
-        assert env["CUDA_VISIBLE_DEVICES"] == str(4 + index)
+        assert env["CUDA_VISIBLE_DEVICES"] == str(4 if shared else 4 + index)
+        if shared:
+            import os
+
+            assert env["CONVEYOR_ROLLOUT_PARENT_PID"] == str(os.getpid())
         assert command[command.index("--rollout-scratch-dir") + 1] == str(tmp_path / "scratch")
         directory = Path(command[command.index("--output-dir") + 1])
         shard = partition_manifest(manifest, index, 2)
@@ -213,7 +218,8 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
         checkpoint=tmp_path / "checkpoint",
         phase="monitor",
         bootstrap_dir=bootstrap,
-        gpus="4,5,6,7" if extra_devices else "4,5",
+        gpus="4" if shared else ("4,5,6,7" if extra_devices else "4,5"),
+        workers_per_gpu=2 if shared else 1,
         scratch_dir=tmp_path / "scratch",
         enabled=False,
     )
@@ -237,7 +243,7 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
                 json.loads((tmp_path / "result/execution.json").read_text()) == previous_execution
             )
             history = (tmp_path / "result/execution-history.jsonl").read_text().splitlines()
-            assert json.loads(history[-1])["gpus"] == ["4", "5"]
+            assert json.loads(history[-1])["gpus"] == (["4", "4"] if shared else ["4", "5"])
     import os
 
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "0"
@@ -253,3 +259,45 @@ def test_termination_interrupts_coordinator_and_restores_handler():
         with interrupt_on_termination():
             signal.raise_signal(signal.SIGTERM)
     assert signal.getsignal(signal.SIGTERM) == previous
+
+
+def test_shared_rollout_admission_only_accepts_live_siblings(monkeypatch):
+    import os
+    import subprocess
+    import sys
+
+    from latency_meta_mdp.meta.information import resources
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        parent = os.getpid()
+        monkeypatch.setenv("CONVEYOR_ROLLOUT_PARENT_PID", str(parent))
+        monkeypatch.setattr(resources.os, "getppid", lambda: parent)
+        active = f"GPU-a, {child.pid}, python\nGPU-a, 1, unrelated"
+        assert resources.rollout_sibling_pids(active) == str(child.pid)
+        monkeypatch.setenv("CONVEYOR_ROLLOUT_PARENT_PID", str(parent + 1))
+        with pytest.raises(ValueError, match="direct parent"):
+            resources.rollout_sibling_pids(active)
+        monkeypatch.delenv("CONVEYOR_ROLLOUT_PARENT_PID")
+        assert resources.rollout_sibling_pids(active) == ""
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
+
+
+@pytest.mark.parametrize("workers", [0, -1, True, 1.5])
+def test_invalid_rollout_density_is_rejected_before_preflight(tmp_path, workers):
+    from latency_meta_mdp.meta.information.parallel import run_parallel
+
+    with pytest.raises(ValueError, match="workers per GPU"):
+        run_parallel(
+            tmp_path / "config",
+            tmp_path / "out",
+            root=tmp_path,
+            audit_path=tmp_path / "audit",
+            checkpoint=tmp_path / "checkpoint",
+            phase="online",
+            bootstrap_dir=tmp_path,
+            gpus="0",
+            workers_per_gpu=workers,
+        )
