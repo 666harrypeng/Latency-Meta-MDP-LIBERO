@@ -181,8 +181,8 @@ def test_compact_raw_cache_requires_lossless_roundtrip_and_preserves_source(tmp_
     pool = np.load(compact.path / "visual.npy", mmap_mode="r")
     assert pool.dtype == (np.float16 if exact else np.float32)
     restored = load_packed_raw(compact)["events"][0].payload["visual"]
-    np.testing.assert_array_equal(restored.astype(np.float32), visual)
-    assert not restored.flags.writeable
+    np.testing.assert_array_equal(np.asarray(restored, dtype=np.float32), visual)
+    assert all(not frame.flags.writeable for frame in restored)
     assert compact_packed_episode(original, cache) == compact
     (source / "audit.json").write_text("{}")
     with pytest.raises(ValueError, match="changed"):
@@ -251,6 +251,112 @@ def test_raw_cache_reuses_observation_and_prediction_features_losslessly(tmp_pat
     np.testing.assert_array_equal(decoded["events"][1].payload["visual"], visual[0])
     np.testing.assert_array_equal(decoded["rows"][0]["packet"].current_tokens, visual[-1])
     np.testing.assert_array_equal(decoded["rows"][0]["packet"].forecast_tokens, visual[0])
+
+
+def test_compact_cache_deduplicates_frames_without_merging_observation_events(tmp_path):
+    import torch
+    from attention_fixtures import small_config
+
+    from latency_meta_mdp.meta.information.actor_inputs import transfer_batch
+    from latency_meta_mdp.meta.information.attention_replay import contexts_from_raw
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.memory import collate_contexts
+    from latency_meta_mdp.meta.information.packed_replay import (
+        compact_packed_episode,
+        load_packed_raw,
+        prepare_packed_episode,
+    )
+
+    frames = np.arange(4, dtype=np.float32)[:, None, None, None] * np.ones((4, 2, 196, 384))
+    frames[0, 0, 0, 0] = -0.0
+    rec = StageRecorder("overlap", action_spec=ActionSpec())
+    rec.start(AttentionPacket(9, "G", decision_key=(9, 0)), 0, forced=False, probability=1.0)
+    for tick, selection in [(10, [0, 1, 2]), (14, [1, 2, 3])]:
+        rec.events.append(
+            PublicEvent(
+                str(tick),
+                "observe",
+                (tick, 0),
+                (tick - 8, tick - 4, tick),
+                dict(visual=frames[selection], proprio=np.full((3, 16), tick)),
+            )
+        )
+        rec.start(
+            AttentionPacket(
+                tick,
+                "G",
+                decision_key=(tick, 1),
+                current_tokens=frames[selection[-1]],
+                current_tick=tick,
+            ),
+            0,
+            forced=False,
+            probability=1.0,
+        )
+    rec.events.append(
+        PublicEvent(
+            "forecast",
+            "predict",
+            (14, 2),
+            (34,),
+            dict(
+                visual=frames[3],
+                proprio=np.zeros(16),
+                source_tick=14,
+                query_ticks=20,
+                buffer_version=0,
+                prefix_hash="prefix",
+            ),
+        )
+    )
+    rec.start(
+        AttentionPacket(
+            14,
+            "P",
+            decision_key=(14, 3),
+            forecast_tokens=frames[3],
+            forecast_tick=14,
+            forecast_buffer_version=0,
+        ),
+        10,
+        forced=False,
+        probability=1.0,
+    )
+    rec.finish(15, terminated=True)
+    source, cache = tmp_path / "source", tmp_path / "cache"
+    save_episode(source, rec, report={}, binding={})
+    original = prepare_packed_episode(
+        source, cache, binding={}, expected_receipt=sha256(source / "complete.json"), raw=True
+    )
+    compact = compact_packed_episode(original, cache)
+    assert np.load(compact.path / "visual.npy", mmap_mode="r").shape[0] == 4
+    decoded = load_packed_raw(compact)
+    assert [e.available_at for e in decoded["events"]] == [(10, 0), (14, 0), (14, 2)]
+    np.testing.assert_array_equal(decoded["events"][-1].payload["visual"], frames[3])
+    np.testing.assert_array_equal(decoded["rows"][-1]["packet"].forecast_tokens, frames[3])
+    np.testing.assert_array_equal(decoded["rows"][-2]["packet"].current_tokens, frames[3])
+    for event, selection in zip(decoded["events"][:2], ([0, 1, 2], [1, 2, 3]), strict=True):
+        restored = np.asarray(event.payload["visual"], dtype=np.float32)
+        assert np.array_equal(
+            restored.view(np.uint32), frames[selection].astype(np.float32).view(np.uint32)
+        )
+        assert all(not frame.flags.writeable for frame in event.payload["visual"])
+    rows = [
+        contexts_from_raw(load_packed_raw(entry), ActionSpec(), config=small_config()["memory"])
+        for entry in (original, compact)
+    ]
+    batches = [
+        transfer_batch(
+            collate_contexts(
+                [r["context"] for r in data], config=small_config()["memory"], compact_visual=True
+            ),
+            "cpu",
+        )
+        for data in rows
+    ]
+    for key in batches[0].tensors:
+        torch.testing.assert_close(batches[0].tensors[key], batches[1].tensors[key], rtol=0, atol=0)
 
 
 def test_evaluation_trace_keeps_decisions_and_actions_without_replay_features(tmp_path):

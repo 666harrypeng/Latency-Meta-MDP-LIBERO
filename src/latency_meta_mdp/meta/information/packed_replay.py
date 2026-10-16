@@ -243,11 +243,11 @@ def compact_packed_episode(entry, cache_root, *, storage_budget=None):
     if not entry.raw:
         raise ValueError("compact storage requires raw replay")
     entry.verify_unchanged()
-    root = Path(cache_root) / "mmap-raw-f16-v1"
+    root = Path(cache_root) / "mmap-raw-f16-v2"
     target = root / entry.path.name
     original = json.loads((entry.path / "complete.json").read_text())
     expected = dict(
-        format_version=3,
+        format_version=4,
         source_receipt_sha256=original["source_receipt_sha256"],
         binding=original["binding"],
         parent_receipt_sha256=sha256(entry.path / "complete.json"),
@@ -266,6 +266,7 @@ def compact_packed_episode(entry, cache_root, *, storage_budget=None):
         source = np.load(entry.path / "visual.npy", mmap_mode="r", allow_pickle=False)
         if source.dtype != np.float32:
             raise ValueError("compact source must be admitted FP32")
+        unique, remap, hashes = [], [], {}
         for start in range(0, len(source), 32):
             values = source[start : start + 32]
             with np.errstate(over="ignore", under="ignore"):
@@ -273,21 +274,53 @@ def compact_packed_episode(entry, cache_root, *, storage_budget=None):
             if not np.array_equal(values.view(np.uint32), restored.view(np.uint32)):
                 entry.verify_unchanged()
                 return entry
+            for offset, value in enumerate(values):
+                digest = hashlib.sha256(value).digest()
+                candidates = hashes.setdefault(digest, [])
+                # Compare actual bits too; a hash never authorizes a lossy merge.
+                index = next(
+                    (
+                        i
+                        for i in candidates
+                        if np.array_equal(source[unique[i]].view(np.uint32), value.view(np.uint32))
+                    ),
+                    None,
+                )
+                if index is None:
+                    index = len(unique)
+                    unique.append(start + offset)
+                    candidates.append(index)
+                remap.append(index)
+        records = json.loads((entry.path / "records.json").read_text())
+        for row in records["rows"]:
+            for key, value in row["packet"].items():
+                if key.endswith("_tokens") and value is not None:
+                    row["packet"][key] = remap[value]
+        for event in records["events"]:
+            if event["kind"] in ("observe", "predict"):
+                start, count = event["payload"]["visual"]
+                event["payload"]["visual"] = [remap[i] for i in range(start, start + count)]
+        records["indexed_visuals"] = True
+        records_json = json.dumps(records, allow_nan=False)
         if storage_budget is not None and not storage_budget.reserve(
-            source.size * 2 + (entry.path / "records.json").stat().st_size + 65536, required=False
+            len(unique) * 2 * 196 * 384 * 2 + len(records_json.encode()) + 65536,
+            required=False,
         ):
             return entry
         root.mkdir(parents=True, exist_ok=True)
         pending = Path(tempfile.mkdtemp(prefix=".pending-", dir=root))
         try:
             pool = np.lib.format.open_memmap(
-                pending / "visual.npy", mode="w+", dtype=np.float16, shape=source.shape
+                pending / "visual.npy",
+                mode="w+",
+                dtype=np.float16,
+                shape=(len(unique), *source.shape[1:]),
             )
-            for start in range(0, len(source), 32):
-                pool[start : start + 32] = source[start : start + 32]
+            for start in range(0, len(unique), 32):
+                pool[start : start + 32] = source[unique[start : start + 32]]
             pool.flush()
             del pool
-            shutil.copyfile(entry.path / "records.json", pending / "records.json")
+            (pending / "records.json").write_text(records_json)
             receipt = dict(expected, files={name: sha256(pending / name) for name in _PACKED_FILES})
             (pending / "complete.json").write_text(json.dumps(receipt, indent=2) + "\n")
             entry.verify_unchanged()
@@ -346,10 +379,18 @@ def load_packed_raw(entry):
     for value in data["events"]:
         payload = value["payload"]
         if value["kind"] in ("observe", "predict"):
-            start, count = payload["visual"]
-            payload["visual"] = (
-                pool[start : start + count] if value["kind"] == "observe" else pool[start]
-            )
+            if data.get("indexed_visuals"):
+                indices = payload["visual"]
+                payload["visual"] = (
+                    tuple(pool[i] for i in indices)
+                    if value["kind"] == "observe"
+                    else pool[indices[0]]
+                )
+            else:
+                start, count = payload["visual"]
+                payload["visual"] = (
+                    pool[start : start + count] if value["kind"] == "observe" else pool[start]
+                )
         for name in ("proprio", "action"):
             if isinstance(payload.get(name), list):
                 payload[name] = np.asarray(payload[name], dtype=np.float32)

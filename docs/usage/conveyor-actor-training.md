@@ -58,6 +58,9 @@ original cache. Original files and provenance remain intact; cache admission che
 the derivative hashes too. The compact transport restores FP32 on the accelerator
 before any model operation. This reduces active cache reads and transfer without changing
 features, model precision or sampled decisions; both caches count toward the limit.
+The indexed compact format also stores bit-identical frames once per episode.
+Observation events, acquisition times and proprio remain separate; observation
+groups are read as immutable frame views, without expanding them back into RAM.
 
 `META_ASSET_VERIFY_CACHE=/absolute/node/scratch/verified-assets` lets workers reuse
 full hashes of unchanged frozen assets. Each hit checks resolved path, device,
