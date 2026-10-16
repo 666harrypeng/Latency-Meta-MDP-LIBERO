@@ -1,6 +1,8 @@
 """Explicit scene-grouped starter cohort and immutable completion receipts."""
 
 import json
+import shutil
+import tempfile
 from pathlib import Path
 
 from latency_meta_mdp.meta.information.config import identity_hash, sha256, validate_binding
@@ -91,6 +93,28 @@ def complete_attempt(path, *, binding):
     temporary.replace(path / "complete.json")
 
 
+def publish_attempt(source, destination, *, binding):
+    """Copy a finished scratch attempt; publish completion only after durable hashes match."""
+    source, destination = Path(source), Path(destination)
+    if any(destination.iterdir()):
+        raise FileExistsError("attempt publication requires an empty destination")
+    receipt = json.loads((source / "complete.json").read_text())
+    validate_binding(binding, receipt["binding"])
+    for relative, expected in receipt["files"].items():
+        origin, target = source / relative, destination / relative
+        if not origin.resolve().is_relative_to(
+            source.resolve()
+        ) or not target.resolve().is_relative_to(destination.resolve()):
+            raise ValueError("completion file escapes episode")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(origin, target)
+        if sha256(target) != expected:
+            raise ValueError("published episode hash mismatch")
+    from latency_meta_mdp.meta.information.validation import atomic_json
+
+    atomic_json(destination / "complete.json", receipt)
+
+
 def prepare_cohort(config_path, output_dir, *, root, audit_path):
     from latency_meta_mdp.meta.information.config import load_config
     from latency_meta_mdp.meta.information.preflight import preflight
@@ -156,9 +180,16 @@ def prepare_bootstraps(config_path, output_dir, *, root, audit_path, cycle=None)
 
 
 def collect_cohort(
-    config_path, output_dir, *, root, audit_path, limit=None, cycle=None, on_episode=None
+    config_path,
+    output_dir,
+    *,
+    root,
+    audit_path,
+    limit=None,
+    cycle=None,
+    on_episode=None,
+    scratch_dir=None,
 ):
-    import shutil
     from time import perf_counter
 
     from latency_meta_mdp.envs.conveyor.config import load_conveyor_spec
@@ -177,6 +208,9 @@ def collect_cohort(
     if limit is not None and (type(limit) is not int or limit < 1):
         raise ValueError("collection limit must be positive")
     spec = load_conveyor_spec(root / config["task_config"])
+    if scratch_dir is not None:
+        scratch_dir = Path(scratch_dir).resolve()
+        scratch_dir.mkdir(parents=True, exist_ok=True)
     episodes_dir = output_dir / "episodes"
     completed = []
     pending = []
@@ -201,6 +235,15 @@ def collect_cohort(
             if shutil.disk_usage(output_dir).free < 40 * 1024**3:
                 raise RuntimeError("less than 40GiB free: stop new episode admissions")
             attempt = next_attempt(episodes_dir, episode["episode_id"])
+            work = attempt
+            if scratch_dir is not None:
+                if shutil.disk_usage(scratch_dir).free < 40 * 1024**3:
+                    raise RuntimeError("less than 40GiB scratch free: stop new episode admissions")
+                work = Path(tempfile.mkdtemp(prefix="conveyor-episode-", dir=scratch_dir))
+                print(
+                    "EPISODE_STAGING " + json.dumps(dict(attempt=str(attempt), scratch=str(work))),
+                    flush=True,
+                )
             started = perf_counter()
             scheduler, learned = None, None
             if episode["behavior"] in ("fqi", "actor"):
@@ -226,7 +269,7 @@ def collect_cohort(
                 result = run_episode(
                     root,
                     config,
-                    attempt,
+                    work,
                     services,
                     code_hash=manifest["binding"]["code_hash"],
                     maximum_steps=spec.supply_ticks + spec.drain_ticks,
@@ -251,7 +294,26 @@ def collect_cohort(
                     raise ValueError(
                         "episode failed collection contract; preserve attempt for audit"
                     )
-                complete_attempt(attempt, binding=dict(cohort=manifest["binding"], episode=episode))
+                binding = dict(cohort=manifest["binding"], episode=episode)
+                complete_attempt(work, binding=binding)
+                if work != attempt:
+                    publish_started = perf_counter()
+                    publish_attempt(work, attempt, binding=binding)
+                    try:
+                        shutil.rmtree(work)
+                    except OSError as error:
+                        print(
+                            "EPISODE_SCRATCH_RETAINED "
+                            + json.dumps(dict(scratch=str(work), error=repr(error))),
+                            flush=True,
+                        )
+                    print(
+                        "EPISODE_PUBLISH "
+                        + json.dumps(
+                            dict(attempt=str(attempt), seconds=perf_counter() - publish_started)
+                        ),
+                        flush=True,
+                    )
                 completed.append(str(attempt.relative_to(output_dir)))
                 progress = dict(
                     completed=len(completed),
@@ -270,7 +332,11 @@ def collect_cohort(
             except BaseException as error:
                 (attempt / "failure.json").write_text(
                     json.dumps(
-                        dict(error=repr(error), scope="interrupted attempt, excluded from training")
+                        dict(
+                            error=repr(error),
+                            scratch=str(work),
+                            scope="interrupted attempt, excluded from training",
+                        )
                     )
                     + "\n"
                 )

@@ -79,3 +79,41 @@ def test_streaming_and_reconstructed_history_have_identical_decision_inputs():
         b = collate_contexts([replay.context(ref, packet)], device="cpu")
         for name in a.tensors:
             torch.testing.assert_close(a.tensors[name], b.tensors[name])
+
+
+def test_lag_lookup_matches_reference_with_late_frames_and_historical_queries():
+    from latency_meta_mdp.meta.information.memory import MemoryStore
+
+    store = MemoryStore()
+    store.reset("one")
+    events = [
+        observation(str(i), 20 * i + 10, 1, [20 * i, 20 * i + 5, 20 * i + 10]) for i in range(24)
+    ]
+    # Older represented time can first become visible in a later observation.
+    events.append(observation("late", 480, 1, [3, 479, 480]))
+    for event in events:
+        store.ingest(event)
+    for tick, ordinal in [(480, 2), (10, 1), (10, 2), (100, 0), (210, 2), (480, 1)]:
+        packet = AttentionPacket(tick, "G", decision_key=(tick, ordinal))
+        context = store.context(DecisionRef("one", 0), packet)
+        visible = [e for e in events if e.available_at < packet.decision_key]
+        frames = {}
+        for event in visible:
+            for i, source_tick in enumerate(event.represented_ticks):
+                frames.setdefault(source_tick, (event, i))
+        dense = list(visible[-1].represented_ticks[-3:]) if visible else []
+        selected = set(dense)
+        expected = [frames[t] for t in dense] + [None] * (3 - len(dense))
+        recent = [t for t in sorted(frames, reverse=True) if t not in selected][:5]
+        selected.update(recent)
+        expected += [frames[t] for t in recent] + [None] * (5 - len(recent))
+        for lag in store.config["lag_seconds"]:
+            candidates = [t for t in frames if t <= tick - lag / 0.02 and t not in selected]
+            chosen = max(candidates) if candidates else None
+            expected.append(frames[chosen] if chosen is not None else None)
+            selected.add(chosen)
+
+        def identity(refs):
+            return [None if r is None else (r[0].event_id, r[1]) for r in refs]
+
+        assert identity(context.visual_refs) == identity(expected)

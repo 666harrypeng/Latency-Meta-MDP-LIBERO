@@ -1,6 +1,7 @@
 """Causal, reconstructible history shared by rollout and replay."""
 
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right, insort
+from itertools import islice
 
 import numpy as np
 import torch
@@ -47,6 +48,7 @@ class MemoryStore:
         self.events = []
         self._ids = set()
         self._frames = {}
+        self._frame_ticks = []
         self._by_kind = {name: [] for name in ("observe", "predict", "execute", "schedule")}
         self._keys = {name: [] for name in self._by_kind}
 
@@ -67,7 +69,9 @@ class MemoryStore:
             self._keys[kind].append(event.available_at)
         if event.kind == "observe":
             for i, tick in enumerate(event.represented_ticks):
-                self._frames.setdefault(tick, (event, i))
+                if tick not in self._frames:
+                    self._frames[tick] = (event, i)
+                    insort(self._frame_ticks, tick)
 
     def context(self, ref, state):
         if ref.episode_id != self.episode_id:
@@ -78,7 +82,12 @@ class MemoryStore:
             end = bisect_left(self._keys[kind], key)
             return self._by_kind[kind][max(0, end - count) : end]
 
-        frames = {t: ref for t, ref in self._frames.items() if ref[0].available_at < key}
+        if not self.events or self.events[-1].available_at < key:
+            frames, frame_ticks = self._frames, self._frame_ticks
+        else:
+            # Historical queries still enforce the exact event-availability boundary.
+            frames = {t: ref for t, ref in self._frames.items() if ref[0].available_at < key}
+            frame_ticks = sorted(frames)
         observations = visible("observe", 1)
         latest = observations[-1].represented_ticks if observations else ()
         executions = visible("execute", self.config["execution_records"])
@@ -89,13 +98,15 @@ class MemoryStore:
         selected = set(dense)
         refs = [frames[t] for t in dense] + [None] * (3 - len(dense))
         recent_count = self.config["visual_frames"] - 3 - len(self.config["lag_seconds"])
-        recent = [t for t in sorted(frames, reverse=True) if t not in selected][:recent_count]
+        recent = list(islice((t for t in reversed(frame_ticks) if t not in selected), recent_count))
         selected.update(recent)
         refs += [frames[t] for t in recent] + [None] * (recent_count - len(recent))
         for lag in self.config["lag_seconds"]:
             before = key[0] - lag / self.config["tick_seconds"]
-            candidates = [t for t in frames if t <= before and t not in selected]
-            tick = max(candidates) if candidates else None
+            index = bisect_right(frame_ticks, before) - 1
+            while index >= 0 and frame_ticks[index] in selected:
+                index -= 1
+            tick = frame_ticks[index] if index >= 0 else None
             refs.append(frames[tick] if tick is not None else None)
             if tick is not None:
                 selected.add(tick)

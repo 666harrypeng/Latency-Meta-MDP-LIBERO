@@ -113,10 +113,13 @@ def test_monitor_cli_forwards_offline_manifest(tmp_path, monkeypatch):
             "bootstrap",
             "--offline-dir",
             str(tmp_path),
+            "--rollout-scratch-dir",
+            str(tmp_path / "scratch"),
         ],
     )
     runpy.run_path("scripts/run_conveyor_meta.py", run_name="__main__")
     assert seen["source_manifest"] == tmp_path / "cohort.json"
+    assert seen["scratch_dir"] == tmp_path / "scratch"
 
 
 @pytest.mark.skipif(__import__("torch").cuda.is_available() is False, reason="CUDA required")

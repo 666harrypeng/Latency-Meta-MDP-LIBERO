@@ -99,6 +99,7 @@ def run_parallel(
     enabled=True,
     generation=None,
     on_episode=None,
+    scratch_dir=None,
 ):
     from latency_meta_mdp.meta.cycle_tracking import CycleTracker
     from latency_meta_mdp.meta.information.cycle import prepare_cycle
@@ -206,6 +207,8 @@ def run_parallel(
                     str(len(devices)),
                     "--no-wandb",
                 ]
+                if scratch_dir is not None:
+                    command.extend(["--rollout-scratch-dir", str(Path(scratch_dir).resolve())])
                 if not baselines:
                     command.append("--meta-only")
                 if generation is not None:

@@ -223,6 +223,7 @@ class Campaign:
             worker_python=sys.executable,
             gpus=args.gpus,
             cpu_threads=args.cpu_threads,
+            scratch_dir=args.rollout_scratch_dir,
             prune=False,
             progress=lambda e: self.tracker.event(
                 "validation", dict(iteration=e["iteration"], **e.get("metrics", {}))
@@ -332,6 +333,7 @@ class Campaign:
             worker_python=sys.executable,
             cpu_threads=self.args.cpu_threads,
             enabled=False,
+            scratch_dir=self.args.rollout_scratch_dir,
             generation=generation(self.config, name, count, trial),
             on_episode=lambda _: capacity(
                 self.output,
@@ -678,6 +680,7 @@ def main():
     parser.add_argument("--microbatch", type=int, default=2)
     parser.add_argument("--precision", choices=["fp32", "tf32", "bf16"], default="fp32")
     parser.add_argument("--no-prefetch", action="store_true")
+    parser.add_argument("--rollout-scratch-dir", type=Path)
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument("--prepare-workers", type=int, default=4)
     parser.add_argument("--episode-cache", type=int, default=512)

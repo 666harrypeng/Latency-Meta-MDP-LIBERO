@@ -98,11 +98,13 @@ def contexts_from_raw(raw, action_spec, *, config=None):
     events.sort(key=lambda e: e.available_at)
     memory = MemoryStore(action_spec, config=config)
     memory.reset(raw["episode_id"])
-    for event in events:
-        memory.ingest(event)
+    cursor = 0
     decisions = decision_view(rows)
     raw_indices = {id(row["packet"]): i for i, row in enumerate(rows)}
     for row in decisions:
+        while cursor < len(events) and events[cursor].available_at < row["packet"].decision_key:
+            memory.ingest(events[cursor])
+            cursor += 1
         row["context"] = memory.context(
             DecisionRef(raw["episode_id"], raw_indices[id(row["packet"])]), row["packet"]
         )
@@ -111,6 +113,8 @@ def contexts_from_raw(raw, action_spec, *, config=None):
             row["packet"].remaining,
             forecast_fresh=row["packet"].forecast_fresh,
         )
+    for event in events[cursor:]:
+        memory.ingest(event)  # Validate the remaining timeline, including terminal events.
     for i, row in enumerate(decisions):
         row["next_context"] = decisions[i + 1]["context"] if i + 1 < len(decisions) else None
         row["next_legal"] = (

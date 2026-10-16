@@ -179,6 +179,7 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
     def launch(command, *, env, **kwargs):
         index = int(command[command.index("--shard-index") + 1])
         assert env["CUDA_VISIBLE_DEVICES"] == str(4 + index)
+        assert command[command.index("--rollout-scratch-dir") + 1] == str(tmp_path / "scratch")
         directory = Path(command[command.index("--output-dir") + 1])
         shard = partition_manifest(manifest, index, 2)
         (directory / "cohort.json").write_text(json.dumps(shard))
@@ -213,6 +214,7 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
         phase="monitor",
         bootstrap_dir=bootstrap,
         gpus="4,5,6,7" if extra_devices else "4,5",
+        scratch_dir=tmp_path / "scratch",
         enabled=False,
     )
     if relocated == "different_shards":

@@ -45,7 +45,8 @@ def test_resume_preserves_incomplete_attempt_and_checks_complete_files(tmp_path)
         verify_complete(second, binding="x")
 
 
-def test_collection_resume_skips_only_verified_complete_attempts(tmp_path, monkeypatch):
+@pytest.mark.parametrize("staged", [False, True, "cleanup_failure"])
+def test_collection_resume_skips_only_verified_complete_attempts(tmp_path, monkeypatch, staged):
     from contextlib import contextmanager
     from types import SimpleNamespace
 
@@ -77,20 +78,104 @@ def test_collection_resume_skips_only_verified_complete_attempts(tmp_path, monke
         yield object()
 
     monkeypatch.setattr(services, "frozen_services", frozen)
+    if staged == "cleanup_failure":
+
+        def failed_cleanup(path):
+            raise OSError("temporary cleanup failure")
+
+        monkeypatch.setattr(cohort.shutil, "rmtree", failed_cleanup)
     calls = []
+    scratch = tmp_path / "scratch" if staged else None
 
     def run(root, config, path, service, **kwargs):
         calls.append(kwargs["seed"])
+        assert path.is_relative_to(scratch if staged else tmp_path / "episodes")
         (path / "data").write_text("ok")
         return dict(terminated=True, truncated=False, starvation_ticks=0)
 
     monkeypatch.setattr(collection, "run_episode", run)
-    cohort.collect_cohort(None, tmp_path, root=tmp_path, audit_path=None, limit=1)
+    cohort.collect_cohort(
+        None, tmp_path, root=tmp_path, audit_path=None, limit=1, scratch_dir=scratch
+    )
     assert calls == [0]
-    cohort.collect_cohort(None, tmp_path, root=tmp_path, audit_path=None, limit=1)
+    cohort.collect_cohort(
+        None, tmp_path, root=tmp_path, audit_path=None, limit=1, scratch_dir=scratch
+    )
     assert calls == [0, 1]
-    cohort.collect_cohort(None, tmp_path, root=tmp_path, audit_path=None)
+    cohort.collect_cohort(None, tmp_path, root=tmp_path, audit_path=None, scratch_dir=scratch)
     assert calls == [0, 1]
+    if staged:
+        assert bool(list(scratch.iterdir())) == (staged == "cleanup_failure")
+        assert not list((tmp_path / "episodes").rglob("failure.json"))
     (tmp_path / "episodes/0-nominal-lazy/attempt-000/data").write_text("tampered")
     with pytest.raises(ValueError, match="hash"):
-        cohort.collect_cohort(None, tmp_path, root=tmp_path, audit_path=None)
+        cohort.collect_cohort(None, tmp_path, root=tmp_path, audit_path=None, scratch_dir=scratch)
+
+
+def test_staged_attempt_publishes_receipt_only_after_verified_copy(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information import cohort
+
+    source, destination = tmp_path / "scratch", tmp_path / "persistent"
+    source.mkdir()
+    destination.mkdir()
+    (source / "payload").write_bytes(b"complete trajectory")
+    cohort.complete_attempt(source, binding={"episode": 1})
+    copied = cohort.shutil.copyfile
+
+    def copy(left, right):
+        assert not (destination / "complete.json").exists()
+        return copied(left, right)
+
+    monkeypatch.setattr(cohort.shutil, "copyfile", copy)
+    cohort.publish_attempt(source, destination, binding={"episode": 1})
+    assert cohort.verify_complete(destination, binding={"episode": 1})
+    assert (source / "payload").exists()  # Caller cleans scratch only after publication.
+    with pytest.raises(FileExistsError):
+        cohort.publish_attempt(source, destination, binding={"episode": 1})
+
+
+def test_staged_attempt_copy_failure_never_publishes_complete(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information import cohort
+
+    source, destination = tmp_path / "scratch", tmp_path / "persistent"
+    source.mkdir()
+    destination.mkdir()
+    (source / "payload").write_bytes(b"complete trajectory")
+    cohort.complete_attempt(source, binding={"episode": 1})
+
+    def corrupt(left, right):
+        right.write_bytes(b"corrupt copy")
+
+    monkeypatch.setattr(cohort.shutil, "copyfile", corrupt)
+    with pytest.raises(ValueError, match="hash"):
+        cohort.publish_attempt(source, destination, binding={"episode": 1})
+    assert not (destination / "complete.json").exists()
+    assert cohort.verify_complete(source, binding={"episode": 1})
+
+
+def test_collect_cli_forwards_runtime_scratch(tmp_path, monkeypatch):
+    import runpy
+    import sys
+
+    from latency_meta_mdp.meta.information import cohort
+
+    seen = []
+    monkeypatch.setattr(cohort, "collect_cohort", lambda *a, **kw: seen.append(kw) or {})
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_conveyor_meta.py",
+            "collect",
+            "--config",
+            "config",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--scene-audit",
+            "audit",
+            "--rollout-scratch-dir",
+            str(tmp_path / "scratch"),
+        ],
+    )
+    runpy.run_path("scripts/run_conveyor_meta.py", run_name="__main__")
+    assert seen[0]["scratch_dir"] == tmp_path / "scratch"

@@ -51,3 +51,15 @@ when restoring a learner checkpoint. Compare complete-update throughput on the
 full admitted replay after initial context reconstruction, not just GPU occupancy
 or a small cache-resident fixture. `input_seconds` measures foreground input wait
 and transfer submission, not all background CPU work or synchronized transfer time.
+
+`--rollout-scratch-dir /absolute/node/scratch` stages each in-flight episode locally,
+including source frames, audit and video, then copies it to persistent storage.
+The completion receipt is published only after every copied file passes its hash
+check. Completed episodes resume from persistent storage; interrupted attempts
+remain excluded. Scratch is cleaned only after successful publication, and a
+failure receipt records its retained path. Publication time is logged separately
+as `EPISODE_PUBLISH` and included in total episode wall time, not model compute.
+
+Replay reconstructs contexts in causal event order. Visual lag lookups use a sorted
+time index while retaining the first actual acquisition of each frame; historical
+queries still filter by availability, including same-tick event ordinals.
