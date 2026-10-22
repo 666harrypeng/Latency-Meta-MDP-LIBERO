@@ -6,6 +6,13 @@ recurrent hidden state. Select
 The [v1 workflow](conveyor-meta.md) remains available for existing checkpoints.
 These architectures have different checkpoint and action schemas.
 
+This page describes the implemented LIBERO attention/FQI contract. For the
+preserved Ideas2 execution version, results, and resume prerequisites, start with
+the [legacy handoff](legacy-fqi-handoff.md). The newer local maintenance checkout
+is not the source tree bound to that campaign. Do not copy it over the remote
+run. The separate Isaac/PPO design has different contracts and is not implemented
+by changing this campaign's configuration.
+
 ## Inputs and decisions
 
 The model has eight 256D decision queries, four attention heads, two history

@@ -36,6 +36,11 @@
 
 ## Development
 
+Use English for all tracked first-party code, comments, documentation, and text
+in generated figures. Preserve historical evidence and third-party sources in
+their original form; do not rewrite Git history or experiment receipts to apply
+this convention. See `docs/usage/legacy-fqi-handoff.md` for maintenance and recovery.
+
 Keep implementation in the corresponding package and entrypoint scripts thin.
 Validate changes with relevant tests and Ruff. Commit or push only when requested;
 running a training assignment does not require code edits or Git publication.

@@ -1,6 +1,15 @@
-# Conveyor IQL initialization and on-policy PPO
+# Historical conveyor IQL initialization and on-policy PPO
 
-This is the Delta parallel experiment. The existing FQI campaign remains a separate run. Both use the same frozen perception/VLA assets, public attention memory, action masks, and success-only environment reward.
+This documents the implemented IQL-initialized actor campaign and its original
+Delta experiment. It is a historical workflow, not an active assignment or the
+new Isaac online-PPO design. Later Delta-specific pure-online experiments used
+separately pinned execution trees and must not be inferred from this entrypoint.
+See the [legacy handoff](legacy-fqi-handoff.md) before selecting a source tree or
+resuming an experiment. No Delta restart is authorized by this document.
+
+The Ideas2 attention FQI campaign is separate. This historical actor workflow
+uses the same frozen perception/VLA assets, public attention memory, action masks,
+and success-only environment reward as the associated LIBERO experiment.
 
 `meta_attention_v2.yaml` pins the shared asset/input/action contract, including the original FQI source-data identity. The new algorithm and budgets are read from `attention_iql_ppo_v1.yaml`; its IQL/PPO runner does not execute the legacy `training` section. Do not edit the shared configuration to rename its old training algorithm: that would invalidate existing startup provenance.
 
