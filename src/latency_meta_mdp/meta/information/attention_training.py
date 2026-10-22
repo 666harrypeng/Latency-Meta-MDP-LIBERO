@@ -132,16 +132,15 @@ def run_attention_training(
             state["ancestor_optimizer_updates"] = (receipt.get("metrics") or {}).get(
                 "ancestor_optimizer_updates", 0
             )
-    code = {
-        str(p.relative_to(root)): sha256(p)
-        for path in ("src/latency_meta_mdp", "scripts")
-        for p in sorted((root / path).rglob("*.py"))
-    }
+    from latency_meta_mdp.meta.information.runtime_identity import source_identity
+
+    source = source_identity(root)
+    atomic_json(output_dir / "runtime-source.json", source)
     binding = dict(
         deployment_binding(config),
         seed=seed,
         parent=parent,
-        trainer_code_hash=identity_hash(code),
+        trainer_code_hash=source["code_hash"],
         replay_conversion_hash=identity_hash(conversion),
         normalization="fixed-physical-scales-and-learned-LayerNorm",
         offline_training_episodes=sum(g == "startup" for g in replay.groups),
@@ -177,7 +176,11 @@ def run_attention_training(
     )
     with (output_dir / "execution-history.jsonl").open("a") as stream:
         stream.write(
-            json.dumps(dict(host=os.uname().nodename, physical_gpus=training_gpus, **options))
+            json.dumps(
+                dict(
+                    host=os.uname().nodename, physical_gpus=training_gpus, source=source, **options
+                )
+            )
             + "\n"
         )
     success = False

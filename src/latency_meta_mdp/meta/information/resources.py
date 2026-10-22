@@ -85,7 +85,15 @@ def gpu_processes():
     # Preserve the existing parked-learner check (only a synchronous direct parent).
     from latency_meta_mdp.meta.information.preflight import blocking_gpu_processes
 
-    return blocking_gpu_processes(selected), active
+    blockers = blocking_gpu_processes(selected)
+    sharing = os.environ.get("CONVEYOR_GPU_SHARING", "exclusive")
+    if sharing not in ("exclusive", "allow"):
+        raise ValueError("GPU sharing must be exclusive or allow")
+    if sharing == "allow":
+        if blockers:
+            print("GPU_SHARED_OCCUPANTS " + repr(blockers), flush=True)
+        blockers = ""
+    return blockers, active
 
 
 @contextmanager

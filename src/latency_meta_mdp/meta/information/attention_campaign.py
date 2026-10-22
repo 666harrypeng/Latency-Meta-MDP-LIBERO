@@ -234,11 +234,10 @@ def run_attention_campaign(
             or len(set(selected.split(","))) != len(selected.split(","))
         ):
             raise ValueError("explicit distinct rollout and learner GPUs required")
-    code = {
-        str(p.relative_to(root)): sha256(p)
-        for folder in ("src/latency_meta_mdp", "scripts")
-        for p in sorted((root / folder).rglob("*.py"))
-    }
+    from latency_meta_mdp.meta.information.runtime_identity import source_identity
+
+    source = source_identity(root)
+    atomic_json(output_dir / "runtime-source.json", source)
     bootstrap = (root / recipe["validation_bootstrap"]).resolve()
     binding = dict(
         recipe=recipe,
@@ -249,7 +248,7 @@ def run_attention_campaign(
         ),
         config_sha256=sha256(config_path),
         audit_sha256=sha256(audit_path),
-        code_hash=identity_hash(code),
+        code_hash=source["code_hash"],
         bootstrap={
             str(s): sha256(bootstrap / f"seed-{s}.npz") for s in config["splits"]["validation"][:3]
         },

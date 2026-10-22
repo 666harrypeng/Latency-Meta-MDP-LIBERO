@@ -9,11 +9,11 @@ import uuid
 from pathlib import Path
 
 from latency_meta_mdp.meta.information.config import (
-    identity_hash,
     load_config,
     sha256,
     validate_binding,
 )
+from latency_meta_mdp.meta.information.runtime_identity import source_identity
 from latency_meta_mdp.meta.information.validation import (
     atomic_json,
     record_validation,
@@ -63,17 +63,14 @@ class IterationValidator:
         for scene in scenes:
             if not (self.bootstrap_dir / f"seed-{scene}.npz").is_file():
                 raise ValueError("validation requires existing verified bootstrap files")
-        code = {
-            str(p.relative_to(self.root)): sha256(p)
-            for directory in ("src/latency_meta_mdp", "scripts")
-            for p in sorted((self.root / directory).rglob("*.py"))
-        }
+        source = source_identity(self.root)
+        self.collection_code_hash = source["code_hash"]
         self.protocol = dict(
             scenes=scenes,
             regimes=["nominal", "family", "zero"],
             config_sha256=sha256(self.config_path),
             audit_sha256=sha256(self.audit_path),
-            code_hash=identity_hash(code),
+            code_hash=source["code_hash"],
             epsilon=0.0,
             selection="mean_nominal_family_incumbent_on_ties",
             delay="actual_zero_with_unchanged_RTC_estimator_and_reserve",
@@ -84,9 +81,13 @@ class IterationValidator:
             self.protocol["source_manifest_sha256"] = sha256(self.source_manifest)
         protocol_file = self.output_dir / "protocol.json"
         if protocol_file.exists():
-            validate_binding(self.protocol, json.loads(protocol_file.read_text()))
+            previous = json.loads(protocol_file.read_text())
+            if previous["code_hash"] == source.get("previous_execution_code_hash"):
+                self.protocol["code_hash"] = previous["code_hash"]
+            validate_binding(self.protocol, previous)
         else:
             atomic_json(protocol_file, self.protocol)
+        atomic_json(self.output_dir / "runtime-source.json", source)
 
     def __call__(self, checkpoint, receipt):
         import torch
@@ -215,7 +216,7 @@ class IterationValidator:
             if self.model is not None and device is not None:
                 self.model.to(device)
         manifest = json.loads((destination / "cohort.json").read_text())
-        validate_binding(manifest["binding"]["code_hash"], self.protocol["code_hash"])
+        validate_binding(manifest["binding"]["code_hash"], self.collection_code_hash)
         validate_binding(
             manifest["binding"]["policy"]["receipt_sha256"], sha256(checkpoint / "complete.json")
         )

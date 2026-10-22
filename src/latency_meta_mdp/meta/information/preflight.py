@@ -141,14 +141,13 @@ def preflight(config_path, output_dir, *, root):
     from latency_meta_mdp.meta.information.resources import gpu_processes
 
     blockers, active = gpu_processes()
-    sources = {
-        str(p.relative_to(root)): sha256(p)
-        for directory in ("src/latency_meta_mdp", "scripts")
-        for p in sorted((root / directory).rglob("*.py"))
-    }
+    from latency_meta_mdp.meta.information.runtime_identity import source_identity
+
+    source = source_identity(root)
     report.update(
         config_sha256=sha256(config_path),
-        code_hash=identity_hash(sources),
+        **source,
+        gpu_sharing=os.environ.get("CONVEYOR_GPU_SHARING", "exclusive"),
         git_head=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         git_status=subprocess.check_output(["git", "status", "--short"], cwd=root, text=True),
         gpu=gpu,
