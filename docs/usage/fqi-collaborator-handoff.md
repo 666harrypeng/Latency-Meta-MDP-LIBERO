@@ -82,6 +82,14 @@ a useful policy. Inspect early fixed validation, including hold/no-launch behavi
 
 ## Scientific recipe
 
+The unchanged temporal-memory architecture uses eight state-conditioned decision
+query tokens, each 256-dimensional, with two shared-memory history reads and a
+separate gated forecast read. The final readout concatenates queries and current
+critical state. Observed history and predicted tokens remain distinct; missing
+forecasts are masked. Protocol 3 changes scheduling permissions, not this memory
+architecture. The schema-2 success-only documentation is historical background,
+not the launch specification for this experiment.
+
 | Item | Formal | Separate node qualification |
 | --- | --- | --- |
 | Meta initialization | Scratch, seed 0 | Independent scratch, seed 0 |

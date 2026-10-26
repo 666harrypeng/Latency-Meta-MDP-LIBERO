@@ -47,7 +47,7 @@ The checkpoint index marks which states have validation results. Engineering
 qualification is separate from evidence of improved task performance.
 
 - [Training, evaluation, hardware, and storage guide](docs/usage/fqi-collaborator-handoff.md)
-- [Conveyor task](docs/usage/conveyor.md) and [scheduler architecture](docs/usage/conveyor-attention-meta.md)
+- [Conveyor task](docs/usage/conveyor.md) and [temporal attention background](docs/usage/conveyor-attention-meta.md)
 - [Policy SFT workflows](docs/usage/training.md)
 
 Implementation: `src/latency_meta_mdp/`; commands: `scripts/`; experiments:

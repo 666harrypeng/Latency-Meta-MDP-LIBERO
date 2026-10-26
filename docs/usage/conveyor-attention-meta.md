@@ -1,5 +1,12 @@
 # Conveyor attention Meta
 
+This page preserves the **schema-2 success-only protocol**. The current scratch
+budget experiment uses schema 3 and
+[`meta_budget_optional_v2.yaml`](../../configs/experiments/conveyor_sort/meta_budget_optional_v2.yaml);
+follow the [current training guide](fqi-collaborator-handoff.md). Its temporal
+attention design is retained, but prediction is optional, empty-buffer hold is
+allowed, and reward/replay settings differ from the historical protocol below.
+
 The v2 scheduler uses explicit causal history and temporal attention instead of
 recurrent hidden state. Select
 [`meta_attention_v2.yaml`](../../configs/experiments/conveyor_sort/meta_attention_v2.yaml).
