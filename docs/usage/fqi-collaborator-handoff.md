@@ -13,8 +13,9 @@ read access to the private starter and frozen assets (including gated DINO), and
 write access to the designated Meta checkpoint repository. Never place credentials
 in source, command arguments, configuration files, or published logs. The launcher
 checks that both variables are set before creating a run. If credentials live in
-`.bashrc`, use an interactive shell to export them before starting tmux; a
-non-interactive `bash -lc` may not load them.
+`.bashrc`, use an interactive shell to load them. Export credentials in the
+actual tmux pane that launches training: an existing tmux server need not inherit
+new client variables, and non-interactive `bash -lc` may not load `.bashrc`.
 
 ## Installation and inputs
 
@@ -120,7 +121,10 @@ More learner ranks need not be faster for this small network.
 
 Generate a qualification recipe with `--acceptance` and use an independent
 `RUN_DIR=outputs/qualification/optional-node-check`. It runs the bounded real
-fit/collection/refit/validation path. Use a fresh formal run afterwards:
+fit/collection/refit/validation path. Use a fresh formal run afterwards. Open a
+persistent shell (for example `tmux new-session -s conveyor-fqi`), return to your
+repository directory there, load your credentials, and run the following inside
+that shell:
 
 ```bash
 .venv-policy-eval/bin/python scripts/fqi_handoff.py recipe \
@@ -134,7 +138,7 @@ export RECIPE=outputs/recipes/optional-formal-v2.json
 export RUN_DIR=outputs/training/conveyor-budget-optional-scratch-v2
 export WANDB_PROJECT=latency-meta-mdp-fqi-budget
 export CHECKPOINT_REPO=yypeng666/metamdp-conveyor-optional-budget-meta-v1
-tmux new-session -s conveyor-fqi 'bash scripts/launch_optional_fqi.sh'
+bash scripts/launch_optional_fqi.sh
 ```
 
 This allocation is an example, not an H100 optimum. Tune GPUs, `TRAIN_GPUS`,
