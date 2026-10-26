@@ -24,16 +24,15 @@ export HF_HOME="$PWD/outputs/cache/huggingface"
 export HF_HUB_CACHE="$HF_HOME/hub" HUGGINGFACE_HUB_CACHE="$HF_HOME/hub"
 .venv-policy-eval/bin/hf download \
   yypeng666/metamdp-conveyor-optional-budget-starter-v1 --repo-type dataset \
-  --revision 09c8082ab260a1da1e420787681c6eb7878dd4ab --include 'data/*' \
+  --revision b00053932f42e7c43f60a7af8415aad1efa1a1ea --include 'data/*' \
   --local-dir outputs/downloads/optional-starter
 .venv-policy-eval/bin/python scripts/fqi_handoff.py restore-data \
   --bundle outputs/downloads/optional-starter/data \
   --output outputs/datasets/conveyor-optional-starter-v1
 ```
 
-The pinned HF revision remains valid even though its historical tree also contains
-an obsolete code snapshot: the allowlist downloads only `data/*`. GitHub is the
-code source. The data identity is in `configs/data/conveyor_optional/hub.json`.
+The pinned HF revision contains only data and its dataset card. The allowlist
+downloads `data/*`; GitHub is the code source. The data identity is in `configs/data/conveyor_optional/hub.json`.
 Restoration verifies archive checksums once and refuses to overwrite a cohort.
 After successful restoration, the downloaded tar shards are disposable staging;
 keep the restored dataset and small manifests, not both full copies.
