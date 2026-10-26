@@ -2,6 +2,8 @@
 # Resource-only launcher. The JSON recipe owns scientific budgets and identities.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+: "${HF_TOKEN:?Export HF_TOKEN in the launching shell}"
+: "${WANDB_API_KEY:?Export WANDB_API_KEY in the launching shell}"
 : "${GPUS:?Set GPUS to the allocated physical GPU indices, for example 0,1}"
 : "${RECIPE:?Set RECIPE to the generated campaign JSON}"
 : "${RUN_DIR:?Set RUN_DIR to a new campaign directory, or the same directory to resume}"

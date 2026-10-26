@@ -11,7 +11,10 @@ part of this training assignment.
 Export `HF_TOKEN` and `WANDB_API_KEY` through the environment. HF credentials need
 read access to the private starter and frozen assets (including gated DINO), and
 write access to the designated Meta checkpoint repository. Never place credentials
-in source, command arguments, configuration files, or published logs.
+in source, command arguments, configuration files, or published logs. The launcher
+checks that both variables are set before creating a run. If credentials live in
+`.bashrc`, use an interactive shell to export them before starting tmux; a
+non-interactive `bash -lc` may not load them.
 
 ## Installation and inputs
 
