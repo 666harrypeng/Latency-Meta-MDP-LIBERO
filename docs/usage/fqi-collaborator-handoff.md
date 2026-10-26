@@ -40,7 +40,8 @@ keep the restored dataset and small manifests, not both full copies.
 The setup script creates `.venv-policy-eval` using Python 3.11.15 and
 `requirements/fqi-runtime.txt`, restores pinned OpenPI/JEPA code, and downloads
 frozen assets from `configs/data/conveyor_optional/asset-downloads.json`. It uses
-project caches and existing runtime patches. Do not use the generic `uv sync`
+project model caches and existing runtime patches. `uv` may reuse its user-level
+Python/download cache; it does not install dependencies into system Python. Do not use the generic `uv sync`
 environment for this job or install into system Python.
 
 Frozen components: conditioned pi0.5 (step 15236), DINO, JEPA, and RGB decoder.

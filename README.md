@@ -13,8 +13,9 @@ cost. The VLA, visual encoder, world model, and RGB decoder stay frozen.
 
 ## Quick start
 
-Use an NVIDIA GPU node with CUDA/EGL support, Git, and `uv`. Installation and
-caches stay inside the project. Export `HF_TOKEN` and `WANDB_API_KEY` in your shell;
+Use an NVIDIA GPU node with CUDA/EGL support, Git, and `uv`. Dependencies use a
+project virtual environment, with project-local model caches. Export `HF_TOKEN`
+and `WANDB_API_KEY` in your shell;
 HF access is required for the private dataset and frozen models.
 
 ```bash
