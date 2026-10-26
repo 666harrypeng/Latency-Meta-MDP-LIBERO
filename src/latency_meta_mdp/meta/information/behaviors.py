@@ -56,13 +56,35 @@ class RuleScheduler:
 class AttentionRuleScheduler(RuleScheduler):
     """The same rules plus a grid over the *available* guarded request window."""
 
-    def __init__(self, kind, *, action_spec, period=25, seed=0, rho=None, refresh=None):
-        super().__init__("active" if kind == "grid" else kind, period=period, seed=seed)
+    def __init__(
+        self,
+        kind,
+        *,
+        action_spec,
+        period=25,
+        seed=0,
+        rho=None,
+        refresh=None,
+        forecast_mode="predict",
+    ):
+        if type(period) is not int or period < 1:
+            raise ValueError("rule period must be a positive integer")
+        super().__init__(
+            "active" if kind == "grid" else kind,
+            period=25 if action_spec.version == 3 else period,
+            seed=seed,
+        )
+        self.period = period
+        if forecast_mode not in ("predict", "current_only"):
+            raise ValueError("unknown rule forecast mode")
+        if forecast_mode == "current_only" and action_spec.version != 3:
+            raise ValueError("current-only rules require the optional prediction protocol")
         if kind == "grid" and (
             rho not in (0, 0.25, 0.5, 0.75, 1) or refresh not in ("on_request", "every_4_ticks")
         ):
             raise ValueError("invalid request-window grid pattern")
         self.kind, self.spec, self.rho, self.refresh = kind, action_spec, rho, refresh
+        self.forecast_mode = forecast_mode
 
     def reset(self, *, episode_id):
         self.buffer_version = None
@@ -71,14 +93,25 @@ class AttentionRuleScheduler(RuleScheduler):
     def decide(self, packet, legal_mask):
         spec = self.spec
         information = spec.id_for(dict(G="observe", O="predict", P="launch")[packet.stage])
+        if (
+            spec.version == 3
+            and packet.stage == "O"
+            and (self.forecast_mode == "current_only" or not legal_mask[information])
+        ):
+            information = spec.id_for("launch")
         sleeps = np.flatnonzero(legal_mask[: len(spec.sleep_ticks)])
         if self.kind == "exploration":
             probabilities = np.zeros(spec.num_actions)
-            probabilities[information] = 0.5 if len(sleeps) else 1.0
+            choices = (
+                np.flatnonzero(legal_mask[len(spec.sleep_ticks) :]) + len(spec.sleep_ticks)
+                if spec.version == 3 and self.forecast_mode == "predict"
+                else [information]
+            )
+            probabilities[choices] = (0.5 if len(sleeps) else 1.0) / len(choices)
             if len(sleeps):
                 probabilities[sleeps] = 0.5 / len(sleeps)
             action = int(self.rng.choice(spec.num_actions, p=probabilities))
-            return Decision(action, float(probabilities[action]), "balanced-gate-v2")
+            return Decision(action, float(probabilities[action]), f"balanced-gate-v{spec.version}")
         if self.kind == "active":
             return Decision(information, policy_version="rule-v2")
         if self.kind == "grid":

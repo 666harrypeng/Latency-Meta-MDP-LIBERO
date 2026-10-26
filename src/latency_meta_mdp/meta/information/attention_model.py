@@ -29,7 +29,10 @@ class AttentionStageQ(nn.Module):
         self.final_norm = nn.LayerNorm(width)
         self.critical = nn.Sequential(nn.Linear(40, 128), nn.GELU())
         self.readout = nn.Sequential(nn.Linear(model["num_queries"] * width + 128, 512), nn.GELU())
-        self.heads = nn.ModuleList([nn.Linear(512, self.action_spec.num_actions) for _ in range(2)])
+        stage_count = 3 if self.action_spec.version == 3 else 2
+        self.heads = nn.ModuleList(
+            [nn.Linear(512, self.action_spec.num_actions) for _ in range(stage_count)]
+        )
         for head in self.heads:
             nn.init.zeros_(head.weight)
             nn.init.zeros_(head.bias)
@@ -118,8 +121,10 @@ class AttentionStageQ(nn.Module):
         if not isinstance(batch, MemoryBatch):
             raise TypeError("attention Q accepts only public MemoryBatch inputs")
         t = batch.tensors
-        if torch.any((t["stage"] != 0) & (t["stage"] != 2)):
+        if self.action_spec.version == 2 and torch.any((t["stage"] != 0) & (t["stage"] != 2)):
             raise ValueError("bound Observe stage is forced, not a Q decision")
+        if torch.any((t["stage"] < 0) | (t["stage"] > 2)):
+            raise ValueError("unknown attention decision stage")
         critical = torch.cat((self.normalized(t["critical"][:, :16]), t["critical"][:, 16:]), -1)
         bank, times, mask = self._bank(t, critical)
         query = self.queries[None] + self.condition(critical)[:, None]
@@ -153,4 +158,5 @@ class AttentionStageQ(nn.Module):
             torch.cat((self.final_norm(query).flatten(1), self.critical(critical)), -1)
         )
         values = torch.stack([head(representation) for head in self.heads], dim=1)
-        return values[torch.arange(len(critical), device=critical.device), (t["stage"] == 2).long()]
+        stages = t["stage"] if self.action_spec.version == 3 else (t["stage"] == 2).long()
+        return values[torch.arange(len(critical), device=critical.device), stages]

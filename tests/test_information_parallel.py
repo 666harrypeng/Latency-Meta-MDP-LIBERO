@@ -126,7 +126,7 @@ def test_worker_tracker_does_not_treat_partial_matrix_as_complete_evaluation(tmp
     assert not (tmp_path / "evaluation.json").exists()
 
 
-@pytest.mark.parametrize("shared", [False, True])
+@pytest.mark.parametrize("shared", [False, True, 4, "optional", "starter"])
 @pytest.mark.parametrize("failed", [False, True])
 @pytest.mark.parametrize("extra_devices", [False, True])
 @pytest.mark.parametrize("relocated", [False, True, "different_shards"])
@@ -134,20 +134,23 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
     tmp_path, monkeypatch, failed, extra_devices, relocated, shared
 ):
     from latency_meta_mdp.meta import cycle_tracking
-    from latency_meta_mdp.meta.information import cycle, parallel
+    from latency_meta_mdp.meta.information import cohort, cycle, parallel
     from latency_meta_mdp.meta.information.cohort import complete_attempt
 
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    workers = 4 if shared == 4 else 2
+    episode_count = 9 if shared == 4 else 2
     manifest = dict(
-        binding={"policy": "fixed"}, episodes=[{"episode_id": str(i)} for i in range(2)]
+        binding={"policy": "fixed"}, episodes=[{"episode_id": str(i)} for i in range(episode_count)]
     )
 
     def prepare(config, directory, **kwargs):
         (directory / "cohort.json").write_text(json.dumps(manifest))
-        return {}, manifest
+        return {"schema_version": 3 if shared in ("optional", "starter") else 2}, manifest
 
     monkeypatch.setattr(cycle, "prepare_cycle", prepare)
+    monkeypatch.setattr(cohort, "prepare_cohort", prepare)
 
     class Tracker:
         rows = []
@@ -178,6 +181,8 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
             return self.code
 
     def launch(command, *, env, **kwargs):
+        assert command[3] == ("collect" if shared == "starter" else "cycle-collect")
+        assert ("--checkpoint" in command) == (shared != "starter")
         index = int(command[command.index("--shard-index") + 1])
         assert env["CUDA_VISIBLE_DEVICES"] == str(4 if shared else 4 + index)
         if shared:
@@ -186,15 +191,21 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
             assert env["CONVEYOR_ROLLOUT_PARENT_PID"] == str(os.getpid())
         assert command[command.index("--rollout-scratch-dir") + 1] == str(tmp_path / "scratch")
         directory = Path(command[command.index("--output-dir") + 1])
-        shard = partition_manifest(manifest, index, 2)
+        if shared in ("optional", "starter"):
+            assert not (directory / "bootstrap").is_symlink()
+        assert int(command[command.index("--num-shards") + 1]) == workers
+        assert env["OMP_NUM_THREADS"] == "5"
+        shard = partition_manifest(manifest, index, workers)
         (directory / "cohort.json").write_text(json.dumps(shard))
         if not failed:
-            ep = shard["episodes"][0]
-            attempt = directory / "episodes" / ep["episode_id"] / "attempt-000"
-            attempt.mkdir(parents=True)
-            (attempt / "summary.json").write_text("{}")
-            complete_attempt(attempt, binding=dict(cohort=manifest["binding"], episode=ep))
-            (directory / "progress.json").write_text('{"completed": 1}')
+            for ep in shard["episodes"]:
+                attempt = directory / "episodes" / ep["episode_id"] / "attempt-000"
+                attempt.mkdir(parents=True)
+                (attempt / "summary.json").write_text("{}")
+                complete_attempt(attempt, binding=dict(cohort=manifest["binding"], episode=ep))
+            (directory / "progress.json").write_text(
+                json.dumps(dict(completed=len(shard["episodes"])))
+            )
         child = Child((1 if index == 0 else None) if failed else 0)
         children.append(child)
         return child
@@ -203,7 +214,7 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
     bootstrap = tmp_path / "bootstrap"
     bootstrap.mkdir()
     previous_execution = dict(
-        gpus=["0"] if relocated == "different_shards" else ["0", "1"],
+        gpus=["0"] if relocated == "different_shards" else [str(i) for i in range(workers)],
         worker_python="/previous/environment/python",
         cpu_threads_per_worker=2,
         host="previous-node",
@@ -212,14 +223,18 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
     if relocated:
         (tmp_path / "result").mkdir()
         (tmp_path / "result/execution.json").write_text(json.dumps(previous_execution))
+        worker = tmp_path / "result/workers/0"
+        worker.mkdir(parents=True)
+        (worker / "progress.json").write_text(json.dumps(dict(completed=1)))
     kwargs = dict(
         root=tmp_path,
         audit_path=tmp_path / "audit.json",
-        checkpoint=tmp_path / "checkpoint",
-        phase="monitor",
-        bootstrap_dir=bootstrap,
+        checkpoint=None if shared == "starter" else tmp_path / "checkpoint",
+        phase="starter" if shared == "starter" else "monitor",
+        bootstrap_dir=None if shared in ("optional", "starter") else bootstrap,
         gpus="4" if shared else ("4,5,6,7" if extra_devices else "4,5"),
-        workers_per_gpu=2 if shared else 1,
+        workers_per_gpu=workers if shared else 1,
+        cpu_threads=5,
         scratch_dir=tmp_path / "scratch",
         enabled=False,
     )
@@ -231,19 +246,26 @@ def test_parallel_orchestrator_merges_or_stops_only_its_children(
     if failed:
         with pytest.raises(RuntimeError, match="worker failed"):
             parallel.run_parallel(tmp_path / "config", tmp_path / "result", **kwargs)
-        assert children[1].terminated and not children[0].terminated
+        assert all(c.terminated for c in children[1:]) and not children[0].terminated
     else:
         assert (
             parallel.run_parallel(tmp_path / "config", tmp_path / "result", **kwargs)["completed"]
-            == 2
+            == episode_count
         )
-        assert len(list((tmp_path / "result/episodes").iterdir())) == 2
+        assert len(children) == workers
+        assert len(list((tmp_path / "result/episodes").iterdir())) == episode_count
+        status = json.loads((tmp_path / "result/parallel-progress.json").read_text())
+        assert status["previously_completed"] == int(bool(relocated))
+        assert status["newly_completed"] == episode_count - int(bool(relocated))
+        assert status["episodes_per_hour"] == pytest.approx(
+            3600 * status["newly_completed"] / status["wall_seconds"]
+        )
         if relocated:
             assert (
                 json.loads((tmp_path / "result/execution.json").read_text()) == previous_execution
             )
             history = (tmp_path / "result/execution-history.jsonl").read_text().splitlines()
-            assert json.loads(history[-1])["gpus"] == (["4", "4"] if shared else ["4", "5"])
+            assert json.loads(history[-1])["gpus"] == (["4"] * workers if shared else ["4", "5"])
     import os
 
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "0"

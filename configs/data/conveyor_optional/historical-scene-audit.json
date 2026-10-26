@@ -1,0 +1,2806 @@
+{
+  "scope": "all locally discovered conveyor corpus and evaluation identity/manifest JSON plus declared source train/val/test banks; external unrecorded experiments not certified",
+  "sources": [
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/manifest.json",
+      "sha256": "2ae3929214bf166d0fa4a1f246e7c2228826fdbfb9efc32814ec40fff7436b9b",
+      "seeds": [
+        1000,
+        1001,
+        1002,
+        1003,
+        1004,
+        1005,
+        1006,
+        1007,
+        1008,
+        1009,
+        1010,
+        1011,
+        1012,
+        1013,
+        1014,
+        1015,
+        1016,
+        1017,
+        1018,
+        1019,
+        1020,
+        1021,
+        1022,
+        1023,
+        1024,
+        1025,
+        1026,
+        1027,
+        1028,
+        1029,
+        1030,
+        1031,
+        1032,
+        1033,
+        1034,
+        1035,
+        1036,
+        1037,
+        1038,
+        1039,
+        1040,
+        1041,
+        1042,
+        1043,
+        1044,
+        1045,
+        1046,
+        1047,
+        1048,
+        1049,
+        1050,
+        1051,
+        1052,
+        1053,
+        1054,
+        1055,
+        1056,
+        1057,
+        1058,
+        1059,
+        1060,
+        1061,
+        1062,
+        1063,
+        1064,
+        1065,
+        1066,
+        1067,
+        1068,
+        1069,
+        1070,
+        1071,
+        1072,
+        1073,
+        1074,
+        1075,
+        1076,
+        1077,
+        1078,
+        1079,
+        1080,
+        1081,
+        1082,
+        1083,
+        1084,
+        1085,
+        1086,
+        1087,
+        1088,
+        1089,
+        1090,
+        1091,
+        1092,
+        1093,
+        1094,
+        1095,
+        1096,
+        1097,
+        1098,
+        1099,
+        1100,
+        1101,
+        1102,
+        1103,
+        1104,
+        1105,
+        1106,
+        1107,
+        1108,
+        1109,
+        1110,
+        1111,
+        1112,
+        1113,
+        1114,
+        1115,
+        1116,
+        1117,
+        1118,
+        1119,
+        1120,
+        1121,
+        1122,
+        1123,
+        1124,
+        1125,
+        1126,
+        1127,
+        1128,
+        1129,
+        1130,
+        1131,
+        1132,
+        1133,
+        1134,
+        1135,
+        1136,
+        1137,
+        1138,
+        1139,
+        1140,
+        1141,
+        1142,
+        1143,
+        1144,
+        1145,
+        1146,
+        1147,
+        1148,
+        1149,
+        1150,
+        1151,
+        1152,
+        1153,
+        1154,
+        1155,
+        1156,
+        1157,
+        1158,
+        1159,
+        1160,
+        1161,
+        1162,
+        1163,
+        1164,
+        1165,
+        1166,
+        1167,
+        1168,
+        1169,
+        1170,
+        1171,
+        1172,
+        1173,
+        1174,
+        1175,
+        1176,
+        1177,
+        1178,
+        1179,
+        1180,
+        1181,
+        1182,
+        1183,
+        1184,
+        1185,
+        1186,
+        1187,
+        1188,
+        1189,
+        1190,
+        1191,
+        1192,
+        1193,
+        1194,
+        1195,
+        1196,
+        1197,
+        1198,
+        1199,
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        3000,
+        3001,
+        3002,
+        3003,
+        3004,
+        3005,
+        3006,
+        3007,
+        3008,
+        3009,
+        3010,
+        3011,
+        3012,
+        3013,
+        3014,
+        3015,
+        3016,
+        3017,
+        3018,
+        3019
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/belief-input-smoke-v1/features/manifest.json",
+      "sha256": "ba22d388d0012e2cbb0ca5b7052d1e838319ca9da0cea7d1390166b4da72b5c5",
+      "seeds": [
+        1000,
+        1001,
+        1002,
+        1003,
+        1004,
+        1005,
+        1006,
+        1007
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1108/source/manifest.json",
+      "sha256": "0eb1a243bf66bc1f3d26686d8da15ad6f8d20a1b404c1722a1a401202f525fcd",
+      "seeds": [
+        1108
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/manifest.json",
+      "sha256": "27f4ad20460a5ca62f78d31768bef57c60b74c1035ee12188ef40d637e3d9795",
+      "seeds": [
+        1000,
+        1001,
+        1002,
+        1003,
+        1004,
+        1005,
+        1006,
+        1007,
+        2000,
+        2001,
+        3000,
+        3001
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1109/source/manifest.json",
+      "sha256": "bd79845dd36b999787ef35858a03ea2c5d4d95a20492fe89964ce4bb0ef13e58",
+      "seeds": [
+        1109
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1093/source/manifest.json",
+      "sha256": "95b693cb748e48444d2c6d0d5b9a690a7cdafdb5b505e8cac508499d331663c0",
+      "seeds": [
+        1093
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/episodes/seed-1000/source/manifest.json",
+      "sha256": "bff4c94661d41e21606d4e845c19d8b84b3539c9bde3e0b0393b5dc178979a83",
+      "seeds": [
+        1000
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1005/source/manifest.json",
+      "sha256": "ba69f2ab0d2a6c08e4ab6bb3c4d95da642a23512b811ffbe5879dd7948e6b4ad",
+      "seeds": [
+        1005
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/episodes/seed-1006/source/manifest.json",
+      "sha256": "76d004e474b0b23ac7031efc79c7952ae71f789e44cdc6d15b7a7dd1d90c110d",
+      "seeds": [
+        1006
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1180/source/manifest.json",
+      "sha256": "a71d2c609b36cfc28c897a3006a8f7f4e3934b370d9389fe4837b407d3dd90e5",
+      "seeds": [
+        1180
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/episodes/seed-1007/source/manifest.json",
+      "sha256": "ed0e6b6542119a21c9902460b8359621fed080ad60e24177db98e93c648f9557",
+      "seeds": [
+        1007
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1152/source/manifest.json",
+      "sha256": "5bf9ebc355bc96ed03d14a34bcbc064a7447e8a14b7a77c2060a4f05d2611cd5",
+      "seeds": [
+        1152
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/episodes/seed-1003/source/manifest.json",
+      "sha256": "c54081ee899c5ab3d25b0f2c02f1abf95cdd192f27369e5f2f87da0f24355752",
+      "seeds": [
+        1003
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1086/source/manifest.json",
+      "sha256": "2c69d11d0940133fbe9a8f92af9ec0d8c616dcbfc78bcccc8804d7650862421b",
+      "seeds": [
+        1086
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-full-eval-v1/forecast-identity.json",
+      "sha256": "048426fc2410461220429b86747c1716b8ea2e33eee933277c7a03d0c299a3dd",
+      "seeds": []
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1097/source/manifest.json",
+      "sha256": "9069bdb500a8f62ccd87bd84ca3bc01f01e76be7fd69d3421eec246dacacfe7c",
+      "seeds": [
+        1097
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/episodes/seed-1001/source/manifest.json",
+      "sha256": "a48c836704a7768da294937860595d6570507cd1a2697e737229e15b2706be4d",
+      "seeds": [
+        1001
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-lora-diagnostics-v1/sharp/evaluation-identity.json",
+      "sha256": "11b3a991520781e79a896733b41bebca7a71c0206beb96c0b218c9966b322993",
+      "seeds": []
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-full-eval-v1/forecast-smoke/manifest.json",
+      "sha256": "7a27cc52f9ad13c97c88d33a932b2e2b05eff1976a6e7abfc5e28e71aac7247e",
+      "seeds": []
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2004/source/manifest.json",
+      "sha256": "66ccbd9d3023fb523407898101b3eebca304f70a3dc44e07bb83c3602afba2e9",
+      "seeds": [
+        2004
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/episodes/seed-1002/source/manifest.json",
+      "sha256": "491d97e46fd2affc5b7351773de6a4574df36f819d3f77a6dae7f8b96942a2f7",
+      "seeds": [
+        1002
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1034/source/manifest.json",
+      "sha256": "0b715c70d6c13bd3dd358ac53d054ac3389a91e1d9ff0d17869b84c53c537d41",
+      "seeds": [
+        1034
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/episodes/seed-1004/source/manifest.json",
+      "sha256": "0b73bd60e72a1d2f02f5be730cfb9ba2a095ce4e8d92438d85f540317d931c3f",
+      "seeds": [
+        1004
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1193/source/manifest.json",
+      "sha256": "d524b4478e2202c2b128a803613d278f79ac3665ba91546b2b6b9078e6d79912",
+      "seeds": [
+        1193
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/training-smoke-v1/corpus/episodes/seed-1005/source/manifest.json",
+      "sha256": "45df9c9e8dda58fa05b7c6b7d9349fe6a3653ca1ed5c77c1ea46b3773a9858cb",
+      "seeds": [
+        1005
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1008/source/manifest.json",
+      "sha256": "4e245926ab2da9266b23e45c17234c1233817e101a0efd276f17731d2bc67e4d",
+      "seeds": [
+        1008
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1194/source/manifest.json",
+      "sha256": "0bcb8fba1542496b8d08900744d1bd5ba61c8d8b0a2723d5b5fc122b22b7054c",
+      "seeds": [
+        1194
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1150/source/manifest.json",
+      "sha256": "988a9a7d493c2d5feccccebac734d606a5f565bc3b5758260b2fef593a282c61",
+      "seeds": [
+        1150
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-full-eval-v1/step-15237/identity.json",
+      "sha256": "2eefae9a896b13a0b2aff000189955cc5ca38d91014ea801c2a28cd44dfac38b",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1164/source/manifest.json",
+      "sha256": "a3cc89dfef0f1447e523903b685b78dd37c92b9b77342709ac3a24f9266f4462",
+      "seeds": [
+        1164
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1026/source/manifest.json",
+      "sha256": "a9b37f50906e7a2feb5254b5679d5cf801dcdfd261f622d575549ee39a219159",
+      "seeds": [
+        1026
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-lora-eval-v1/evaluation-identity.json",
+      "sha256": "836c884504775374f8e405338886551c71e96785eb71854d6a97cb2c7b20c25b",
+      "seeds": []
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1107/source/manifest.json",
+      "sha256": "573cae7f61b02dabc243bd935897360af04838296ff083e612336d7f38bf77d8",
+      "seeds": [
+        1107
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-lora-eval-v1/sharp/evaluation-identity.json",
+      "sha256": "1873de3d69936605305947817d1fa1f4d6bbfc8e03cb135410343d16111b0feb",
+      "seeds": []
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1118/source/manifest.json",
+      "sha256": "87127aec96425020851fbcc7a028075dcce48ee00b35d7442e0df17778dba369",
+      "seeds": [
+        1118
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-full-eval-v1/step-10158/identity.json",
+      "sha256": "fa0962bf76154c7a97e6b1f291570d190d7e06c181ee2c3f166344c8f5eee2af",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1015/source/manifest.json",
+      "sha256": "3710b035dcc906efc0c4472c74bd9458a8700d6d29ef551c4c4315ff72d175a0",
+      "seeds": [
+        1015
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2000/source/manifest.json",
+      "sha256": "7b3729a22388de9258b97e86b45396b140ea088f0616c6ba7cd061f453f1c781",
+      "seeds": [
+        2000
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1110/source/manifest.json",
+      "sha256": "94b4bc166c7099cf053ec0e192a2a298d32e077963b0c2b8b6d11c2a24e2441a",
+      "seeds": [
+        1110
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1143/source/manifest.json",
+      "sha256": "36648bd9937be66cc523c3daaa4a6f41b3f8735c903eb39906dc7b55d0e8644e",
+      "seeds": [
+        1143
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1115/source/manifest.json",
+      "sha256": "05059234e270e587e434ea68ab8caf8f3a875202dfa20725a4f1d04befcb36b7",
+      "seeds": [
+        1115
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1051/source/manifest.json",
+      "sha256": "3689633b9f0ace78233714ff195a8aa11a295a1feab3d43a3e577c31d9d77cf7",
+      "seeds": [
+        1051
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2003/source/manifest.json",
+      "sha256": "79e90d2a6f54d51f72d10fc1f20309637afea613759afebb18507c4f14a5f04f",
+      "seeds": [
+        2003
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1165/source/manifest.json",
+      "sha256": "337f2e9f9d0d27a28b94052557dd42ee62a122fcd434d4ecf0441c9179190c5f",
+      "seeds": [
+        1165
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1181/source/manifest.json",
+      "sha256": "7872493d94cea9db62f6eb9de5496f5f9eaf516fa8ef17f6b324162f79904ae7",
+      "seeds": [
+        1181
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1048/source/manifest.json",
+      "sha256": "af9d5c6d8046fbb20b7f4455299a026532b708d4b3ee4d572da2fcacba5d0705",
+      "seeds": [
+        1048
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2015/source/manifest.json",
+      "sha256": "d2c5f09de687468ec0620a56e1576c113ce9cfb0674a08ba5a22f87c86cb96d3",
+      "seeds": [
+        2015
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1095/source/manifest.json",
+      "sha256": "d2becb2e500c5ed494a33dd847e596f74dcd26cb544715c168d15e32a288eaa4",
+      "seeds": [
+        1095
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1153/source/manifest.json",
+      "sha256": "82ea552243ef35d576b742ceb8018b40159854d0f7d9279b56fadce68df60b77",
+      "seeds": [
+        1153
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1168/source/manifest.json",
+      "sha256": "7a580e847144daca6bc3af5b0222df0deaab61ff57f32bfbeae8287468b4bde9",
+      "seeds": [
+        1168
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1030/source/manifest.json",
+      "sha256": "78e4063a6ac6cae7af8f84966cca3e995ed845849e723acdb1ba99b303d9de7f",
+      "seeds": [
+        1030
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2002/source/manifest.json",
+      "sha256": "d070948207550a3c9dd84ec83a0c3e8fd7261505c7a773ccbd6e676cac449fe5",
+      "seeds": [
+        2002
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1147/source/manifest.json",
+      "sha256": "9cba1104b05bc5c531a6a46c06b3febd66ffd47754fbf591f664ba02f374c8fc",
+      "seeds": [
+        1147
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1019/source/manifest.json",
+      "sha256": "83d7a9bae3e458ca333292014a96210b00b94bd11f00507cb7753437e71e0220",
+      "seeds": [
+        1019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1082/source/manifest.json",
+      "sha256": "ca420370bea5a7863ef2444796d6cd8a0d9249ba2705a90622aa2e7f70d5e447",
+      "seeds": [
+        1082
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1010/source/manifest.json",
+      "sha256": "26719822b81d8fda6e4cb35565a8e8bd89f470535fc4c9ec3bf03fc00521fc2b",
+      "seeds": [
+        1010
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1050/source/manifest.json",
+      "sha256": "d2e20deb55ac8a46effde9ce762ce869bd599064515ff9808618abdabee335e2",
+      "seeds": [
+        1050
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1080/source/manifest.json",
+      "sha256": "2140f23427237ac7b32b43a9c57537c016c7437efd6743c1a83eda2dcd6602b7",
+      "seeds": [
+        1080
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-full-eval-v1/step-5079/identity.json",
+      "sha256": "86f1a71b67a74caa8f96550e5a146b8961160d367b6685357353f6cf2b1d56be",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1059/source/manifest.json",
+      "sha256": "5b2590de535f1be08636961bb30cbdf2adbc41c5fc12e774fdc5cb9fc3abdb83",
+      "seeds": [
+        1059
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1156/source/manifest.json",
+      "sha256": "04ef5194525701dd403600d9f6a77fe7ee96f1601fb5f1978c8b6f28793eebc6",
+      "seeds": [
+        1156
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2006/source/manifest.json",
+      "sha256": "60b5a24783b27342a994a85d4438a4f5cf6e167069eb8d78e40605f161b7cb40",
+      "seeds": [
+        2006
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1127/source/manifest.json",
+      "sha256": "49ed81bc4ad1d9bd1c267d8293bd4a7dd57f9cece30647061c73419ae6d8f226",
+      "seeds": [
+        1127
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1094/source/manifest.json",
+      "sha256": "b496fa8a2608614aaffd811c66257660edd3e761a45ae507a102cfdceabf361f",
+      "seeds": [
+        1094
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1052/source/manifest.json",
+      "sha256": "cbb0c17f66837784fe93fbe2957c943d8f6405d0ccef0df49ac31d5f51832c3a",
+      "seeds": [
+        1052
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1075/source/manifest.json",
+      "sha256": "d22543096de7ba422eb53ab6399c58815b443259597639e133ceb098265edb6c",
+      "seeds": [
+        1075
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1174/source/manifest.json",
+      "sha256": "ad89d8a559fc9eb9cc05fe935848a62c92ecdf48d159d3f20c3b6748601643f1",
+      "seeds": [
+        1174
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1022/source/manifest.json",
+      "sha256": "335f04fb4a19f4e58a7f8273d7ed6f61d8b34a18ee89117a845a2e8e91a4fae6",
+      "seeds": [
+        1022
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1135/source/manifest.json",
+      "sha256": "dc30e3d6aa075cb729af679642bd2e6e50781c92ae9d45ebddd1931e3be02e50",
+      "seeds": [
+        1135
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1158/source/manifest.json",
+      "sha256": "3e1f4847f3e3580b4fcfce056acf2149b4ccd4ff1b1f6c16d53f42e85fe28157",
+      "seeds": [
+        1158
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/15236-rtc-family/identity.json",
+      "sha256": "6674d9a495d72bcf557b0be5442e0d482af9e64f1e11c98ab208894739db297b",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1065/source/manifest.json",
+      "sha256": "0545ca19ec0f4fb2b04594c3a5a94541f6efc0a37fdd4bde5bdc4434ae49b954",
+      "seeds": [
+        1065
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1136/source/manifest.json",
+      "sha256": "3bacf76399d0656de8b7b7a70f21d6120e0461324c218ceb1acab8aaa4f9f3c3",
+      "seeds": [
+        1136
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1054/source/manifest.json",
+      "sha256": "a66edd6c1620c9eae7a425a285896ace8608c966dde001d30b1f7a1b92940d56",
+      "seeds": [
+        1054
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1031/source/manifest.json",
+      "sha256": "b72b67248ef87f430693555792bd0a4005bc748ab1a10825f3292f90d452778b",
+      "seeds": [
+        1031
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1003/source/manifest.json",
+      "sha256": "011d61bb93505a8a60c677bce020c09b2484ae3e80e396ea6ce360819cb889e5",
+      "seeds": [
+        1003
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1001/source/manifest.json",
+      "sha256": "d81d6f404a20cd69b1557a38e1624bb9618feb30270efd5376e88f8cee75412e",
+      "seeds": [
+        1001
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1029/source/manifest.json",
+      "sha256": "ea3f1647524edb090620552c5647b18e283e6a41ee822ba1a50d4ca45b577ad3",
+      "seeds": [
+        1029
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/expert-admission-v1/seed4/source/manifest.json",
+      "sha256": "8fa9f6cfed86e76cee0638efadd66ac1237a688d048396d7307339e3d4d639d2",
+      "seeds": [
+        4
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1017/source/manifest.json",
+      "sha256": "55baca4f10aaf786a3739db18e40d9c6ef435ac397d03bd0c04a6a3b23f0b4a2",
+      "seeds": [
+        1017
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1128/source/manifest.json",
+      "sha256": "5c01e513b704d35998ac8872ec3f4abda2854ca403390110b33af027dfc4fb37",
+      "seeds": [
+        1128
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2017/source/manifest.json",
+      "sha256": "db224b54d35adc265ab6650076b07970c629f6bd547d2ba412ca13fb3b980b60",
+      "seeds": [
+        2017
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1176/source/manifest.json",
+      "sha256": "9ba10b27feb2fca0ced72cd12bc318dfc65a2caac6cf28230e4dad205f8b7875",
+      "seeds": [
+        1176
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1016/source/manifest.json",
+      "sha256": "11478e79cd695cd016f2f2eeab7b2157a7643d0aed786c33470d6fd004c76c70",
+      "seeds": [
+        1016
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/15236-rtc-nominal/identity.json",
+      "sha256": "d552bc01e6fdeb65ef7b39c09fcb96719174126fbe0652c8e1d94c398d213707",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1055/source/manifest.json",
+      "sha256": "c114b792bff45362dabe4a6da95502f127bbfdb1b7055c36ac29e774959afa70",
+      "seeds": [
+        1055
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-latency-baselines-v1/sharp-family/identity.json",
+      "sha256": "7d89273f7fc444ed8d8c6deb9720b72d3a8563c16c7c20c1319cdac13e1eeba4",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2007/source/manifest.json",
+      "sha256": "93e316b7dc64b276c56cd376bc831874537a033666e63992af71d42fe7aee96b",
+      "seeds": [
+        2007
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1140/source/manifest.json",
+      "sha256": "b01e107c5eb1c970c3f6105a87dd98f981f96a851e71f4f3ffee20a93b1fb30f",
+      "seeds": [
+        1140
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1192/source/manifest.json",
+      "sha256": "2a319e592081961e6a3238e99e3eadbc224110d20e3e406f2cf6622f3d3fa9e7",
+      "seeds": [
+        1192
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1105/source/manifest.json",
+      "sha256": "7fb667d0e6b5995d5b56d0a8e1b0728f412b8288e6a192594b7ae63478197ea7",
+      "seeds": [
+        1105
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1087/source/manifest.json",
+      "sha256": "4db5431d138a04a8a554f43974216d4d73fba93fd9326871b9f6057835faa8e9",
+      "seeds": [
+        1087
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1100/source/manifest.json",
+      "sha256": "95a40dadf12d4d727bd321b1fbfea31dee763acfd45e06c34baf6ceaa4eeff10",
+      "seeds": [
+        1100
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1113/source/manifest.json",
+      "sha256": "76054bbc0f25e0645134f6885ef66e402b8dade0966d2aa458be7312e85fbc32",
+      "seeds": [
+        1113
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1068/source/manifest.json",
+      "sha256": "dbdbc5f1bbce3de315a75424a49b8d7137009f52fbff867a0d4577bdab02beef",
+      "seeds": [
+        1068
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1088/source/manifest.json",
+      "sha256": "6485b2be5de3df7827fb278c73ab985542c7f6dc4c1759ca682293cfd3666443",
+      "seeds": [
+        1088
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1058/source/manifest.json",
+      "sha256": "d5ad2bd6c588bd0bc3381e4e72edd6756ad0e08d15b29f1f900761c893b5b557",
+      "seeds": [
+        1058
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1004/source/manifest.json",
+      "sha256": "1af346d465dd6853dd54e8fb2d7649815e297e180e54da3cf750483d2d3bd066",
+      "seeds": [
+        1004
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1045/source/manifest.json",
+      "sha256": "8e185a728d781e86915a117fd0ecf1aeaa40af46372f7b2d44774fb1771f8b23",
+      "seeds": [
+        1045
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1002/source/manifest.json",
+      "sha256": "a0baa5643cb796f9059beecd6c9ed6f206eee7b28f2fbc0fbcb9848445dd8da7",
+      "seeds": [
+        1002
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/7618-rtc-family/identity.json",
+      "sha256": "07aee5cf5976afd87713809f0fb2a872b382f171d75dc643c63f17e446aa3850",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-latency-baselines-v1/rtc-family/identity.json",
+      "sha256": "ac5a1d2b7a18af1e7b98bbe64ce81a820b8a353e152eb67f64e4d97a5bb42008",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1186/source/manifest.json",
+      "sha256": "ff663988cbd42161e08205fcc0fd147fe7f013ff7a996b821511643d6a4f8904",
+      "seeds": [
+        1186
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1148/source/manifest.json",
+      "sha256": "1d5c5258aa216b34f9c009e51aa9d4c46bb68e9e3f4605ad57cfa38e6e577f11",
+      "seeds": [
+        1148
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1111/source/manifest.json",
+      "sha256": "1a00666d47345a242f039c61e9d49f0bcc39b8ccbe1c4d658d1e8e68629d8d13",
+      "seeds": [
+        1111
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1083/source/manifest.json",
+      "sha256": "dc82a96450c7fa77ea493ff4f7751b47512c85fb3f44c98a253127101ec15d4b",
+      "seeds": [
+        1083
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1063/source/manifest.json",
+      "sha256": "d50b80770a5732324f7073cde68cab869618a91435dd3e696e31141bd438179c",
+      "seeds": [
+        1063
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1146/source/manifest.json",
+      "sha256": "a2cbe45d39f2f13fd40ff37073972b541419206fb8e57f04797ad182688f2dd8",
+      "seeds": [
+        1146
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1047/source/manifest.json",
+      "sha256": "97590056e668be8e518b4909af33d94decf066216a076eeb0c4cffcfb72469f8",
+      "seeds": [
+        1047
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1124/source/manifest.json",
+      "sha256": "5b446635a7c1fa338548c9890cc622c1bbafab9bbd06af8f2a0050083f888caa",
+      "seeds": [
+        1124
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1102/source/manifest.json",
+      "sha256": "e7aa274001f4f4476e1b1c68fa16e2c6379627f28fa82e062abc04b80ed56210",
+      "seeds": [
+        1102
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1069/source/manifest.json",
+      "sha256": "d3fe25900a48602e80c3eae20fbba795c31ba514f5c018d04ef06b43e4ba0d5b",
+      "seeds": [
+        1069
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1040/source/manifest.json",
+      "sha256": "2526992a31b277264421a5dce7a59dc7c93e39dd3f98a7084ba1e536d28d5459",
+      "seeds": [
+        1040
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1025/source/manifest.json",
+      "sha256": "2046647681cfe34c02601b529a89618f56342b02a66f37954e4ea6effa436959",
+      "seeds": [
+        1025
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1149/source/manifest.json",
+      "sha256": "ad54476044c4bc23d3febf462536a90546a906b9ce26f17df00c419696dc7eb0",
+      "seeds": [
+        1149
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1139/source/manifest.json",
+      "sha256": "bcccfcae099d58f717d03aa6144d429ba7836c5c883f71e28898779ce5abecb5",
+      "seeds": [
+        1139
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1199/source/manifest.json",
+      "sha256": "fdb2b3da8a3fc30971935090c923f686cf2b70f99936826b027b5b97f223f36e",
+      "seeds": [
+        1199
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/7618-rtc-nominal/identity.json",
+      "sha256": "d09f817ebe1067c1b1c1ea661aba60faca069ebf2768fb82c1197d1899e03e77",
+      "seeds": [
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1044/source/manifest.json",
+      "sha256": "3da82b69761a70d09d7531928751adb75c4dac835b4ca9b1b5d6e28e3ef73356",
+      "seeds": [
+        1044
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1125/source/manifest.json",
+      "sha256": "22ee46fd3da58390b8270e87adcb9a50702e63fb809bd49eba56396bd23562e1",
+      "seeds": [
+        1125
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-latency-baselines-v1/rtc-nominal/identity.json",
+      "sha256": "611f87dd19f8e4076ed2185d75d7f039ff67f28cb92bc1ce20ae59899b514065",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1012/source/manifest.json",
+      "sha256": "4b7c76c6943c1e660b254c8e33bede4095a611a5d8b37a3dd98dfce3e621fe90",
+      "seeds": [
+        1012
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1120/source/manifest.json",
+      "sha256": "8c7e065b193eb60709f99e44e4dd606ca9af504b68e0cc62afc4f17bd529301d",
+      "seeds": [
+        1120
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1112/source/manifest.json",
+      "sha256": "977e65dffc8c4181b019fe42034625830812e23bfb79b2d728b1b0cd6d456ed5",
+      "seeds": [
+        1112
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1106/source/manifest.json",
+      "sha256": "2f34dcfa705d430dd4604e803354f118768ec5c296288a0bf03d252404d6f45f",
+      "seeds": [
+        1106
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1009/source/manifest.json",
+      "sha256": "b0d0ed3eec60ed2ec94cae16df1e39eddb8794ebe6e2d2e834c41479ac7b5048",
+      "seeds": [
+        1009
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1062/source/manifest.json",
+      "sha256": "668ae68df6e1a4d175ddc5f2d5853c109abb706c868d1de161875b43ea70b41e",
+      "seeds": [
+        1062
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/7618-sharp-zero/identity.json",
+      "sha256": "6a315ca58d9b0ee01d247ed3790a45b7e977004b7cecb2f36489807cced2201c",
+      "seeds": [
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1155/source/manifest.json",
+      "sha256": "991ec882529088c4d4e0daef910e6feb9feb78064e9208039c40dafb0bc6c98c",
+      "seeds": [
+        1155
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1024/source/manifest.json",
+      "sha256": "0528e82c170eb7ee4bb908c0c37c0ee28f956af52b0d80304f251b25a8da224a",
+      "seeds": [
+        1024
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1173/source/manifest.json",
+      "sha256": "9b450a22b06859bc4025f81ea7e21137b7c61a5f93933f15a15c3c593ef1a878",
+      "seeds": [
+        1173
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1085/source/manifest.json",
+      "sha256": "87b605bfe2601f8ea6a1a7b9b5d25408c60c0daee8b26e7cfac1be8468c653ce",
+      "seeds": [
+        1085
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1104/source/manifest.json",
+      "sha256": "23be27b07ea435e306b22460375fe0213baed711b3dfb135fe5be5c0c3e56834",
+      "seeds": [
+        1104
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2013/source/manifest.json",
+      "sha256": "0884daa2ee6bdbcaf9bc04bdfb2ec131e0af505d481acd3d4ee7a06cdb738a63",
+      "seeds": [
+        2013
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2014/source/manifest.json",
+      "sha256": "07a6b8a4cc6ea43eb0d262a2b7e85e4e6ba63b3ace5375dc3a581f0a6b764d9a",
+      "seeds": [
+        2014
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1183/source/manifest.json",
+      "sha256": "8815c46da4c6e93a31b0a9a0a7e71597ef1d38548907db1c59a1f6efbf819306",
+      "seeds": [
+        1183
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1159/source/manifest.json",
+      "sha256": "0e6efe18de4229aa61cfdd5cf86cb28996446400bf7b3f8567d9ce2b7aa4838e",
+      "seeds": [
+        1159
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1042/source/manifest.json",
+      "sha256": "0e45e6e60c249ee961f68ea3ebaf19e0dbaf3be738ff2972e136a5b1233df86a",
+      "seeds": [
+        1042
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1053/source/manifest.json",
+      "sha256": "a5e0ba1c09222db7d5479fc26f0683af4a064438855b72eae58754ac57491b79",
+      "seeds": [
+        1053
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1043/source/manifest.json",
+      "sha256": "3c807367aa2c55cefe7510ed4cce1ef0070ec940a2f75d82cd9baafde468d815",
+      "seeds": [
+        1043
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1023/source/manifest.json",
+      "sha256": "0cf6b42b4237593681162d5cebec0b3dbd2ba3ac5a063b12880b85c22286c58d",
+      "seeds": [
+        1023
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-latency-baselines-v1/sharp-nominal/identity.json",
+      "sha256": "54fbc8c48551d6d6f8d9eaf3c8ff132175ec09c4a5a1a35645572ae5ace5c34d",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1134/source/manifest.json",
+      "sha256": "cb079035e6c4b4f7a2c10cc7c5a8411bff43eefbe37c6168122f2f2b62f2cb46",
+      "seeds": [
+        1134
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1064/source/manifest.json",
+      "sha256": "faf38601fe70d19dd873c3e86587e9dac1da595523c6a43be6cdd2d7743a5d5b",
+      "seeds": [
+        1064
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1020/source/manifest.json",
+      "sha256": "32d7687d525b3fed960d15378179c71aa11586f363adfa4b858e9aea893b2727",
+      "seeds": [
+        1020
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1154/source/manifest.json",
+      "sha256": "e5565e67bb642986f4b504d1bf20e9a41f29277df38297d003df69352288fbd8",
+      "seeds": [
+        1154
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/clean-latency-baselines-v1/rtc-zero-smoke/identity.json",
+      "sha256": "9310937b28d0b6eb866a7fb2c5a7d6f469c4450a10e886c3ab7edf85c9b37b96",
+      "seeds": [
+        2000,
+        2001
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/22854-sharp-zero/identity.json",
+      "sha256": "3b866bb175672288be35b5939ca00c88305fc4d4e54171e87ef0fdd6e6e4713b",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1170/source/manifest.json",
+      "sha256": "c0bf0f9f123fcc0971f9e56c9c130de14e48b4fe6e72ec0fbc32245b9809edda",
+      "seeds": [
+        1170
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1071/source/manifest.json",
+      "sha256": "cbc3683e54d4a35ab585e83f5560c5cdcac7cc811986837c0b0ec9dffd7782c7",
+      "seeds": [
+        1071
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1007/source/manifest.json",
+      "sha256": "ec7606fed2f81c53bb1801720ea66832f1719d2cb46b6dd1b2fc6933d342da95",
+      "seeds": [
+        1007
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1084/source/manifest.json",
+      "sha256": "118b2a5d98ae657401d52822b54b7aa4c7da6c50096f545a3a7eaba324627bd7",
+      "seeds": [
+        1084
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1157/source/manifest.json",
+      "sha256": "1365f50d55371b17fa08b7198fec13e99c1aa6c983eb9726c65908c46364dde6",
+      "seeds": [
+        1157
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1185/source/manifest.json",
+      "sha256": "bc6712e48ea862fc3b85b18ba6b5e6c601e66eb79b249c9911072c2d346f1f80",
+      "seeds": [
+        1185
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1014/source/manifest.json",
+      "sha256": "ff2757d14230fea22c904386570fd38a7ed3e352435366a8ea18df10e9f70327",
+      "seeds": [
+        1014
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1119/source/manifest.json",
+      "sha256": "ac611d2eabf98116aabd4f176c28a63ed36dc5befc754a29732c8d042925aa16",
+      "seeds": [
+        1119
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1172/source/manifest.json",
+      "sha256": "a47e1fb49f6ab7e52021ac81d414800cb90a50f20c28888adcec724dcebd2d50",
+      "seeds": [
+        1172
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1195/source/manifest.json",
+      "sha256": "c47413233c8b1d0fb03a066bf378f9fbcb479598312b4e90c7fc9dde2a7df6cf",
+      "seeds": [
+        1195
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1132/source/manifest.json",
+      "sha256": "e9591469caaaa03354ae93436147564aaca9b64c7505f252509e6885dfbce127",
+      "seeds": [
+        1132
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1131/source/manifest.json",
+      "sha256": "f76275044190faa0c8d699b020c3ea9bb8e53aac2d27d3a1029b29f795739900",
+      "seeds": [
+        1131
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2018/source/manifest.json",
+      "sha256": "e0cbceecc67bc69f14be1e8f78abf22bab937c9692769366cf05da7d8231c684",
+      "seeds": [
+        2018
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/22854-rtc-nominal/identity.json",
+      "sha256": "083b1d0e68b562bfb0a81b213c19f334e222bfb7cd81ba9ec1feb20de9f28c15",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1190/source/manifest.json",
+      "sha256": "1806c86baeac4c441dfcc7b74f96d1be4b50d6f43375d2324c44e365545b1525",
+      "seeds": [
+        1190
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1035/source/manifest.json",
+      "sha256": "e4196de7393ce81155ff754e1cbe3ae060a6ba13849e2b1996277f4fd48e0413",
+      "seeds": [
+        1035
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1092/source/manifest.json",
+      "sha256": "72f2a71d8da00490924c3db60998bcf43f0ebc5305a9fcbfba2a0b7e873dcd78",
+      "seeds": [
+        1092
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/sharp-followup/15236-sharp-nominal/identity.json",
+      "sha256": "ea6769f56884774d87e143f13aba71a1daabaee8b165efe75d986b92a4d6d399",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1079/source/manifest.json",
+      "sha256": "cfe901536280468d8683c83aada98c91a9ee75e00eba48f3c0df7ae0bb0e5e43",
+      "seeds": [
+        1079
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2001/source/manifest.json",
+      "sha256": "9f47e5b0734b421c9cff5f2246b2b0fd6c3ed3d6a0be4ebee3a8b612fcd33020",
+      "seeds": [
+        2001
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1036/source/manifest.json",
+      "sha256": "5ea2d784a7d43e484706819c98d2a1e380759c77d3d76c41e855e61ae69b95a0",
+      "seeds": [
+        1036
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1187/source/manifest.json",
+      "sha256": "215e82238b6016e27f29aa83b0b4bafe34d04bd020da7091d95915176bc4d5ac",
+      "seeds": [
+        1187
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1163/source/manifest.json",
+      "sha256": "3101654e41e37c889d4b435e2ff40c20713b1c95700c7cfb9f4e1219449d38c3",
+      "seeds": [
+        1163
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1066/source/manifest.json",
+      "sha256": "a506b58d298a51415f1a8e41ca262f246e0979e033d425713a04bd72f25d82ed",
+      "seeds": [
+        1066
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1177/source/manifest.json",
+      "sha256": "0e43fc52e3175830e59a2b7924d2361ecf7fe2748768d3db61c6d8508b0291d3",
+      "seeds": [
+        1177
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1178/source/manifest.json",
+      "sha256": "d5ea6deb1eaaaedfac373988f79901ebcbdff67647bd91a7eb8cf567bca4c868",
+      "seeds": [
+        1178
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/22854-rtc-family/identity.json",
+      "sha256": "fa92524549866e1a587852adad73e71e17ae72d102ab3f906810650a6aeb89b5",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1184/source/manifest.json",
+      "sha256": "9f73a3e6771de84f2f4603e2f0fde3f9f0144bc1a40a23f1df82b640c53684a2",
+      "seeds": [
+        1184
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1166/source/manifest.json",
+      "sha256": "b18bce22e71cadf3db6be3ee99dc8c52317e96267b4e1763f2f23b39ff61c7d3",
+      "seeds": [
+        1166
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1160/source/manifest.json",
+      "sha256": "ff8bd6806bb80f9e856fb176b30ca96f8c95173115c47705be9fdeedb6ff24ec",
+      "seeds": [
+        1160
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1021/source/manifest.json",
+      "sha256": "3720b116d88e6045b51ab456ed27a7f94964af4b1795c2c0ecc8386f9bf85a12",
+      "seeds": [
+        1021
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1189/source/manifest.json",
+      "sha256": "e5392e21daaf1750d2018479e9ca01377b129aaf3820b691c69e2478c564c456",
+      "seeds": [
+        1189
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/sharp-followup/15236-sharp-family/identity.json",
+      "sha256": "4596fe85f83e7bdba619aecf0519f1bbb508bf5feb405a2a49a3066fb046283f",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/7618-rtc-nominal/identity.json",
+      "sha256": "29bd79b2aa3e396f015056d49072893bf599f68dd7cb1d05f2c20428218af465",
+      "seeds": [
+        2000,
+        2001
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1074/source/manifest.json",
+      "sha256": "640a7d92fd773d43b87f070a675f3fd414fc872b9141710256a3960bfb480f61",
+      "seeds": [
+        1074
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1089/source/manifest.json",
+      "sha256": "3d8999ffb3cefdd579aca082d1ad0789a647af08e178db4bcf5a16d0ee150c4e",
+      "seeds": [
+        1089
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/failed-normalization-path/7618-sharp-zero/identity.json",
+      "sha256": "506dd11e997e676e3efa203d7acd6c84a4e9b258055bffff924eb141bfab2579",
+      "seeds": [
+        2000,
+        2001
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/7618-sharp-zero/identity.json",
+      "sha256": "67dc6f18eaced6f79c833ab4f06031b84b9b6a0f6a168022fef4805b64e6b800",
+      "seeds": [
+        2000,
+        2001
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1046/source/manifest.json",
+      "sha256": "a483e87d2661d4e233b40979cab42ccb5b8454d666459a02cb66e2464fbd024a",
+      "seeds": [
+        1046
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2016/source/manifest.json",
+      "sha256": "241db5a204e64077070dc2b5cdc2528d1fba102c6f99bc5a323265054bdc7822",
+      "seeds": [
+        2016
+      ]
+    },
+    {
+      "path": "outputs/analysis/conveyor-sort/conditioned-eval-v1/matrix/15236-sharp-zero/identity.json",
+      "sha256": "75242bb6a1cb93eef53a27588215c8b935e3886b37de1de1cf90be8eca9f9a3f",
+      "seeds": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1114/source/manifest.json",
+      "sha256": "f077621ec0fd73ce65ff9a59b1ec76e632005dd19ea476ddec1ec02a37cf2c36",
+      "seeds": [
+        1114
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1103/source/manifest.json",
+      "sha256": "da14347e591baa2d16c5a13ae6a46572383b5a8f9f19cbebd737459892483603",
+      "seeds": [
+        1103
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1116/source/manifest.json",
+      "sha256": "da3ba2700646a2a63ebd2db50f6a39d80fbdf2585154c2c4eee0c797178fa50f",
+      "seeds": [
+        1116
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1091/source/manifest.json",
+      "sha256": "aebc60c654ee5e9a45230a8f74156d4b36f310118e7792d21e025ea5be7ab60f",
+      "seeds": [
+        1091
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1033/source/manifest.json",
+      "sha256": "78312fd87280d70ad3f61302e1bbd4b035e546ea1268b7030a05da75ce210c1a",
+      "seeds": [
+        1033
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1169/source/manifest.json",
+      "sha256": "736999c9f16e5edeb3fbc4a1a3d1739c219daa60633528dc20aaf03b7311c72f",
+      "seeds": [
+        1169
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1067/source/manifest.json",
+      "sha256": "182d61e5744ffee2b9dcd896b2d84c985a7e56984a2167efdeb20eb0502883da",
+      "seeds": [
+        1067
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1175/source/manifest.json",
+      "sha256": "1a4bcbd3f4503eb0cb6d1e023da2281eb06d92c51618924df9e9b6efe255625d",
+      "seeds": [
+        1175
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1077/source/manifest.json",
+      "sha256": "ff2db67b384f6b276b3fce57d0e541cfcbd541cd19d851458d585e2b350ef01f",
+      "seeds": [
+        1077
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1081/source/manifest.json",
+      "sha256": "9de1000f1ba95062a56df51336c4fa1cd9e60062e37bd0ca73d743c19566d4f6",
+      "seeds": [
+        1081
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2019/source/manifest.json",
+      "sha256": "6630e85080355f7cedc0a921d3f9a3bdf3d196584eb75e6bc3d0a25fd2d8415e",
+      "seeds": [
+        2019
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1101/source/manifest.json",
+      "sha256": "372282579929869a0171648edbd4a57ed1d84c50ded743273150183e715be599",
+      "seeds": [
+        1101
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1171/source/manifest.json",
+      "sha256": "6b9d180e6f3dee51a0a2b5d9055726a703ce8c8f044f2839b53ed6d5b30c7111",
+      "seeds": [
+        1171
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1098/source/manifest.json",
+      "sha256": "f037a523adec3db70a43b7a2870bb623b29bb64017103e0acf505aee0ed1dbb1",
+      "seeds": [
+        1098
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1167/source/manifest.json",
+      "sha256": "8da2a72859d1452dfef87c75f0cbbfbf89abb205130b8c5e9177efc040cc3268",
+      "seeds": [
+        1167
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1182/source/manifest.json",
+      "sha256": "8402f84f2386c0875c5763c223fa35c19ca4bab3e61041336c7fef18cc09c5d8",
+      "seeds": [
+        1182
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1123/source/manifest.json",
+      "sha256": "ae6690afea1a25027d36973c81d7830d7a0a1839e2404ad39732a183838a06f6",
+      "seeds": [
+        1123
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1162/source/manifest.json",
+      "sha256": "ee18124890e56b470b3a24953b5ed779692d7aaa89514a534211c706a8d9e4e5",
+      "seeds": [
+        1162
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1121/source/manifest.json",
+      "sha256": "0e4f8ada41c4ea156032d8159ee298a0d2f0dcf34d4decf2412b042c9bc18820",
+      "seeds": [
+        1121
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1057/source/manifest.json",
+      "sha256": "ed547772c142f78e6b117fefcaa34ad23b19c1b580ac8c9ab77366cb88143e92",
+      "seeds": [
+        1057
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1060/source/manifest.json",
+      "sha256": "5d9bb20c7b4c516f38a69d7a294b6d7e68036ea38be27ce872991658aac9030f",
+      "seeds": [
+        1060
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1188/source/manifest.json",
+      "sha256": "7aad496177fd72ea761d9c4014357a0d89da08535d06c8b87c61b64dbe6e22dc",
+      "seeds": [
+        1188
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1013/source/manifest.json",
+      "sha256": "71d8983adde57dcc70089211aa51c4c1c13bb7a4d0e90e3a600316b7d9d8779b",
+      "seeds": [
+        1013
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1037/source/manifest.json",
+      "sha256": "0a3e78db4ceb2da078e1ae6aa69eaa6f246df685c34353ca033f802889d0194f",
+      "seeds": [
+        1037
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1144/source/manifest.json",
+      "sha256": "7fffe00d4705cf1d6d4e134226a238586826723ef4a1e8505df23c41a8fe69b5",
+      "seeds": [
+        1144
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1096/source/manifest.json",
+      "sha256": "5bca6055e72217040cf07dcb2cbedbe9774b3adfd63f5b126a2e5d8a4b2232b9",
+      "seeds": [
+        1096
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1198/source/manifest.json",
+      "sha256": "b207906df12b09fce6ac5328bc8b2c163f33d15aae96c58631e426cf3bd46b18",
+      "seeds": [
+        1198
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1179/source/manifest.json",
+      "sha256": "07af9aede8d9fd617919f8ecc9a1d32e0f3a531a206043e8bdf4e121e1fa92a3",
+      "seeds": [
+        1179
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1000/source/manifest.json",
+      "sha256": "106281fb64cc2a8f28ab30a90341a7d1a56c67ab35f0835fc915e4da394a9feb",
+      "seeds": [
+        1000
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1138/source/manifest.json",
+      "sha256": "073cf93a04a6c3f512cf9174437a52c13bc4144cc038f8163944e9ca339f58f2",
+      "seeds": [
+        1138
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1145/source/manifest.json",
+      "sha256": "b1bf0a3b4ee35c553f3f3cca112af405bfef5f6c2614c9bb903357d81cbd72df",
+      "seeds": [
+        1145
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1039/source/manifest.json",
+      "sha256": "1a4fb89526be732461e3b2eb59f4d7988b85d1bd4a83d918bfeeb771dc178cb4",
+      "seeds": [
+        1039
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1056/source/manifest.json",
+      "sha256": "0579bd737adc26c1ad67794e46c64d9206f53814ad0aa63a6c163b79c3b946e8",
+      "seeds": [
+        1056
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1032/source/manifest.json",
+      "sha256": "9e09f31a92e24f3a6734cec4a10bc8878d7c037f79785c406404bcce4d316a1f",
+      "seeds": [
+        1032
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1099/source/manifest.json",
+      "sha256": "bfb0c58382ae5817b02bfa4efd374795233ab95d3e57c8a4fd6473f237fad420",
+      "seeds": [
+        1099
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1142/source/manifest.json",
+      "sha256": "ebc1ddc6a38992ed80f7c0b91cf4c1c989c1a1086c2d005c4bcb7d0b6244ad42",
+      "seeds": [
+        1142
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1070/source/manifest.json",
+      "sha256": "08491717226ee554491bee76d4e0685eb226fdcf97f8c9d0f8ee78b4b9bf41e5",
+      "seeds": [
+        1070
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1141/source/manifest.json",
+      "sha256": "405e2926fea1f99e02fe9cc001140c6b3bd7a27573b2163e50a6bfcf7dfeed04",
+      "seeds": [
+        1141
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1161/source/manifest.json",
+      "sha256": "9111b5f8d6ccd24d16243f8889e121082709bb6f1f01b359bc7b8b121b1142cb",
+      "seeds": [
+        1161
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1041/source/manifest.json",
+      "sha256": "46fde3af2dd649961f58b8453bd80a94ab511d3090347e97a7e4875f3de925fa",
+      "seeds": [
+        1041
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1073/source/manifest.json",
+      "sha256": "9065c1dc3909ac13fd9355dadfcb7fa268b431c96b5f0870e89334ecc5b30403",
+      "seeds": [
+        1073
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1028/source/manifest.json",
+      "sha256": "5034003b572e90f8a9a502959a39fa83c7e4c7390e206801a4626418ab4a03f9",
+      "seeds": [
+        1028
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1072/source/manifest.json",
+      "sha256": "76439d1f911babf6a4553ce4176eb075360799ef9e3206473eddc2963a65409d",
+      "seeds": [
+        1072
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2008/source/manifest.json",
+      "sha256": "2f6aa443f36755af805462a229bc925a1a1963241763675bc677ba5a9cb81f62",
+      "seeds": [
+        2008
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1078/source/manifest.json",
+      "sha256": "314d6fb6de975d6aba86faa2ffb409ba86cf5cf0d1e275c27e5a91ea824432e6",
+      "seeds": [
+        1078
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1038/source/manifest.json",
+      "sha256": "db35b8979f21e7c115b21a73d954a0fc864995730dc01ac16de16e0b19374734",
+      "seeds": [
+        1038
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2011/source/manifest.json",
+      "sha256": "b725336c8eba1b3694daac4ead076810ef440b77048c56aa2e0ed2d85c933285",
+      "seeds": [
+        2011
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1137/source/manifest.json",
+      "sha256": "b4e093a41dc6d8cf9cbb3163a6735987a5269afbc9f9c84019a5331e98abcdd6",
+      "seeds": [
+        1137
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1122/source/manifest.json",
+      "sha256": "f947ac2c86e044b034851b8b3e8018b7963ddcc5f964e865ba191328c9e03081",
+      "seeds": [
+        1122
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1133/source/manifest.json",
+      "sha256": "56dca787aec2d81c853820569f043d40c374fca048f03db14525cc7a33fba482",
+      "seeds": [
+        1133
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1061/source/manifest.json",
+      "sha256": "ab72e08caa08d26df560d640cc1cd56a213a51647b17e2f015751d0fe0f1b8ed",
+      "seeds": [
+        1061
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2005/source/manifest.json",
+      "sha256": "d62db636b0e5f272ae76bce9a0c3a52c9645c045da4aab4c999db9c4612c038c",
+      "seeds": [
+        2005
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1049/source/manifest.json",
+      "sha256": "7f3cfd6e0825c104c46c13f7f8cd5e4001c3869b2ac1e81a79f148744c133833",
+      "seeds": [
+        1049
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1076/source/manifest.json",
+      "sha256": "57931cf79bbbdf2ecd88015912c3d8f497f7d59bbad8b0ae587d6e649aa29c9b",
+      "seeds": [
+        1076
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1018/source/manifest.json",
+      "sha256": "e9032e405fab098d8aa3e0f1779656f8a74a7902d1aa8770a1cb7d40db010d3a",
+      "seeds": [
+        1018
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1151/source/manifest.json",
+      "sha256": "bfbb361f793445198ffb8c136a8443cd5dc98547d8b8da58d63e25d2810c84d0",
+      "seeds": [
+        1151
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1126/source/manifest.json",
+      "sha256": "dcd1ec181cab12e88778da4722ee7691dd63770b81533ac4c5a07e4c72833854",
+      "seeds": [
+        1126
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1027/source/manifest.json",
+      "sha256": "c95543841cbb1afafc3a9c1246babf30954635b525f8f6cef56a503a1436298c",
+      "seeds": [
+        1027
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1196/source/manifest.json",
+      "sha256": "59b5fc3bb91104ec806e8d73a43dc4f43327e19fb562780acdc9a2b46f24da14",
+      "seeds": [
+        1196
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1090/source/manifest.json",
+      "sha256": "a1db2bfc31ff5aacd3bf6ea484cef5b301f7664b794dc070ff061b781835559b",
+      "seeds": [
+        1090
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2012/source/manifest.json",
+      "sha256": "6a0da2f48766d29f7d6d6ab2e0fdae829cfa374a1164d2bf3069bbfee179c2ca",
+      "seeds": [
+        2012
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2010/source/manifest.json",
+      "sha256": "91d662b85ddd5cc6ec8ac1b9a1166fc7da740ca60066adcb67c8107a19998056",
+      "seeds": [
+        2010
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-2009/source/manifest.json",
+      "sha256": "6c17a10b8076dd9b98cafa2df4d4250de93ca0b6e8e1d71f1a270b0882b5d4d9",
+      "seeds": [
+        2009
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1130/source/manifest.json",
+      "sha256": "5172237fa5fb03b657c30de8903567e4539b9884d493d12b7c96df40096b467f",
+      "seeds": [
+        1130
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1011/source/manifest.json",
+      "sha256": "3ecd7cf7f98b7418510098c72dcf790c3d4d6ada80f049af1f947351fc69dfb3",
+      "seeds": [
+        1011
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1117/source/manifest.json",
+      "sha256": "52b72163ede545d02802114fe8607ed1c4fc0f9084a12afd9aa4820616aed300",
+      "seeds": [
+        1117
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1197/source/manifest.json",
+      "sha256": "bd3ba22b252f40f838a23737a380bbe4811e936b6b27a28c0f6bf29688d45247",
+      "seeds": [
+        1197
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1129/source/manifest.json",
+      "sha256": "fe937ba641bdcc28cadfd02a6736b249ead213e43b691ab74110447818defe3f",
+      "seeds": [
+        1129
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1191/source/manifest.json",
+      "sha256": "b3dce7001617f6d9f84531b67a1a919b1c23dac5aebcec948801b87deb956126",
+      "seeds": [
+        1191
+      ]
+    },
+    {
+      "path": "outputs/source_corpus/conveyor-surface-source-v1/episodes/seed-1006/source/manifest.json",
+      "sha256": "953a80996cfe2b6194240eefa568afce255eb889683570cbc2dbabe687cec412",
+      "seeds": [
+        1006
+      ]
+    },
+    {
+      "path": "configs/data/conveyor_sort/source.yaml",
+      "sha256": "afe63553e7444fa693edd4c6b8df35b59fda24f244183aae14b3dd72cb5d4327",
+      "splits": {
+        "train": {
+          "start": 1000,
+          "stop": 1200
+        },
+        "validation": {
+          "start": 2000,
+          "stop": 2020
+        },
+        "test": {
+          "start": 3000,
+          "stop": 3020
+        }
+      }
+    }
+  ],
+  "excluded_scenes": [
+    4,
+    1000,
+    1001,
+    1002,
+    1003,
+    1004,
+    1005,
+    1006,
+    1007,
+    1008,
+    1009,
+    1010,
+    1011,
+    1012,
+    1013,
+    1014,
+    1015,
+    1016,
+    1017,
+    1018,
+    1019,
+    1020,
+    1021,
+    1022,
+    1023,
+    1024,
+    1025,
+    1026,
+    1027,
+    1028,
+    1029,
+    1030,
+    1031,
+    1032,
+    1033,
+    1034,
+    1035,
+    1036,
+    1037,
+    1038,
+    1039,
+    1040,
+    1041,
+    1042,
+    1043,
+    1044,
+    1045,
+    1046,
+    1047,
+    1048,
+    1049,
+    1050,
+    1051,
+    1052,
+    1053,
+    1054,
+    1055,
+    1056,
+    1057,
+    1058,
+    1059,
+    1060,
+    1061,
+    1062,
+    1063,
+    1064,
+    1065,
+    1066,
+    1067,
+    1068,
+    1069,
+    1070,
+    1071,
+    1072,
+    1073,
+    1074,
+    1075,
+    1076,
+    1077,
+    1078,
+    1079,
+    1080,
+    1081,
+    1082,
+    1083,
+    1084,
+    1085,
+    1086,
+    1087,
+    1088,
+    1089,
+    1090,
+    1091,
+    1092,
+    1093,
+    1094,
+    1095,
+    1096,
+    1097,
+    1098,
+    1099,
+    1100,
+    1101,
+    1102,
+    1103,
+    1104,
+    1105,
+    1106,
+    1107,
+    1108,
+    1109,
+    1110,
+    1111,
+    1112,
+    1113,
+    1114,
+    1115,
+    1116,
+    1117,
+    1118,
+    1119,
+    1120,
+    1121,
+    1122,
+    1123,
+    1124,
+    1125,
+    1126,
+    1127,
+    1128,
+    1129,
+    1130,
+    1131,
+    1132,
+    1133,
+    1134,
+    1135,
+    1136,
+    1137,
+    1138,
+    1139,
+    1140,
+    1141,
+    1142,
+    1143,
+    1144,
+    1145,
+    1146,
+    1147,
+    1148,
+    1149,
+    1150,
+    1151,
+    1152,
+    1153,
+    1154,
+    1155,
+    1156,
+    1157,
+    1158,
+    1159,
+    1160,
+    1161,
+    1162,
+    1163,
+    1164,
+    1165,
+    1166,
+    1167,
+    1168,
+    1169,
+    1170,
+    1171,
+    1172,
+    1173,
+    1174,
+    1175,
+    1176,
+    1177,
+    1178,
+    1179,
+    1180,
+    1181,
+    1182,
+    1183,
+    1184,
+    1185,
+    1186,
+    1187,
+    1188,
+    1189,
+    1190,
+    1191,
+    1192,
+    1193,
+    1194,
+    1195,
+    1196,
+    1197,
+    1198,
+    1199,
+    2000,
+    2001,
+    2002,
+    2003,
+    2004,
+    2005,
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    3000,
+    3001,
+    3002,
+    3003,
+    3004,
+    3005,
+    3006,
+    3007,
+    3008,
+    3009,
+    3010,
+    3011,
+    3012,
+    3013,
+    3014,
+    3015,
+    3016,
+    3017,
+    3018,
+    3019
+  ],
+  "candidate_splits": {
+    "train": [
+      10000,
+      10001,
+      10002,
+      10003,
+      10004,
+      10005,
+      10006,
+      10007,
+      10008,
+      10009,
+      10010,
+      10011,
+      10012,
+      10013,
+      10014,
+      10015,
+      10016,
+      10017,
+      10018,
+      10019,
+      10020,
+      10021,
+      10022,
+      10023,
+      10024,
+      10025,
+      10026,
+      10027,
+      10028,
+      10029,
+      10030,
+      10031,
+      10032,
+      10033,
+      10034,
+      10035,
+      10036,
+      10037,
+      10038,
+      10039,
+      10040,
+      10041,
+      10042,
+      10043,
+      10044,
+      10045,
+      10046,
+      10047,
+      10048,
+      10049,
+      10050,
+      10051,
+      10052,
+      10053,
+      10054,
+      10055,
+      10056,
+      10057,
+      10058,
+      10059,
+      10060,
+      10061,
+      10062,
+      10063
+    ],
+    "validation": [
+      11000,
+      11001,
+      11002,
+      11003,
+      11004,
+      11005,
+      11006,
+      11007,
+      11008,
+      11009,
+      11010,
+      11011,
+      11012,
+      11013,
+      11014,
+      11015,
+      11016,
+      11017,
+      11018,
+      11019
+    ],
+    "test": [
+      12000,
+      12001,
+      12002,
+      12003,
+      12004,
+      12005,
+      12006,
+      12007,
+      12008,
+      12009,
+      12010,
+      12011,
+      12012,
+      12013,
+      12014,
+      12015,
+      12016,
+      12017,
+      12018,
+      12019,
+      12020,
+      12021,
+      12022,
+      12023,
+      12024,
+      12025,
+      12026,
+      12027,
+      12028,
+      12029,
+      12030,
+      12031,
+      12032,
+      12033,
+      12034,
+      12035,
+      12036,
+      12037,
+      12038,
+      12039
+    ]
+  },
+  "intersections": {
+    "train": [],
+    "validation": [],
+    "test": []
+  },
+  "local_inventory_pass": true
+}

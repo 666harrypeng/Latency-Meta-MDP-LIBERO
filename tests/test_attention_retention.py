@@ -84,7 +84,7 @@ def test_retirement_removes_both_cache_formats_and_preserves_recovery_inputs(tmp
     from latency_meta_mdp.meta.information.replay_retention import BoundedReplay
 
     retention = BoundedReplay(tmp_path, limits(history_episodes=0), seed=4)
-    formats = ("mmap-raw-v2", "mmap-raw-f16-v1", "mmap-raw-f16-v2")
+    formats = ("mmap-raw-v2", "mmap-raw-f16-v1", "mmap-raw-f16-v2", "mmap-raw-direct-v5")
     for index in range(1, 6):
         retention.select(index, collection(tmp_path, index))
         records = json.loads((retention.inventory_dir / f"{index:04d}.json").read_text())["records"]

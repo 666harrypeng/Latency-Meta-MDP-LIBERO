@@ -15,6 +15,8 @@ from latency_meta_mdp.meta.information.config import (
 )
 from latency_meta_mdp.meta.information.runtime_identity import source_identity
 from latency_meta_mdp.meta.information.validation import (
+    BUDGET_SELECTION,
+    DELAYED_SELECTION,
     atomic_json,
     record_validation,
     retain_checkpoints,
@@ -53,15 +55,22 @@ class IterationValidator:
         self.config_path, self.audit_path = Path(config_path).resolve(), Path(audit_path).resolve()
         self.output_dir = Path(output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.bootstrap_dir = Path(bootstrap_dir).resolve()
         self.model, self.progress, self.prune = model, progress, prune
         self.source_manifest = (
             Path(source_manifest).resolve() if source_manifest is not None else None
         )
         config = load_config(self.config_path)
+        self.bootstrap_dir = (
+            Path(bootstrap_dir).resolve()
+            if bootstrap_dir is not None and config["schema_version"] != 3
+            else None
+        )
         scenes = config["splits"]["validation"][:3]
         for scene in scenes:
-            if not (self.bootstrap_dir / f"seed-{scene}.npz").is_file():
+            if config["schema_version"] != 3 and (
+                self.bootstrap_dir is None
+                or not (self.bootstrap_dir / f"seed-{scene}.npz").is_file()
+            ):
                 raise ValueError("validation requires existing verified bootstrap files")
         source = source_identity(self.root)
         self.collection_code_hash = source["code_hash"]
@@ -75,8 +84,14 @@ class IterationValidator:
             selection="mean_nominal_family_incumbent_on_ties",
             delay="actual_zero_with_unchanged_RTC_estimator_and_reserve",
         )
-        if config.get("schema_version", 1) == 2:
+        if config.get("schema_version", 1) in (2, 3):
             self.protocol["starvation_mode"] = config["actions"]["starvation_mode"]
+        if config["schema_version"] == 3:
+            self.protocol.update(
+                initial_buffer="empty_hold",
+                delay="actual_zero_with_unchanged_RTC_estimator",
+                selection=BUDGET_SELECTION,
+            )
         if self.source_manifest is not None:
             self.protocol["source_manifest_sha256"] = sha256(self.source_manifest)
         protocol_file = self.output_dir / "protocol.json"
@@ -97,9 +112,9 @@ class IterationValidator:
         destination = self.output_dir / f"iteration-{iteration:04d}"
         destination.mkdir(parents=True, exist_ok=True)
         link = destination / "bootstrap"
-        if not link.exists():
+        if self.bootstrap_dir is not None and not link.exists():
             link.symlink_to(self.bootstrap_dir, target_is_directory=True)
-        elif link.resolve() != self.bootstrap_dir:
+        elif self.bootstrap_dir is not None and link.resolve() != self.bootstrap_dir:
             raise ValueError("validation bootstrap location differs")
         state_path = checkpoint.parent / "validation-state.json"
         if state_path.exists():
@@ -155,14 +170,14 @@ class IterationValidator:
                     self.gpus,
                     "--worker-python",
                     self.worker_python,
-                    "--bootstrap-dir",
-                    str(self.bootstrap_dir),
                     "--cpu-threads",
                     str(self.cpu_threads),
                     "--rollout-workers-per-gpu",
                     str(self.workers_per_gpu),
                 ]
             )
+        if self.bootstrap_dir is not None:
+            command.extend(["--bootstrap-dir", str(self.bootstrap_dir)])
         if self.source_manifest is not None:
             validate_binding(self.protocol["source_manifest_sha256"], sha256(self.source_manifest))
             command.extend(["--offline-dir", str(self.source_manifest.parent)])
@@ -227,6 +242,7 @@ class IterationValidator:
             summary["episodes"],
             scenes=self.protocol["scenes"],
             starvation_mode=self.protocol.get("starvation_mode", "guarded"),
+            selection=self.protocol.get("selection", DELAYED_SELECTION),
         )
         state = record_validation(
             checkpoint.parent,

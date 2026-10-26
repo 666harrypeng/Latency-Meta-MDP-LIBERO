@@ -2,7 +2,9 @@
 
 import ast
 import importlib
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +12,28 @@ import pytest
 
 pytest.importorskip("jax")
 pytest.importorskip("flax")
+
+
+def test_patches_apply_when_temporary_directory_is_inside_another_repository(tmp_path, monkeypatch):
+    from latency_meta_mdp.policy.openpi.source import temporary_patched_openpi_copy
+
+    parent = tmp_path / "project"
+    parent.mkdir()
+    subprocess.run(["git", "init", "--quiet", str(parent)], check=True)
+    cache = parent / "cache"
+    cache.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(cache))
+    upstream = Path("third_party/openpi")
+    relative = Path("src/openpi/models/pi0_config.py")
+    original = (upstream / relative).read_bytes()
+    with temporary_patched_openpi_copy(
+        openpi_root=upstream,
+        patch_paths=(Path("patches/openpi/0003-mask-action-tails.patch"),),
+        expected_revision="15a9616a00943ada6c20a0f158e3adb39df2ccac",
+    ) as copied:
+        assert "active_action_dim" in (copied / relative).read_text()
+    assert (upstream / relative).read_bytes() == original
+    assert not subprocess.check_output(["git", "-C", str(parent), "status", "--porcelain"])
 
 
 @pytest.mark.parametrize("override", [False, True])

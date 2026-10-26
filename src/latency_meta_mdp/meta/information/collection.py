@@ -4,6 +4,20 @@ import json
 from pathlib import Path
 
 
+def attach_budget_report(result, rows, operations, spec):
+    from latency_meta_mdp.meta.information.budget_reward import reward_view
+    from latency_meta_mdp.meta.information.config import identity_hash
+
+    if result["truncated"]:
+        result["budget_accounting"] = dict(
+            status="incomplete_truncated_diagnostic", reward_spec_hash=identity_hash(spec)
+        )
+        return
+    view = reward_view(rows, operations, result["parcel_events"], spec)
+    view.pop("decision_rewards")
+    result["budget"] = dict(view, reward_spec_hash=identity_hash(spec))
+
+
 def bootstrap_observation(observation):
     """Bind bootstrap reuse to the exact RGB inputs of the pinned pi05 model.
 
@@ -63,10 +77,12 @@ def run_smoke(
     from latency_meta_mdp.meta.information.preflight import preflight
 
     root, output_dir = Path(root), Path(output_dir)
+    config = load_config(config_path)
+    if diagnose and config["schema_version"] == 3:
+        raise ValueError("legacy diagnostic probes do not support optional prediction")
     report = preflight(config_path, output_dir / "preflight", root=root)
     if report["compute_processes"]:
         raise RuntimeError("GPU already has a compute process; do not overlap model jobs")
-    config = load_config(config_path)
     if seed not in config["excluded_scenes"]:
         raise ValueError("smoke requires a declared historical scene")
     from latency_meta_mdp.meta.information.services import frozen_services
@@ -110,6 +126,9 @@ def run_episode(
     pattern=None,
     delay_seed=0,
 ):
+    if diagnose and config["schema_version"] == 3:
+        raise ValueError("legacy diagnostic probes do not support optional prediction")
+
     import jax
     import numpy as np
 
@@ -129,7 +148,7 @@ def run_episode(
     )
     from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
-    action_spec = ActionSpec(**config["actions"]) if config["schema_version"] == 2 else None
+    action_spec = ActionSpec(**config["actions"]) if config["schema_version"] in (2, 3) else None
     scheduler = resolve_scheduler(
         behavior, scheduler_seed, scheduler, action_spec=action_spec, pattern=pattern
     )
@@ -158,7 +177,6 @@ def run_episode(
     rng = np.random.default_rng(0)
     policy._rng = jax.random.key(0)
     actor = InProcessRtcOpenpiPolicy(policy, noise_rng=rng)
-    bootstrap_identity = bootstrap_binding(root, config)
 
     def native_bootstrap(observation):
         from latency_meta_mdp.meta.information.services import frozen_services
@@ -168,12 +186,16 @@ def run_episode(
             clean_services.policy._rng = jax.random.key(0)
             return InProcessOpenpiPolicy(clean_services.policy, noise_rng=rng)(observation)
 
-    bootstrap = CachedBootstrapPolicy(
-        bootstrap_dir / f"seed-{seed}.npz",
-        identity=bootstrap_identity,
-        noise_rng=rng,
-        native_policy=native_bootstrap,
-        native_on_observation_miss=True,
+    bootstrap = (
+        None
+        if config["schema_version"] == 3
+        else CachedBootstrapPolicy(
+            bootstrap_dir / f"seed-{seed}.npz",
+            identity=bootstrap_binding(root, config),
+            noise_rng=rng,
+            native_policy=native_bootstrap,
+            native_on_observation_miss=True,
+        )
     )
     recorder = StageRecorder(episode_id or f"smoke-{seed}", action_spec=action_spec)
     from latency_meta_mdp.meta.information.archive import SourceArchive
@@ -245,7 +267,11 @@ def run_episode(
         result = run_information_episode(
             runtime=runtime,
             policy=lambda obs, ctx: actor(obs, ctx)["actions"],
-            bootstrap_policy=lambda obs: bootstrap(bootstrap_observation(obs))["actions"],
+            bootstrap_policy=(
+                None
+                if bootstrap is None
+                else lambda obs: bootstrap(bootstrap_observation(obs))["actions"]
+            ),
             perception=perception,
             scheduler=scheduler,
             recorder=recorder,
@@ -267,8 +293,15 @@ def run_episode(
     if diagnose:
         result["diagnostic_extra_calls"] = True
         result["cost_qualification"] = "Do not use this probe rollout for cost comparisons"
-    result["bootstrap_cache"] = bootstrap.last_record
+    result["bootstrap_cache"] = None if bootstrap is None else bootstrap.last_record
     result["scope"] = scope
+    if "reward" in config["training"]:
+        attach_budget_report(
+            result,
+            recorder.rows,
+            recorder.operations,
+            config["training"]["reward"],
+        )
     save = save_evaluation_trace if scope == "evaluation" else save_episode
     save(
         output_dir / "episode",

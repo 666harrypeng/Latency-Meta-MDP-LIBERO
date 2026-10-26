@@ -42,6 +42,33 @@ def test_attention_resume_restores_optimizer_sampler_and_target_iteration(tmp_pa
     assert state["model_config"]["model"]["architecture_id"] == "attention_memory_v2"
 
 
+def test_new_cycle_sampling_override_preserves_adam_and_rng_visits(tmp_path):
+    from latency_meta_mdp.meta.information.attention_model import AttentionStageQ
+
+    model = AttentionStageQ(small_config())
+    replay = tiny_replay(model.config)
+    train(model, replay, tmp_path / "old")
+    saved = torch.load(tmp_path / "old/latest/state.pt", weights_only=True)
+    sampling = dict(
+        online_fraction=0.12,
+        latest_fraction_cap=0.25,
+        latest_online_fraction=0.5,
+        oversampling_cap=4,
+    )
+    train(
+        model,
+        replay,
+        tmp_path / "new",
+        sampling=sampling,
+        initial_learning_state={k: copy.deepcopy(saved[k]) for k in ("optimizer", "sampler")},
+    )
+    new = torch.load(tmp_path / "new/latest/state.pt", weights_only=True)
+    assert new["sampler"]["sampling"] == sampling
+    assert new["sampler"]["visits"] == saved["sampler"]["visits"] + 8
+    for key, value in saved["optimizer"]["state"].items():
+        assert new["optimizer"]["state"][key]["step"] == value["step"] + 4
+
+
 def test_attention_validation_failure_resumes_without_extra_updates(tmp_path):
     from latency_meta_mdp.meta.information.attention_model import AttentionStageQ
     from latency_meta_mdp.meta.information.config import sha256
@@ -157,3 +184,51 @@ def test_validation_cadence_survives_unvalidated_checkpoint_resume(tmp_path):
     assert seen == [0]
     train(AttentionStageQ(config), tiny_replay(config), tmp_path, **options)
     assert seen == [0, 2]
+
+
+@pytest.mark.parametrize("validation_threads, expected_threads", [(None, 8), (5, 5)])
+def test_attention_entrypoint_passes_validation_worker_count(
+    tmp_path, monkeypatch, validation_threads, expected_threads
+):
+    from types import SimpleNamespace
+
+    from latency_meta_mdp.meta.information import (
+        attention_replay,
+        attention_training,
+        model,
+        monitor,
+        preflight,
+    )
+
+    class ReachedValidator(Exception):
+        pass
+
+    monkeypatch.setattr(preflight, "verify_runtime_dependencies", lambda *a, **k: None)
+    monkeypatch.setattr(preflight, "verify_assets", lambda *a, **k: None)
+    monkeypatch.setattr(
+        attention_replay,
+        "prepare_attention_replay",
+        lambda *a, **k: (SimpleNamespace(groups=["startup"]), {}),
+    )
+    monkeypatch.setattr(model, "build_model", lambda *a, **k: None)
+
+    def validator(*args, **kwargs):
+        assert kwargs["workers_per_gpu"] == 4
+        assert kwargs["cpu_threads"] == expected_threads
+        raise ReachedValidator()
+
+    monkeypatch.setattr(monitor, "IterationValidator", validator)
+    with pytest.raises(ReachedValidator):
+        attention_training.run_attention_training(
+            "configs/experiments/conveyor_sort/meta_attention_v2.yaml",
+            [],
+            tmp_path / "fit",
+            root=tmp_path,
+            total_iterations=2,
+            optimizer_updates=1,
+            global_batch=64,
+            validation_bootstrap=tmp_path / "bootstrap",
+            validation_workers_per_gpu=4,
+            validation_cpu_threads=validation_threads,
+            cpu_threads=8,
+        )

@@ -128,6 +128,30 @@ def test_forecast_transform_preserves_native_inputs_and_masks_tail(forecast_open
     assert "forecast_proprio" not in raw
 
 
+def test_current_only_conditioned_inputs_mask_both_forecast_views(forecast_openpi):
+    from openpi.models.model import ModelType
+    from openpi.shared.normalize import NormStats
+
+    from latency_meta_mdp.policy.openpi.forecast import ForecastPolicyInputs
+
+    raw = _inputs()
+    raw["forecast"].update(rgb=None, proprio=None)
+    raw["actions"][:2] = 0.2
+    transform = ForecastPolicyInputs(
+        model_type=ModelType.PI05,
+        state_norm_stats=NormStats(mean=np.zeros(16), std=np.ones(16)),
+        use_quantiles=False,
+    )
+    data = transform(raw)
+    assert data["image_mask"]["base_0_rgb"]
+    assert data["image_mask"]["left_wrist_0_rgb"]
+    for name in ("forecast_base_0_rgb", "forecast_left_wrist_0_rgb"):
+        assert not data["image_mask"][name]
+        assert not data["image"][name].any()
+    assert data["forecast_proprio"] is None
+    np.testing.assert_array_equal(data["state"], raw["observation/state"])
+
+
 def test_forecast_tokenizer_encodes_both_states_query_and_rejects_truncation(forecast_openpi):
     from openpi.models.tokenizer import PaligemmaTokenizer
 

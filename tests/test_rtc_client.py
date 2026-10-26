@@ -17,7 +17,7 @@ def _actions(base=0.0):
     return actions
 
 
-def _client(delay, initial=8):
+def _client(delay, initial=8, *, bootstrap=True, allow_hold=False):
     from latency_meta_mdp.runtime.rtc_client import RtcActionChunkClient
     from latency_meta_mdp.runtime.rtc_protocol import load_rtc_client_config
 
@@ -42,10 +42,62 @@ def _client(delay, initial=8):
         harness=harness,
         simulation_time_reader=lambda: clock.tick * 20_000,
         monotonic_ns=wall,
+        allow_hold=allow_hold,
     )
-    record = client.bootstrap(observation=None, infer=lambda obs: _actions())
-    assert record.protocol_id == config.protocol_id
+    if bootstrap:
+        record = client.bootstrap(observation=None, infer=lambda obs: _actions())
+        assert record.protocol_id == config.protocol_id
     return client, clock, harness
+
+
+@pytest.mark.parametrize("delay", [0, 4, 20])
+def test_empty_initial_buffer_holds_then_installs_first_delayed_chunk(delay):
+    client, clock, harness = _client(delay, bootstrap=False, allow_hold=True)
+    client.initialize_hold(observation=None)
+    assert client.events == ()
+    output, states, contexts = [], [], []
+
+    def decide(state):
+        states.append(state)
+        return state.formal_tick == 3
+
+    def infer(context):
+        contexts.append(context)
+        return _infer(context)
+
+    for tick in range(3 + delay + 2):
+        clock.tick = tick
+        client.run_boundary(
+            formal_tick=tick,
+            observation=None,
+            infer=infer,
+            execute=lambda a: output.append(a.copy()),
+            decide_launch=decide,
+        )
+    assert all(s.remaining_actions == 0 and not s.unread_action_mask.any() for s in states[:4])
+    assert len(contexts) == 1
+    np.testing.assert_array_equal(np.array(output)[: 3 + delay, :6], 0)
+    np.testing.assert_array_equal(
+        np.array(output)[: 3 + delay, -1], client.action_contract.gripper_open_command
+    )
+    assert output[3 + delay][0] == pytest.approx(0.5 + delay / 100)
+    assert contexts[0].previous_action_mask[:20].all()
+    assert not contexts[0].previous_action_mask[20:].any()
+    assert client.events[0].kind.value == "chunk_install"
+    assert client.events[0].installed_chunk_index == delay
+    assert sum(e.kind is HarnessEventKind.LAUNCH for e in harness.events) == 1
+
+
+def test_hold_initialization_cannot_overwrite_an_existing_plan_or_reenable_bootstrap():
+    client, _, _ = _client(0, allow_hold=True)
+    with pytest.raises(RuntimeError):
+        client.initialize_hold(observation=None)
+    fresh, _, _ = _client(0, bootstrap=False, allow_hold=True)
+    fresh.initialize_hold(observation=None)
+    with pytest.raises(RuntimeError):
+        fresh.bootstrap(observation=None, infer=lambda obs: _actions())
+    with pytest.raises(RuntimeError):
+        fresh.initialize_hold(observation=None)
 
 
 def _infer(context):

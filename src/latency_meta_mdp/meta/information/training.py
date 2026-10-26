@@ -113,6 +113,7 @@ def train_iterations(
     initial_learning_state=None,
     checkpoint_every_updates=256,
     validation_every=1,
+    sampling=None,
 ):
     """Resume published iterations, with periodic latest snapshots for attention FQI."""
     if total_iterations < 1 or (stop_after_iterations is not None and stop_after_iterations < 1):
@@ -142,11 +143,19 @@ def train_iterations(
 
         learning_state = dict(
             optimizer=torch.optim.Adam(model.parameters(), lr=learning_rate),
-            sampler=DecisionSampler(episodes, seed=binding.get("seed", 0)),
+            sampler=DecisionSampler(
+                episodes,
+                seed=binding.get("seed", 0),
+                sampling=sampling
+                if sampling is not None
+                else model.config["training"].get("sampling"),
+            ),
         )
         if initial_learning_state is not None:
             learning_state["optimizer"].load_state_dict(initial_learning_state["optimizer"])
-            learning_state["sampler"].load_state_dict(initial_learning_state["sampler"])
+            learning_state["sampler"].load_state_dict(
+                initial_learning_state["sampler"], allow_sampling_change=sampling is not None
+            )
         recipe.pop("epochs")
         recipe.pop("chunk_size")
         recipe.update(
@@ -155,9 +164,12 @@ def train_iterations(
             attention_fqi={
                 k: v
                 for k, v in attention_options.items()
-                if k not in ("devices", "microbatch", "cpu_threads")
+                if k not in ("devices", "microbatch", "cpu_threads", "compile_model")
             },
         )
+        recipe["budget_lambda"] = model.config["training"]["budget_lambda"]
+        if "reward" in model.config["training"]:
+            recipe["reward"] = model.config["training"]["reward"]
         binding = {
             **binding,
             "architecture": {k: model.config[k] for k in ("model", "memory", "actions")},
@@ -293,7 +305,9 @@ def train_iterations(
 class VerifiedReplay:
     """Hash-admitted episode stream with optional bounded host caching."""
 
-    def __init__(self, root, manifest, *, progress=None, cache=None, workers=1):
+    def __init__(
+        self, root, manifest, *, progress=None, cache=None, workers=1, verification_cache=None
+    ):
         from latency_meta_mdp.io.paths import repository_root
         from latency_meta_mdp.meta.information.cohort import verify_complete
         from latency_meta_mdp.runtime.evaluate_conveyor import conveyor_delay_sampler
@@ -309,12 +323,29 @@ class VerifiedReplay:
         identities = [e["episode_id"] for e in manifest["episodes"]]
         if len(identities) != len(set(identities)):
             raise ValueError("duplicate training episode identity")
+
         def admit(definition):
             if definition["split"] != "train":
                 raise ValueError("non-training split in replay")
             matches = []
             for attempt in sorted((root / "episodes" / definition["episode_id"]).glob("attempt-*")):
-                if verify_complete(attempt, binding=dict(cohort=cohort, episode=definition)):
+                options = (
+                    {}
+                    if verification_cache is None
+                    else dict(
+                        verification_cache=verification_cache,
+                        required_files=(
+                            "summary.json",
+                            "episode/complete.json",
+                            "episode/records.json",
+                            "episode/audit.json",
+                            "episode/visual.npz",
+                        ),
+                    )
+                )
+                if verify_complete(
+                    attempt, binding=dict(cohort=cohort, episode=definition), **options
+                ):
                     matches.append(attempt)
             if len(matches) != 1:
                 raise ValueError("exactly one complete attempt required per training episode")
@@ -356,7 +387,7 @@ class VerifiedReplay:
                 delay=delay,
             )
             if cohort["scope"] == "online_training":
-                if cohort["phase"] != "online" or cohort["schema_version"] not in (1, 2):
+                if cohort["phase"] != "online" or cohort["schema_version"] not in (1, 2, 3):
                     raise ValueError("invalid online training cohort")
                 if definition["behavior"] in ("fqi", "actor"):
                     from latency_meta_mdp.meta.information.cycle import policy_binding
@@ -364,7 +395,7 @@ class VerifiedReplay:
                     expected["learned_policy"] = policy_binding(cohort, definition)
                 if definition["behavior"] == "actor":
                     expected["delay_seed"] = definition["delay_seed"]
-            if cohort.get("schema_version", 1) == 2:
+            if cohort.get("schema_version", 1) in (2, 3):
                 expected.update(actions=cohort["actions"], pattern=definition.get("pattern"))
             validate_binding(expected, actual)
             if actual["delay"]["regime"] != definition["regime"] or not inner["terminated"]:

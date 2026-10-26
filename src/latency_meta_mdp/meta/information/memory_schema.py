@@ -20,7 +20,7 @@ class ActionSpec:
     def __post_init__(self):
         ticks = tuple(self.sleep_ticks)
         if (
-            self.version != 2
+            self.version not in (2, 3)
             or not ticks
             or any(type(t) is not int or t <= 0 for t in ticks)
             or tuple(sorted(set(ticks))) != ticks
@@ -30,6 +30,8 @@ class ActionSpec:
             raise ValueError("unknown starvation protocol")
         if type(self.reserve) is not int or not 0 <= self.reserve <= 20:
             raise ValueError("invalid action reserve")
+        if self.version == 3 and (self.starvation_mode != "allow_hold" or self.reserve != 0):
+            raise ValueError("optional prediction requires voluntary hold without a reserve")
         object.__setattr__(self, "sleep_ticks", ticks)
 
     @property
@@ -58,19 +60,23 @@ class ActionSpec:
         )
         return self.id_for(name)
 
-    def legal(self, stage, remaining, *, forecast_fresh=False):
+    def legal(self, stage, remaining, *, forecast_fresh=False, prediction_ready=False):
         minimum = self.reserve if self.starvation_mode == "guarded" else 0
         if stage not in STAGES or type(remaining) is not int or not minimum <= remaining <= 50:
             raise ValueError("invalid stage or insufficient action coverage")
         mask = np.zeros(self.num_actions, bool)
-        if stage != "O":
+        if stage != "O" or self.version == 3:
             mask[: len(self.sleep_ticks)] = [
                 self.starvation_mode == "allow_hold" or remaining >= self.reserve + t
                 for t in self.sleep_ticks
             ]
         if stage == "P" and not forecast_fresh:
             raise ValueError("prediction stage requires a fresh forecast")
-        mask[self.id_for(dict(G="observe", O="predict", P="launch")[stage])] = True
+        if stage == "O" and self.version == 3:
+            mask[self.id_for("predict")] = prediction_ready
+            mask[self.id_for("launch")] = True
+        else:
+            mask[self.id_for(dict(G="observe", O="predict", P="launch")[stage])] = True
         return mask
 
 
@@ -115,6 +121,18 @@ class AttentionPacket(ActorPacket):
     @property
     def num_actions(self):
         return self.action_spec.num_actions
+
+
+@dataclass(frozen=True)
+class OptionalPredictionPacket(AttentionPacket):
+    """V3 publishes predictor input readiness without changing historical packet fields."""
+
+    prediction_ready: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.action_spec.version != 3 or type(self.prediction_ready) is not bool:
+            raise ValueError("invalid optional prediction packet")
 
 
 @dataclass(frozen=True)

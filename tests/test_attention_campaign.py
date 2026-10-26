@@ -30,7 +30,10 @@ def test_accumulated_online_replay_latest_parent_and_report_only_regression(tmp_
         candidates = [
             dict(
                 checkpoint=str(tmp_path / f"{index}-{i}"),
-                metrics={"selection_score": (5 - index - i) / 60},
+                metrics={
+                    key: (5 - index - i) / 60
+                    for key in ("selection_score", "zero/reward", "nominal/reward", "family/reward")
+                },
             )
             for i in range(2)
         ]

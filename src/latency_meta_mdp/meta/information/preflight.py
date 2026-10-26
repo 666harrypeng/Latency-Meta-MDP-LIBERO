@@ -102,10 +102,13 @@ def verify_assets(root, assets, *, cache_dir=None):
     if "paths" in assets:
         for kind in ("conditioned", "clean"):
             checkpoint = Path(root) / assets["paths"][kind]
-            actual = {str(p.relative_to(root)) for p in checkpoint.rglob("*") if p.is_file()}
             covered = {
                 name for name in assets["files"] if Path(name).is_relative_to(assets["paths"][kind])
             }
+            if kind == "clean" and not covered:
+                # Schema 3 retains clean provenance but never restores its bootstrap.
+                continue
+            actual = {str(p.relative_to(root)) for p in checkpoint.rglob("*") if p.is_file()}
             if actual != covered:
                 raise ValueError("checkpoint file coverage differs from asset manifest")
     return {"verified_files": len(assets["files"]), "asset_binding": identity_hash(assets)}

@@ -61,9 +61,11 @@ def test_fixed_target_fitting_updates_model_without_updating_target(tmp_path):
         next_legal=np.zeros(11, bool),
     )
     replay = DecisionReplay([[row]])
+    torch.manual_seed(0)  # Fix initialization for the short loss-decrease regression.
     model = AttentionStageQ(config)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     before = model_hash(model)
+    progress = []
     metrics = fit_attention_iteration(
         model,
         replay,
@@ -73,8 +75,14 @@ def test_fixed_target_fitting_updates_model_without_updating_target(tmp_path):
         microbatch=1,
         sampler=DecisionSampler(replay, seed=1),
         conservative_weight=0.0,
+        progress=progress.append,
     )
     assert metrics["target_hash_before"] == metrics["target_hash_after"] == before
     assert model_hash(model) != before
     assert metrics["optimizer_updates"] == 4 and metrics["transition_visits"] == 8
     assert metrics["final_loss"] < metrics["initial_loss"]
+    assert progress[0]["phase"] == "target_progress"
+    assert progress[0]["completed_decisions"] == 0
+    assert progress[1]["phase"] == "targets"
+    assert progress[1]["completed_decisions"] == progress[1]["unique_decisions"] == 1
+    assert sum(event["phase"] == "fit" for event in progress) == 4

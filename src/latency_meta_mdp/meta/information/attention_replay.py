@@ -18,6 +18,7 @@ from latency_meta_mdp.meta.information.memory_schema import (
     PublicEvent,
 )
 from latency_meta_mdp.meta.information.records import decision_view
+from latency_meta_mdp.meta.information.replay_metadata import load_metadata
 from latency_meta_mdp.meta.information.schema import ActorPacket
 
 
@@ -30,6 +31,8 @@ def contexts_from_raw(raw, action_spec, *, config=None):
         packet = row["packet"]
         action = row["action"]
         if not isinstance(packet, AttentionPacket):
+            if action_spec.version == 3:
+                raise ValueError("optional prediction requires native protocol-3 replay")
             values = {f.name: getattr(packet, f.name) for f in fields(ActorPacket)}
             values["previous_action"] = (
                 -1 if packet.previous_action == -1 else action_spec.from_v1(packet.previous_action)
@@ -95,6 +98,8 @@ def contexts_from_raw(raw, action_spec, *, config=None):
             )
         elif packet.action_spec != action_spec:
             raise ValueError("replay action vocabulary differs")
+        if action_spec.version == 3 and row["forced"]:
+            raise ValueError("optional prediction replay cannot contain forced stages")
         rows.append({**row, "packet": packet, "action": action})
     events.sort(key=lambda e: e.available_at)
     memory = MemoryStore(action_spec, config=config)
@@ -113,6 +118,7 @@ def contexts_from_raw(raw, action_spec, *, config=None):
             row["packet"].stage,
             row["packet"].remaining,
             forecast_fresh=row["packet"].forecast_fresh,
+            prediction_ready=getattr(row["packet"], "prediction_ready", False),
         )
     for event in events[cursor:]:
         memory.ingest(event)  # Validate the remaining timeline, including terminal events.
@@ -129,15 +135,18 @@ def contexts_from_raw(raw, action_spec, *, config=None):
 class AttentionEpisodes:
     """Lazy context reconstruction; process spawn sends receipts, never feature arrays."""
 
-    def __init__(self, entries, action_spec, config, cache_size=128):
+    def __init__(self, entries, action_spec, config, cache_size=128, reward=None):
         if type(cache_size) is not int or cache_size < 1:
             raise ValueError("positive episode cache size required")
         self.entries, self.action_spec, self.config = entries, action_spec, config
         self.cache_size = cache_size
+        self.reward = copy.deepcopy(reward)
         self.loaded = OrderedDict()
         self.lengths = []
         for entry in entries:
-            rows = json.loads((entry.path / "records.json").read_text())["rows"]
+            rows = load_metadata(
+                entry.path / "records.json", entry.path.parent.parent / "metadata-v1"
+            )["rows"]
             self.lengths.append(sum(not r["forced"] for r in rows))
 
     def __len__(self):
@@ -159,6 +168,19 @@ class AttentionEpisodes:
             # Old recorder names collide between independent cohorts; source receipt is unique.
             raw["episode_id"] = self.entries[index].path.name + "/" + raw["episode_id"]
             self.loaded[index] = contexts_from_raw(raw, self.action_spec, config=self.config)
+            if self.reward is not None:
+                from latency_meta_mdp.meta.information.budget_reward import reward_view
+
+                source = self.entries[index].source
+                cache = self.entries[index].path.parent.parent / "metadata-v1"
+                audit = load_metadata(source / "audit.json", cache, fields=("parcel_events",))
+                records = load_metadata(source / "records.json", cache, fields=("operations",))
+                view = reward_view(
+                    raw["rows"], records["operations"], audit["parcel_events"], self.reward
+                )
+                for row, reward in zip(self.loaded[index], view["decision_rewards"], strict=True):
+                    row["training_reward"] = reward
+                self.entries[index].verify_unchanged()
         self.loaded.move_to_end(index)
         return self.loaded[index]
 
@@ -169,6 +191,7 @@ class AttentionEpisodes:
             config=self.config,
             cache_size=self.cache_size,
             lengths=self.lengths,
+            reward=self.reward,
         )
 
     def __setstate__(self, state):
@@ -218,8 +241,8 @@ class DecisionReplay:
         return self.episodes[episode][int(index - start)]
 
     @contextmanager
-    def batch(self, indices, *, executor=None):
-        """Verify each touched source around a batch read; preserve sampling order."""
+    def batch(self, indices, *, executor=None, verify=True):
+        """Read in sample order; admitted immutable FQI can skip repeated file stats."""
         indices = [int(i) for i in indices]
         if any(not 0 <= i < len(self) for i in indices):
             raise IndexError("decision batch index outside replay")
@@ -230,32 +253,88 @@ class DecisionReplay:
         unique = list(dict.fromkeys(int(i) for i in episodes))
         entries = [self.episodes.entries[i] for i in unique]
 
-        def verify():
+        def check():
             apply = map if executor is None else executor.map
             list(apply(lambda entry: entry.verify_unchanged(), entries))
 
-        verify()
+        if verify:
+            check()
         loaded = {i: self.episodes._load_verified(i) for i in unique}
         yield [
             loaded[episode][index - (int(self.ends[episode - 1]) if episode else 0)]
             for index, episode in zip(indices, episodes, strict=True)
         ]
-        verify()
+        if verify:
+            check()
 
 
 class DecisionSampler:
-    def __init__(self, replay, *, seed):
+    def __init__(self, replay, *, seed, sampling=None):
         self.replay = replay
+        self.sampling = copy.deepcopy(sampling)
         self.rng = np.random.default_rng(seed)
         self.visits = 0
-        if "startup" not in replay.group_indices:
+        if not len(replay.group_indices.get("startup", [])):
             raise ValueError("startup replay must remain available")
-        self.names = [g for g in ("startup", "old", "latest") if g in replay.group_indices]
+        self.names = [
+            g for g in ("startup", "old", "latest") if len(replay.group_indices.get(g, []))
+        ]
         weights = dict(startup=0.5, old=0.25, latest=0.25)
         if "old" not in self.names:
             weights["latest"] += weights["old"]
         if "latest" not in self.names:
             weights["old"] += weights["latest"]
+        if sampling is not None:
+            required = {"online_fraction", "latest_fraction_cap", "oversampling_cap"}
+            if set(sampling) - {"latest_online_fraction"} != required or not all(
+                np.isfinite(v) for v in sampling.values()
+            ):
+                raise ValueError("invalid sampling specification")
+            rho, cap, multiple = (
+                sampling[k] for k in ("online_fraction", "latest_fraction_cap", "oversampling_cap")
+            )
+            if not 0 <= rho < 1 or not 0 <= cap <= 1 or multiple <= 0:
+                raise ValueError("invalid sampling probabilities or oversampling cap")
+            sizes = {g: len(replay.group_indices.get(g, [])) for g in weights}
+            online = sizes["old"] + sizes["latest"]
+            rho = min(rho, multiple * online / (sizes["startup"] + multiple * online))
+            share = sampling.get(
+                "latest_online_fraction", sizes["latest"] / online if online else 0
+            )
+            if not 0 <= share <= 1:
+                raise ValueError("invalid latest online fraction")
+            if not sizes["old"]:
+                share = 1.0
+            latest = min(cap, rho * share) if sizes["latest"] else 0.0
+            old = rho - latest if sizes["old"] else 0.0
+            latest = min(
+                latest,
+                multiple
+                * sizes["latest"]
+                / (sizes["startup"] + multiple * sizes["latest"])
+                * (1 - old),
+            )
+            # A latest cap may redirect mass into a very small old cohort.
+            # Bound that group's per-decision mass too; return excess to startup.
+            old = min(
+                old,
+                multiple
+                * sizes["old"]
+                / (sizes["startup"] + multiple * sizes["old"])
+                * (1 - latest),
+            )
+            if "latest_online_fraction" in sampling:
+                # Preserve the requested total online mass when older data can
+                # absorb a latest-cohort cap. Never weaken per-decision limits.
+                old_capacity = multiple * sizes["old"] / sizes["startup"]
+                rho = min(rho, (cap + old_capacity) / (1 + old_capacity))
+                latest_max = min(
+                    cap, rho, multiple * sizes["latest"] / sizes["startup"] * (1 - rho)
+                )
+                latest_min = max(0.0, rho - old_capacity * (1 - rho))
+                latest = min(latest_max, max(latest_min, rho * share))
+                old = rho - latest
+            weights = dict(startup=1 - old - latest, old=old, latest=latest)
         values = np.array([weights[g] for g in self.names])
         self.probabilities = values / values.sum()
 
@@ -273,16 +352,73 @@ class DecisionSampler:
         return result
 
     def state_dict(self):
-        return dict(rng=copy.deepcopy(self.rng.bit_generator.state), visits=self.visits)
+        state = dict(rng=copy.deepcopy(self.rng.bit_generator.state), visits=self.visits)
+        if self.sampling is not None:
+            state["sampling"] = copy.deepcopy(self.sampling)
+        return state
 
-    def load_state_dict(self, state):
+    def describe(self, plan):
+        """Actual source usage for one fixed-target regression plan."""
+        groups = {}
+        plan = np.asarray(plan).ravel()
+        for name, probability in zip(self.names, self.probabilities, strict=True):
+            available = self.replay.group_indices[name]
+            selected = plan[np.isin(plan, available)]
+            unique = len(np.unique(selected))
+            groups[name] = dict(
+                available=len(available),
+                probability=float(probability),
+                draws=len(selected),
+                unique=unique,
+                coverage=unique / len(available),
+                draws_per_available=len(selected) / len(available),
+                draws_per_seen=len(selected) / unique if unique else 0.0,
+            )
+        return dict(
+            target_online_fraction=(self.sampling or {}).get("online_fraction", 0.5),
+            effective_online_fraction=1 - groups["startup"]["probability"],
+            groups=groups,
+        )
+
+    def load_state_dict(self, state, *, allow_sampling_change=False):
+        if state.get("sampling") != self.sampling and not allow_sampling_change:
+            raise ValueError("resumed sampling specification differs")
         self.rng.bit_generator.state = copy.deepcopy(state["rng"])
         self.visits = state["visits"]
 
 
-def validate_sources(config, manifests):
-    from latency_meta_mdp.meta.information.config import identity_hash, validate_binding
+def admitted_source_hashes(config, *, root=None):
+    """Admit recording identities explicitly; training reward may change independently."""
+    from latency_meta_mdp.meta.information.config import (
+        identity_hash,
+        load_config,
+        sha256,
+        validate_binding,
+    )
 
+    admitted_hashes = {identity_hash(config)}
+    for source in config["training"].get("replay_source_configs", []):
+        if root is None or set(source) != {"path", "sha256"}:
+            raise ValueError("source config requires a root, path and file SHA")
+        path = Path(root) / source["path"]
+        validate_binding(source["sha256"], sha256(path))
+        previous = load_config(path)
+        excluded = {"training", "output_dir"}
+        if config["schema_version"] == previous["schema_version"] == 3:
+            excluded.add("experiment_id")
+        validate_binding(
+            {k: v for k, v in config.items() if k not in excluded},
+            {k: v for k, v in previous.items() if k not in excluded},
+        )
+        admitted_hashes.add(identity_hash(previous))
+
+    return admitted_hashes
+
+
+def validate_sources(config, manifests, *, root=None):
+    from latency_meta_mdp.meta.information.config import validate_binding
+
+    admitted_hashes = admitted_source_hashes(config, root=root)
     if not manifests:
         raise ValueError("explicit source manifests required")
     for manifest in manifests:
@@ -291,8 +427,10 @@ def validate_sources(config, manifests):
             raise ValueError("evaluation and diagnostic data cannot enter replay")
         validate_binding(config["assets"]["identity"], binding["assets"]["identity"])
         validate_binding(config["mode"], binding["mode"])
-        if binding["schema_version"] == 2:
-            validate_binding(identity_hash(config), binding["config_hash"])
+        if binding["schema_version"] in (2, 3):
+            validate_binding(config["schema_version"], binding["schema_version"])
+            if binding["config_hash"] not in admitted_hashes:
+                raise ValueError("source config hash is not explicitly admitted")
             validate_binding(config["actions"], binding["actions"])
         elif binding["schema_version"] != 1 or config["actions"]["starvation_mode"] != "guarded":
             raise ValueError("legacy replay only qualifies for guarded protocol")
@@ -315,6 +453,7 @@ def prepare_attention_replay(
     progress=None,
     episode_cache_size=128,
     cache_max_bytes=None,
+    compact_replay=False,
 ):
     """Only named, hash-pinned manifests; never discover additional cohorts on disk."""
     from concurrent.futures import ThreadPoolExecutor
@@ -345,11 +484,30 @@ def prepare_attention_replay(
                 raise ValueError("replay subset contains unknown episodes")
             manifest = dict(manifest, episodes=selected)
         manifests.append(manifest)
-    validate_sources(config, manifests)
+    validate_sources(config, manifests, root=root)
     entries, groups, provenance = [], [], []
     seen = set()
+    expected_episodes = sum(len(manifest["episodes"]) for manifest in manifests)
     for source, directory, manifest in zip(sources, directories, manifests, strict=True):
-        admitted = VerifiedReplay(directory, manifest, progress=progress, workers=workers)
+        admitted_before = len(entries)
+
+        def admission_progress(event):
+            if progress:
+                progress(
+                    dict(
+                        event,
+                        episodes=admitted_before + event["episodes"],
+                        expected=expected_episodes,
+                    )
+                )
+
+        admitted = VerifiedReplay(
+            directory,
+            manifest,
+            progress=admission_progress,
+            workers=workers,
+            verification_cache=Path(cache_dir) / "verification",
+        )
         for entry in admitted.entries:
             if entry[2] in seen:
                 raise ValueError("same physical rollout copied into multiple sources")
@@ -362,7 +520,7 @@ def prepare_attention_replay(
                     source_receipt_sha256=entry[2],
                     schema_version=manifest["binding"]["schema_version"],
                     public_history="paid_three_frame_and_execution_events"
-                    if manifest["binding"]["schema_version"] == 2
+                    if manifest["binding"]["schema_version"] in (2, 3)
                     else "current_frame_at_first_visibility; execution_history_missing",
                 )
             )
@@ -377,6 +535,7 @@ def prepare_attention_replay(
             expected_receipt=entry[2],
             raw=True,
             storage_budget=budget,
+            compact=compact_replay,
         )
 
     packed = []
@@ -385,21 +544,32 @@ def prepare_attention_replay(
             packed.append(entry)
             if progress:
                 progress(dict(phase="prepare_replay", episodes=len(packed), expected=len(entries)))
+
         # Required FP32 caches have first claim on the shared byte allowance.
         def compact(entry):
             return compact_packed_episode(entry, cache_dir, storage_budget=budget)
 
-        packed = list(pool.map(compact, packed))
+        if not compact_replay:
+            packed = list(pool.map(compact, packed))
     episodes = AttentionEpisodes(
-        packed, ActionSpec(**config["actions"]), config["memory"], cache_size=episode_cache_size
+        packed,
+        ActionSpec(**config["actions"]),
+        config["memory"],
+        cache_size=episode_cache_size,
+        reward=config["training"].get("reward"),
     )
     replay = DecisionReplay(episodes, groups)
+    from latency_meta_mdp.meta.information.runtime_identity import source_identity
+
+    source = source_identity(root)
     receipt = dict(
         format_version=2,
         sources=sources,
         provenance=provenance,
-        converter_sha256=sha256(__file__),
-        selector_sha256=sha256(Path(__file__).with_name("memory.py")),
+        converter_sha256=source.get("replay_converter_sha256", sha256(__file__)),
+        selector_sha256=source.get(
+            "replay_selector_sha256", sha256(Path(__file__).with_name("memory.py"))
+        ),
         memory=config["memory"],
         actions=config["actions"],
         episode_decisions=episodes.lengths,
@@ -408,6 +578,11 @@ def prepare_attention_replay(
         if any(p["schema_version"] == 1 for p in provenance)
         else None,
     )
+    if "reward" in config["training"]:
+        receipt["reward"] = config["training"]["reward"]
+        receipt["reward_adapter_sha256"] = sha256(Path(__file__).with_name("budget_reward.py"))
+    if "replay_source_configs" in config["training"]:
+        receipt["replay_source_configs"] = config["training"]["replay_source_configs"]
     target = Path(cache_dir) / "conversions" / f"{identity_hash(receipt)}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     atomic_json(target, receipt)

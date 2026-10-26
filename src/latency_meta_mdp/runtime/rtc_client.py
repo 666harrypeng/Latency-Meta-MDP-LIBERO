@@ -116,7 +116,7 @@ class RtcActionChunkClient:
             self._on_chunk_install(event)
 
     def bootstrap(self, *, observation, infer):
-        if self._faulted or self._plan is not None or self._simulation_time_reader() != 0:
+        if self._faulted or self._buffer_version >= 0 or self._simulation_time_reader() != 0:
             raise RuntimeError("RTC bootstrap requires a fresh tick-zero runtime")
         try:
             start = self._clock()
@@ -147,6 +147,18 @@ class RtcActionChunkClient:
             self._faulted = True
             raise
 
+    def initialize_hold(self, *, observation):
+        """Start with no action plan or inference request, at physical tick zero."""
+        if (
+            not self.allow_hold
+            or self._faulted
+            or self._buffer_version >= 0
+            or self._simulation_time_reader() != 0
+            or getattr(observation, "formal_tick", 0) != 0
+        ):
+            raise RuntimeError("hold initialization requires a fresh tick-zero hold runtime")
+        self._buffer_version = 0
+
     def _hold_action(self):
         return self.action_contract.compose_action(
             arm_reference=np.zeros(6),
@@ -154,16 +166,21 @@ class RtcActionChunkClient:
         )
 
     def _state(self, tick):
-        remaining = self._plan.remaining_from(formal_tick=tick)
+        remaining = (
+            self._plan.remaining_from(formal_tick=tick)
+            if self._plan is not None
+            else np.empty((0, 7))
+        )
+        origin = self._plan.origin_tick if self._plan is not None else 0
         buffer = np.repeat(self._hold_action()[None], 50, axis=0)
         buffer[: len(remaining)] = remaining
         if len(remaining):
             buffer[len(remaining) :, -1] = remaining[-1, -1]
         return RtcDecisionState(
             formal_tick=tick,
-            plan_origin_tick=self._plan.origin_tick,
+            plan_origin_tick=origin,
             buffer_version=self._buffer_version,
-            active_cursor=tick - self._plan.origin_tick,
+            active_cursor=tick - origin,
             remaining_actions=len(remaining),
             actions_consumed=self._actions_consumed,
             estimated_delay_ticks=self.delay_history.estimate_ticks(),
@@ -194,7 +211,7 @@ class RtcActionChunkClient:
         self._pending_context = None
 
     def run_boundary(self, *, formal_tick, observation, infer, execute, decide_launch=None):
-        if self._faulted or self._plan is None:
+        if self._faulted or self._buffer_version < 0:
             raise RuntimeError("RTC client is faulted or not bootstrapped")
         try:
             if getattr(observation, "formal_tick", formal_tick) != formal_tick:
@@ -253,7 +270,11 @@ class RtcActionChunkClient:
                     immediate = self.harness.launch(observation=observation, infer=run_inference)
                     if immediate is not None:
                         self._accept(immediate)
-            remaining = self._plan.remaining_from(formal_tick=formal_tick)
+            remaining = (
+                self._plan.remaining_from(formal_tick=formal_tick)
+                if self._plan is not None
+                else np.empty((0, 7))
+            )
             if len(remaining):
                 action = remaining[0]
                 execute(action)

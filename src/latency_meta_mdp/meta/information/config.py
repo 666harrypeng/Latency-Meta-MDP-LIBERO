@@ -53,14 +53,20 @@ def load_config(path):
         "output_dir",
     }
     version = config.get("schema_version") if isinstance(config, dict) else None
-    if version == 2:
+    if version in (2, 3):
         keys |= {"model", "memory", "actions"}
+    if version == 3:
+        keys.add("experiment_id")
     if not isinstance(config, dict) or set(config) != keys:
         raise ValueError("information config has missing or unknown fields")
-    if version not in (1, 2) or config["task_id"] != "conveyor_sort":
+    if version not in (1, 2, 3) or config["task_id"] != "conveyor_sort":
         raise ValueError("unsupported information experiment")
-    if config["mode"] not in ("bound", "split"):
+    if config["mode"] not in (("optional_prediction",) if version == 3 else ("bound", "split")):
         raise ValueError("invalid information mode")
+    if version == 3 and (
+        not isinstance(config["experiment_id"], str) or not config["experiment_id"].strip()
+    ):
+        raise ValueError("optional prediction requires a nonempty experiment_id")
     training = config["training"]
     training_keys = {
         "algorithm",
@@ -71,15 +77,38 @@ def load_config(path):
         "epochs_per_iteration",
         "conservative_weight",
     }
-    if version == 2:
+    if version in (2, 3):
         training_keys |= {"optimizer_updates", "global_batch", "grad_clip", "optimizer_policy"}
+        training_keys |= set(training) & {
+            "reward",
+            "sampling",
+            "huber_beta",
+            "conservative_temperature",
+            "replay_source_configs",
+        }
         validate_attention_config(config)
     if set(training) != training_keys:
         raise ValueError("training has missing or unknown fields")
-    if training["algorithm"] != "fqi" or training["gamma"] != 1 or training["budget_lambda"] != 0:
-        raise ValueError(
-            "training currently supports only the approved undiscounted success objective"
-        )
+    if training["algorithm"] != "fqi" or training["gamma"] != 1:
+        raise ValueError("training requires undiscounted FQI")
+    if "reward" in training:
+        from latency_meta_mdp.meta.information.budget_reward import validate_reward_spec
+
+        validate_reward_spec(training["reward"])
+        validate_binding(training["budget_lambda"], training["reward"]["cost_weight"])
+    elif training["budget_lambda"] != 0:
+        raise ValueError("nonzero budget_lambda requires an explicit event reward specification")
+    import math
+
+    for key in ("huber_beta", "conservative_temperature"):
+        value = training.get(key, 1.0)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError(f"positive finite {key} required")
     if training["conservative_weight"] < 0:
         raise ValueError("invalid training conservative weight")
     if training["learning_rate"] <= 0 or any(
@@ -112,14 +141,15 @@ def load_config(path):
     clean = Path(paths["clean"])
     if clean.name != str(identity["clean_baseline"]["step"]):
         raise ValueError("clean bootstrap step/path binding differs")
-    required += [
-        str(clean / p)
-        for p in (
-            "_CHECKPOINT_METADATA",
-            "params/_METADATA",
-            "assets/metamdp/conveyor_sort_surface/norm_stats.json",
-        )
-    ]
+    if config["schema_version"] != 3:
+        required += [
+            str(clean / p)
+            for p in (
+                "_CHECKPOINT_METADATA",
+                "params/_METADATA",
+                "assets/metamdp/conveyor_sort_surface/norm_stats.json",
+            )
+        ]
     required += [config["task_config"], config["rtc_config"]]
     if not all(p in files for p in required):
         raise ValueError("actual restore path is outside the asset binding")
@@ -142,12 +172,15 @@ def load_config(path):
 def validate_attention_config(config):
     from latency_meta_mdp.meta.information.memory_schema import ActionSpec
 
-    if config["mode"] != "bound":
-        raise ValueError("attention v2 requires bound Observe/Predict")
+    version = config["schema_version"]
+    if config["mode"] != ("optional_prediction" if version == 3 else "bound"):
+        raise ValueError("attention mode differs from its protocol version")
     actions = config["actions"]
     if set(actions) != {"version", "sleep_ticks", "starvation_mode", "reserve"}:
         raise ValueError("invalid action fields")
     ActionSpec(**actions)
+    if actions["version"] != version:
+        raise ValueError("attention and action protocol versions differ")
     model = config["model"]
     if set(model) != {
         "architecture_id",

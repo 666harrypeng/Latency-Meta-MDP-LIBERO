@@ -187,3 +187,22 @@ def test_archive_and_mmap_formats_can_share_explicit_cache_root(tmp_path):
     assert (
         mmap[0][1]["task_reward"] == load_episode(archive, binding={"sample": 1})[1]["task_reward"]
     )
+
+
+def test_prepared_cache_hit_does_not_rehash_source_or_packed_arrays(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information import packed_replay, verification_cache
+
+    source = tmp_path / "source"
+    source_episode(source)
+    first = prepared(source, tmp_path / "cache")
+
+    def reject_array_hash(path):
+        assert path.suffix not in (".npy", ".npz"), "cached array was reread"
+        return sha256(path)
+
+    monkeypatch.setattr(packed_replay, "sha256", reject_array_hash)
+    monkeypatch.setattr(verification_cache, "sha256", reject_array_hash)
+    second = prepared(source, tmp_path / "cache")
+    np.testing.assert_array_equal(
+        first[0][1]["packet"].current_tokens, second[0][1]["packet"].current_tokens
+    )

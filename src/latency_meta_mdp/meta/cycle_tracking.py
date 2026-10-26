@@ -23,7 +23,7 @@ def rollout_metrics(episode, report, *, phase, completed):
         f"{group}/successes": parcels["successes"],
         f"{group}/misses": parcels["misses"],
         f"{group}/timeouts": parcels["timeouts"],
-        f"{group}/epsilon": episode["epsilon"],
+        f"{group}/epsilon": episode.get("epsilon", 0),
         f"{group}/logical_seconds": report["executed_steps"] / 50,
         f"{group}/starvation_ticks": report["starvation_ticks"],
     }
@@ -59,11 +59,11 @@ class CycleTracker:
     def __init__(self, directory, *, name, enabled=True):
         self.directory = Path(directory)
         self.manifest = json.loads((self.directory / "cohort.json").read_text())
-        self.phase = self.manifest["binding"]["phase"]
+        self.phase = self.manifest["binding"].get("phase", "starter")
         self.rows = []
         self.run = None
-        self.enabled = enabled
-        if enabled:
+        self.enabled = enabled and os.environ.get("CONVEYOR_STAGE_WANDB", "1") != "0"
+        if self.enabled:
             import wandb
 
             state_path = self.directory / "wandb-run.json"
@@ -107,7 +107,11 @@ class CycleTracker:
             valid = [
                 a
                 for a in attempts
-                if verify_complete(a, binding=dict(cohort=self.manifest["binding"], episode=ep))
+                if verify_complete(
+                    a,
+                    binding=dict(cohort=self.manifest["binding"], episode=ep),
+                    verification_cache=self.directory / ".verification-cache",
+                )
             ]
             if len(valid) > 1:
                 raise ValueError("duplicate completed rollout")
@@ -180,10 +184,18 @@ class CycleTracker:
                         self.rows, reference=behavior, candidate=candidate
                     )
             if self.phase == "monitor":
-                from latency_meta_mdp.meta.information.validation import validation_metrics
+                from latency_meta_mdp.meta.information.validation import (
+                    BUDGET_SELECTION,
+                    DELAYED_SELECTION,
+                    validation_metrics,
+                )
 
+                binding = self.manifest["binding"]
                 separate = validation_metrics(
-                    self.rows, scenes=sorted({r["episode"]["scene"] for r in self.rows})
+                    self.rows, scenes=sorted({r["episode"]["scene"] for r in self.rows}),
+                    starvation_mode=binding.get("actions", {}).get("starvation_mode", "guarded"),
+                    selection=(BUDGET_SELECTION if binding.get("schema_version") == 3
+                               else DELAYED_SELECTION),
                 )
                 metrics.update({f"{candidate}/{k}": v for k, v in separate.items()})
             result = dict(metrics=metrics, paired=paired)

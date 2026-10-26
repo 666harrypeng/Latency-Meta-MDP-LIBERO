@@ -98,11 +98,23 @@ class PerceptionAccess:
         self._encoder.keys = tuple((obs.formal_tick, view) for obs in history for view in (0, 1))
         return np.stack([im for obs in history for im in (obs.image, obs.wrist_image)])
 
-    def observe(self, context, *, prepare_history=False, return_history=False):
+    def prediction_ready(self, context):
+        """Input availability only; neither a prediction nor a privileged task signal."""
+        return bool(
+            context.origin_tick >= 10
+            and len(self._history) >= 9
+            and self._history[-1].formal_tick == context.origin_tick
+            and self._observed_tick == context.origin_tick
+            and context.previous_action_mask[: context.estimated_delay_ticks].all()
+        )
+
+    def observe(
+        self, context, *, prepare_history=False, return_history=False, allow_partial_history=False
+    ):
         self._validate_observation(context)
-        if context.origin_tick < 10 or len(self._history) < 9:
+        if not allow_partial_history and (context.origin_tick < 10 or len(self._history) < 9):
             raise ValueError("observe requires real warmup history")
-        history = list(self._history)[::4] if prepare_history else [self._history[-1]]
+        history = list(self._history)[::-4][::-1] if prepare_history else [self._history[-1]]
         tokens = self._encoder.encode(self._frames(history))
         if not return_history:
             tokens = tokens[-2:]

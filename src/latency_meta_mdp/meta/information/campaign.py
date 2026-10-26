@@ -186,8 +186,18 @@ def run_campaign(
     replay_prepare_workers=4,
     microbatch=2,
     bf16=False,
+    compile_model=False,
     checkpoint_every_updates=256,
     dry_run=False,
+    rollout_workers_per_gpu=1,
+    validation_workers_per_gpu=None,
+    validation_gpus=None,
+    learner_cpu_threads=None,
+    validation_cpu_threads=None,
+    compact_replay=False,
+    stop_after_cycles=None,
+    episode_cache_size=None,
+    min_free_gib=32,
 ):
     """Scientific cohorts/budgets come from recipe JSON; execution resources are arguments."""
     from contextlib import ExitStack
@@ -225,11 +235,21 @@ def run_campaign(
             replay_prepare_workers=replay_prepare_workers,
             microbatch=microbatch,
             bf16=bf16,
+            compile_model=compile_model,
             checkpoint_every_updates=checkpoint_every_updates,
             dry_run=dry_run,
+            rollout_workers_per_gpu=rollout_workers_per_gpu,
+            validation_workers_per_gpu=validation_workers_per_gpu,
+            validation_gpus=validation_gpus,
+            learner_cpu_threads=learner_cpu_threads,
+            validation_cpu_threads=validation_cpu_threads,
+            compact_replay=compact_replay,
+            stop_after_cycles=stop_after_cycles,
+            episode_cache_size=episode_cache_size,
+            min_free_gib=min_free_gib,
         )
-    if dry_run or bf16:
-        raise ValueError("dry-run/AMP require explicit v2 recipe")
+    if dry_run or bf16 or compile_model:
+        raise ValueError("dry-run/AMP/compiled execution require explicit v2 recipe")
     required = {
         "initial_checkpoint",
         "behavior_checkpoint",

@@ -1,0 +1,10 @@
+{
+  "repo_id": "yypeng666/metamdp-conveyor-optional-budget-starter-v1",
+  "repo_type": "dataset",
+  "revision": "09c8082ab260a1da1e420787681c6eb7878dd4ab",
+  "allow_patterns": [
+    "data/*"
+  ],
+  "episodes": 192,
+  "index_sha256": "73b32648f15c5a79ebbc0a580cd8b20d5b2760c90bc0c2b7b111c6cd22359862"
+}

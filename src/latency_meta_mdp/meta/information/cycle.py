@@ -12,7 +12,7 @@ def build_cycle_manifest(
     config, audit, *, root, code_hash, policy, phase, baselines=True, generation=None
 ):
     base = build_manifest(config, audit, root=root, code_hash=code_hash)
-    if generation is not None and config.get("schema_version", 1) == 2:
+    if generation is not None and config.get("schema_version", 1) in (2, 3):
         return _attention_generation(base, config, generation, policy, phase, baselines)
     if generation is not None:
         if phase != "online" or set(generation) != {

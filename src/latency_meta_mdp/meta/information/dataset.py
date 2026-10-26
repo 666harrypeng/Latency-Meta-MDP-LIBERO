@@ -89,7 +89,7 @@ def save_episode(path, recorder, *, report, binding):
         summary=recorder.summary(),
     )
     if recorder.action_spec is not None:
-        metadata.update(schema_version=2, events=events)
+        metadata.update(schema_version=recorder.action_spec.version, events=events)
     (path / "records.json").write_text(json.dumps(metadata, default=_json, allow_nan=False))
     (path / "audit.json").write_text(json.dumps(report, default=_json, allow_nan=False))
     receipt = dict(
@@ -150,19 +150,21 @@ def save_evaluation_trace(path, recorder, *, report, binding):
     (path / "audit.json").write_text(json.dumps(report, default=_json, allow_nan=False))
 
 
-def load_episode(path, *, binding, raw=False):
+def load_episode(path, *, binding, raw=False, verification_cache=None):
+    from latency_meta_mdp.meta.information.verification_cache import cached_sha256
+
     path = Path(path)
     receipt = json.loads((path / "complete.json").read_text())
     validate_binding(binding, receipt["binding"])
     if set(receipt["files"]) != {"visual.npz", "records.json", "audit.json"}:
         raise ValueError("episode file manifest differs")
     for name, expected in receipt["files"].items():
-        if sha256(path / name) != expected:
+        if cached_sha256(path / name, verification_cache) != expected:
             raise ValueError("episode content hash differs")
     data = json.loads((path / "records.json").read_text())
     validate_binding(binding, data["binding"])
     version = data.get("schema_version", 1)
-    if version not in (1, 2):
+    if version not in (1, 2, 3):
         raise ValueError("unknown episode schema")
     with np.load(path / "visual.npz", allow_pickle=False) as store:
         visual_cache = {}
@@ -178,13 +180,14 @@ def load_episode(path, *, binding, raw=False):
                 return None
             packet_class = ActorPacket
             expected_fields = ACTOR_FIELDS
-            if version == 2:
+            if version in (2, 3):
                 from latency_meta_mdp.meta.information.memory_schema import (
                     ActionSpec,
                     AttentionPacket,
+                    OptionalPredictionPacket,
                 )
 
-                packet_class = AttentionPacket
+                packet_class = OptionalPredictionPacket if version == 3 else AttentionPacket
                 expected_fields = {f.name for f in fields(packet_class)}
             if set(values) != expected_fields:
                 raise ValueError("actor schema has missing or privileged fields")
@@ -192,8 +195,10 @@ def load_episode(path, *, binding, raw=False):
             for name in ("current_tokens", "forecast_tokens"):
                 if values[name] is not None:
                     values[name] = visual(values[name])
-            if version == 2:
+            if version in (2, 3):
                 values["action_spec"] = ActionSpec(**values["action_spec"])
+                if values["action_spec"].version != version:
+                    raise ValueError("episode and action schema differ")
                 values["decision_key"] = tuple(values["decision_key"])
             values["buffer_mask"] = np.asarray(values["buffer_mask"], bool)
             packet = packet_class(**values)
@@ -209,7 +214,7 @@ def load_episode(path, *, binding, raw=False):
             for row in data["rows"]
         ]
         events = []
-        if version == 2:
+        if version in (2, 3):
             from latency_meta_mdp.meta.information.memory_schema import PublicEvent
 
             for value in data["events"]:

@@ -38,7 +38,11 @@ def merge_shards(directory, count, *, require_all=True):
             valid = [
                 a
                 for a in attempts
-                if verify_complete(a, binding=dict(cohort=manifest["binding"], episode=ep))
+                if verify_complete(
+                    a,
+                    binding=dict(cohort=manifest["binding"], episode=ep),
+                    verification_cache=directory / ".verification-cache",
+                )
             ]
             if not valid and not require_all:
                 continue
@@ -117,30 +121,40 @@ def run_parallel(
         raise ValueError("rollout workers per GPU must be positive")
     if not devices or len(set(devices)) != len(devices) or any(not d.isdigit() for d in devices):
         raise ValueError("gpus must be unique physical GPU indices")
-    if not Path(bootstrap_dir).is_dir():
-        raise ValueError("verified bootstrap directory is required")
     with ExitStack() as stack:
         stack.enter_context(interrupt_on_termination())
         stack.enter_context(worker_lock(output_dir))
         previous = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = gpus
         try:
-            _, manifest = prepare_cycle(
-                config_path,
-                output_dir,
-                root=root,
-                audit_path=audit_path,
-                checkpoint=checkpoint,
-                phase=phase,
-                baselines=baselines,
-                source_manifest=source_manifest,
-                generation=generation,
-            )
+            if phase == "starter":
+                from latency_meta_mdp.meta.information.cohort import prepare_cohort
+
+                if checkpoint is not None or generation is not None:
+                    raise ValueError("starter collection must use its declared rule manifest")
+                config, manifest = prepare_cohort(
+                    config_path, output_dir, root=root, audit_path=audit_path
+                )
+            else:
+                config, manifest = prepare_cycle(
+                    config_path,
+                    output_dir,
+                    root=root,
+                    audit_path=audit_path,
+                    checkpoint=checkpoint,
+                    phase=phase,
+                    baselines=baselines,
+                    source_manifest=source_manifest,
+                    generation=generation,
+                )
         finally:
             if previous is None:
                 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
             else:
                 os.environ["CUDA_VISIBLE_DEVICES"] = previous
+        uses_bootstrap = config.get("schema_version", 1) != 3
+        if uses_bootstrap and (bootstrap_dir is None or not Path(bootstrap_dir).is_dir()):
+            raise ValueError("verified bootstrap directory is required")
         # A resource allocation may exceed a small scientific cohort. Do not
         # invent episodes or start empty model workers to fill that allocation.
         devices = (devices * workers_per_gpu)[: len(manifest["episodes"])]
@@ -179,29 +193,31 @@ def run_parallel(
         reported = {row["episode"]["episode_id"] for row in tracker.rows}
         success = False
         processes, logs = [], []
+        previous_completed = sum(
+            json.loads(path.read_text())["completed"] if path.exists() else 0
+            for path in (
+                output_dir / "workers" / str(i) / "progress.json" for i in range(len(devices))
+            )
+        )
         started = time.perf_counter()
         try:
             for i, device in enumerate(devices):
                 worker = output_dir / "workers" / str(i)
                 worker.mkdir(parents=True, exist_ok=True)
                 link = worker / "bootstrap"
-                if not link.exists():
+                if uses_bootstrap and not link.exists():
                     link.symlink_to(Path(bootstrap_dir).resolve(), target_is_directory=True)
-                elif link.resolve() != Path(bootstrap_dir).resolve():
+                elif uses_bootstrap and link.resolve() != Path(bootstrap_dir).resolve():
                     raise ValueError("worker bootstrap differs")
                 command = [
                     str(worker_python or sys.executable),
                     "-u",
                     str(root / "scripts/run_conveyor_meta.py"),
-                    "cycle-collect",
+                    "collect" if phase == "starter" else "cycle-collect",
                     "--config",
                     str(Path(config_path).resolve()),
                     "--scene-audit",
                     str(Path(audit_path).resolve()),
-                    "--checkpoint",
-                    str(Path(checkpoint).resolve()),
-                    "--phase",
-                    phase,
                     "--output-dir",
                     str(worker),
                     "--shard-index",
@@ -210,6 +226,10 @@ def run_parallel(
                     str(len(devices)),
                     "--no-wandb",
                 ]
+                if phase != "starter":
+                    command.extend(
+                        ["--checkpoint", str(Path(checkpoint).resolve()), "--phase", phase]
+                    )
                 if scratch_dir is not None:
                     command.extend(["--rollout-scratch-dir", str(Path(scratch_dir).resolve())])
                 if not baselines:
@@ -229,8 +249,14 @@ def run_parallel(
                     )
                 )
             last = None
+            last_print = -30.0
+            finished_seconds = [None] * len(devices)
             while True:
                 codes = [p.poll() for p in processes]
+                elapsed = time.perf_counter() - started
+                for i, code in enumerate(codes):
+                    if code is not None and finished_seconds[i] is None:
+                        finished_seconds[i] = elapsed
                 counts = []
                 for i in range(len(devices)):
                     progress = output_dir / "workers" / str(i) / "progress.json"
@@ -239,14 +265,22 @@ def run_parallel(
                     )
                 status = dict(
                     completed=sum(counts),
+                    previously_completed=previous_completed,
+                    newly_completed=max(0, sum(counts) - previous_completed),
                     expected=len(manifest["episodes"]),
                     per_worker=counts,
                     exit_codes=codes,
-                    wall_seconds=time.perf_counter() - started,
+                    wall_seconds=elapsed,
+                    worker_finished_seconds=finished_seconds,
+                    episodes_per_hour=(
+                        3600 * max(0, sum(counts) - previous_completed) / elapsed if elapsed else 0
+                    ),
                 )
                 atomic_json(output_dir / "parallel-progress.json", status)
-                if (counts, codes) != last:
+                if (counts, codes) != last or elapsed - last_print >= 30:
                     print("PARALLEL_PROGRESS " + json.dumps(status), flush=True)
+                    last_print = elapsed
+                if (counts, codes) != last:
                     last = (counts, codes)
                     merge_shards(output_dir, len(devices), require_all=False)
                     for ep in manifest["episodes"]:
@@ -258,7 +292,9 @@ def run_parallel(
                             from latency_meta_mdp.meta.information.cohort import verify_complete
 
                             if verify_complete(
-                                attempt, binding=dict(cohort=manifest["binding"], episode=ep)
+                                attempt,
+                                binding=dict(cohort=manifest["binding"], episode=ep),
+                                verification_cache=output_dir / ".verification-cache",
                             ):
                                 tracker(
                                     ep,

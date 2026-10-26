@@ -192,7 +192,12 @@ class BoundedReplay:
                         retired["files"][str(file)] = digest
                 doomed_cache.extend(
                     self.cache / name / record["packed_key"]
-                    for name in ("mmap-raw-v2", "mmap-raw-f16-v1", "mmap-raw-f16-v2")
+                    for name in (
+                        "mmap-raw-v2",
+                        "mmap-raw-f16-v1",
+                        "mmap-raw-f16-v2",
+                        "mmap-raw-direct-v5",
+                    )
                 )
         # Publish intent first; repeated cleanup after interruption is safe.
         atomic_json(retired_path, retired)

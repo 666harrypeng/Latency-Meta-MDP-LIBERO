@@ -29,8 +29,11 @@ def _two_packed_episodes(tmp_path):
         save_episode(source, recorder, report={}, binding={})
         entries.append(
             prepare_packed_episode(
-                source, tmp_path / "cache", binding={},
-                expected_receipt=sha256(source / "complete.json"), raw=True,
+                source,
+                tmp_path / "cache",
+                binding={},
+                expected_receipt=sha256(source / "complete.json"),
+                raw=True,
             )
         )
     replay = DecisionReplay(AttentionEpisodes(entries, ActionSpec(), DEFAULT_MEMORY))
@@ -215,6 +218,53 @@ def test_raw_mmap_retains_events_and_detects_source_mutation(tmp_path):
     (source / "audit.json").write_text('{"changed":true}')
     with pytest.raises(ValueError, match="changed"):
         load_packed_raw(entry)
+
+
+@pytest.mark.parametrize("exact", [True, False])
+def test_direct_compact_cache_is_lossless_and_does_not_keep_fp32_duplicate(tmp_path, exact):
+    from latency_meta_mdp.meta.information.config import sha256
+    from latency_meta_mdp.meta.information.dataset import save_episode
+    from latency_meta_mdp.meta.information.packed_replay import (
+        load_packed_raw,
+        prepare_packed_episode,
+    )
+
+    visual = (
+        np.random.default_rng(8).normal(size=(2, 196, 384)).astype(np.float16).astype(np.float32)
+    )
+    if not exact:
+        visual[0, 0, 0] = np.float32(0.12345678)
+    recorder = StageRecorder("direct", action_spec=ActionSpec())
+    recorder.events.append(
+        PublicEvent(
+            "obs",
+            "observe",
+            (10, 0),
+            (2, 6, 10),
+            dict(visual=np.stack([visual] * 3), proprio=np.zeros((3, 16))),
+        )
+    )
+    recorder.start(AttentionPacket(10, "G", decision_key=(10, 1)), 8, forced=False, probability=1.0)
+    recorder.finish(11, terminated=True)
+    source, cache = tmp_path / "source", tmp_path / "cache"
+    save_episode(source, recorder, report={}, binding={})
+    digest = sha256(source / "complete.json")
+    options = dict(binding={}, expected_receipt=digest, raw=True, compact=True)
+    entry = prepare_packed_episode(source, cache, **options)
+    pool = np.load(entry.path / "visual.npy")
+    assert pool.shape == (1, 2, 196, 384)
+    assert pool.dtype == (np.float16 if exact else np.float32)
+    restored = load_packed_raw(entry)["events"][0].payload["visual"]
+    for frame in restored:
+        np.testing.assert_array_equal(
+            frame.astype(np.float32).view(np.uint32), visual.view(np.uint32)
+        )
+    assert len(list(cache.rglob("visual.npy"))) == 1
+    assert prepare_packed_episode(source, cache, **options) == entry
+    assert sha256(source / "complete.json") == digest
+    (entry.path / "visual.npy").write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="hash"):
+        prepare_packed_episode(source, cache, **options)
 
 
 @pytest.mark.parametrize("exact", [True, False])
@@ -677,3 +727,16 @@ def test_spawn_keeps_admitted_lengths_without_rereading_every_episode(tmp_path):
     assert restored.lengths == [1] and not restored.loaded
     with pytest.raises((ValueError, FileNotFoundError)):
         restored[0]
+
+
+def test_admitted_fqi_can_reuse_immutable_replay_without_per_batch_stat(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information.packed_replay import PackedEntry
+
+    replay, expected = _two_packed_episodes(tmp_path)
+    monkeypatch.setattr(
+        PackedEntry,
+        "verify_unchanged",
+        lambda self: pytest.fail("steady-state FQI must not stat each episode again"),
+    )
+    with replay.batch([2, 0, 2], verify=False) as rows:
+        assert all(row is expected[i] for row, i in zip(rows, [2, 0, 2], strict=True))

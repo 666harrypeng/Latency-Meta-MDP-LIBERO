@@ -20,21 +20,43 @@ def build_manifest(config, audit, *, root, code_hash):
     for source in audit["sources"]:
         if sha256(Path(root) / source["path"]) != source["sha256"]:
             raise ValueError("scene audit source changed")
-    if config["mode"] != "bound" or len(config["splits"]["train"]) < 16:
-        raise ValueError("starter cohort requires 16 bound-mode training scenes")
+    if (
+        config["mode"] not in ("bound", "optional_prediction")
+        or len(config["splits"]["train"]) < 16
+    ):
+        raise ValueError("starter cohort requires 16 training scenes and a supported protocol")
+    optional = config.get("schema_version", 1) == 3
+    patterns = (
+        (
+            ("direct-e25", "periodic", dict(period=25, forecast_mode="current_only")),
+            ("forecast-e25", "periodic", dict(period=25)),
+            ("forecast-e75", "periodic", dict(period=75)),
+            ("mixed", "exploration", {}),
+        )
+        if optional
+        else tuple((kind, kind, {}) for kind in BEHAVIORS)
+    )
     episodes = []
-    for scene in config["splits"]["train"][:16]:
-        for delay_index, regime in enumerate(("nominal", "family")):
-            for behavior_index, behavior in enumerate(BEHAVIORS):
+    for scene_index, scene in enumerate(config["splits"]["train"][:16]):
+        for delay_index, regime in enumerate(
+            ("zero", "nominal", "family") if optional else ("nominal", "family")
+        ):
+            # Rotate order, not episode identities, to balance four static shards.
+            indices = (
+                [(i + scene_index + delay_index) % 4 for i in range(4)] if optional else range(4)
+            )
+            for behavior_index in indices:
+                name, behavior, pattern = patterns[behavior_index]
                 episodes.append(
                     dict(
-                        episode_id=f"{scene}-{regime}-{behavior}",
+                        episode_id=f"{scene}-{regime}-{name}",
                         scene=scene,
                         regime=regime,
                         behavior=behavior,
                         policy_seed=0,
                         scheduler_seed=scene * 100 + delay_index * 10 + behavior_index,
                         split="train",
+                        **(dict(pattern_id=name, pattern=pattern) if optional else {}),
                     )
                 )
     binding = dict(
@@ -47,7 +69,7 @@ def build_manifest(config, audit, *, root, code_hash):
         task_id="conveyor_sort",
         scope="starter_training",
     )
-    if config.get("schema_version", 1) == 2:
+    if config.get("schema_version", 1) in (2, 3):
         binding["actions"] = config["actions"]
     return dict(binding=binding, episodes=episodes)
 
@@ -63,17 +85,29 @@ def next_attempt(root, episode_id):
     return attempt
 
 
-def verify_complete(path, *, binding):
+def verify_complete(path, *, binding, verification_cache=None, required_files=None):
+    from latency_meta_mdp.meta.information.verification_cache import cached_sha256
+
     path = Path(path)
     if not (path / "complete.json").exists():
         return False
     receipt = json.loads((path / "complete.json").read_text())
     validate_binding(binding, receipt["binding"])
-    for relative, expected in receipt["files"].items():
+    files = receipt["files"]
+    if required_files is not None:
+        if set(required_files) - files.keys():
+            raise ValueError("required training artifact missing from completion receipt")
+        files = {name: files[name] for name in required_files}
+    for relative, expected in files.items():
         file = path / relative
         if not file.resolve().is_relative_to(path.resolve()):
             raise ValueError("completion file escapes episode")
-        if not file.is_file() or sha256(file) != expected:
+        if not file.is_file():
+            raise ValueError("completed episode hash mismatch")
+        digest = (
+            sha256(file) if verification_cache is None else cached_sha256(file, verification_cache)
+        )
+        if digest != expected:
             raise ValueError("completed episode hash mismatch")
     return True
 
@@ -115,7 +149,7 @@ def publish_attempt(source, destination, *, binding):
     atomic_json(destination / "complete.json", receipt)
 
 
-def prepare_cohort(config_path, output_dir, *, root, audit_path):
+def prepare_cohort(config_path, output_dir, *, root, audit_path, shard_index=None, num_shards=None):
     from latency_meta_mdp.meta.information.config import load_config
     from latency_meta_mdp.meta.information.preflight import preflight
 
@@ -125,6 +159,10 @@ def prepare_cohort(config_path, output_dir, *, root, audit_path):
         raise RuntimeError("GPU compute process already active")
     audit = json.loads(Path(audit_path).read_text())
     manifest = build_manifest(config, audit, root=root, code_hash=report["code_hash"])
+    if shard_index is not None or num_shards is not None:
+        from latency_meta_mdp.meta.information.parallel import partition_manifest
+
+        manifest = partition_manifest(manifest, shard_index, num_shards)
     path = Path(output_dir) / "cohort.json"
     if path.exists():
         validate_binding(json.loads(path.read_text()), manifest)
@@ -134,6 +172,10 @@ def prepare_cohort(config_path, output_dir, *, root, audit_path):
 
 
 def prepare_bootstraps(config_path, output_dir, *, root, audit_path, cycle=None):
+    from latency_meta_mdp.meta.information.config import load_config
+
+    if load_config(config_path)["schema_version"] == 3:
+        raise ValueError("optional prediction starts with hold; bootstrap is prohibited")
     from latency_meta_mdp.meta.information.collection import (
         bootstrap_binding,
         bootstrap_observation,
@@ -189,6 +231,8 @@ def collect_cohort(
     cycle=None,
     on_episode=None,
     scratch_dir=None,
+    shard_index=None,
+    num_shards=None,
 ):
     from time import perf_counter
 
@@ -197,7 +241,14 @@ def collect_cohort(
     from latency_meta_mdp.meta.information.services import frozen_services
 
     if cycle is None:
-        config, manifest = prepare_cohort(config_path, output_dir, root=root, audit_path=audit_path)
+        config, manifest = prepare_cohort(
+            config_path,
+            output_dir,
+            root=root,
+            audit_path=audit_path,
+            shard_index=shard_index,
+            num_shards=num_shards,
+        )
     else:
         from latency_meta_mdp.meta.information.cycle import prepare_cycle
 
@@ -218,7 +269,9 @@ def collect_cohort(
         binding = dict(cohort=manifest["binding"], episode=episode)
         found = []
         for attempt in sorted((episodes_dir / episode["episode_id"]).glob("attempt-*")):
-            if verify_complete(attempt, binding=binding):
+            if verify_complete(
+                attempt, binding=binding, verification_cache=output_dir / ".verification-cache"
+            ):
                 found.append(attempt)
         if len(found) > 1:
             raise ValueError("duplicate completed scene/regime/behavior")

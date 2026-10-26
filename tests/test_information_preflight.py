@@ -7,6 +7,19 @@ from latency_meta_mdp.meta.information.config import load_config
 from latency_meta_mdp.meta.information.preflight import verify_assets
 
 
+def test_unused_clean_checkpoint_is_not_a_runtime_dependency(tmp_path):
+    from latency_meta_mdp.meta.information.config import sha256
+
+    for name in ("conditioned", "clean"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "weights").write_bytes(b"original")
+    assets = {
+        "paths": {name: name for name in ("conditioned", "clean")},
+        "files": {"conditioned/weights": sha256(tmp_path / "conditioned/weights")},
+    }
+    assert verify_assets(tmp_path, assets)["verified_files"] == 1
+
+
 def test_hash_verification_rejects_missing_or_changed_asset(tmp_path):
     from latency_meta_mdp.meta.information.config import sha256
 

@@ -125,7 +125,8 @@ def test_validation_resumes_audited_repair_without_rebinding_checkpoint(
     bootstrap.mkdir()
     for scene in (1, 2, 3):
         (bootstrap / f"seed-{scene}.npz").write_bytes(b"bootstrap")
-    monkeypatch.setattr(monitor, "load_config", lambda _: {"splits": {"validation": [1, 2, 3]}})
+    monkeypatch.setattr(monitor, "load_config", lambda _: {
+        "schema_version": 1, "splits": {"validation": [1, 2, 3]}})
     monkeypatch.delenv("CONVEYOR_RUNTIME_PATCH", raising=False)
     kwargs = dict(root=tmp_path, audit_path=audit, bootstrap_dir=bootstrap, prune=False)
     evaluation = tmp_path / "fit/validation"
@@ -225,4 +226,99 @@ def test_previous_execution_cannot_alias_scientific_changes(tmp_path, monkeypatc
     monkeypatch.setenv("CONVEYOR_RUNTIME_PATCH", str(patch))
     monkeypatch.setenv("CONVEYOR_RUNTIME_PATCH_SHA256", sha256(patch))
     with pytest.raises(ValueError, match="operational"):
+        source_identity(tmp_path)
+
+
+@pytest.mark.parametrize("kind", ["lossless-fqi-input-transport", "compiled-fqi-execution"])
+def test_input_transport_repair_requires_pinned_equivalence_evidence(tmp_path, monkeypatch, kind):
+    from latency_meta_mdp.meta.information.runtime_identity import source_identity
+
+    folder = tmp_path / "src/latency_meta_mdp/meta/information"
+    folder.mkdir(parents=True)
+    path = folder / "attention_fqi.py"
+    path.write_text("original fixed targets")
+    before = {str(path.relative_to(tmp_path)): sha256(path)}
+    path.write_text("same targets, lossless transport")
+    after = {str(path.relative_to(tmp_path)): sha256(path)}
+    evidence = tmp_path / "equivalence.json"
+    evidence.write_text('{"passed": true}')
+    patch = tmp_path / "patch.json"
+    receipt = dict(
+        root=str(tmp_path),
+        before=before,
+        after=after,
+        kind=kind,
+        equivalence_evidence={"equivalence.json": sha256(evidence)},
+    )
+    patch.write_text(json.dumps(receipt))
+    monkeypatch.setenv("CONVEYOR_RUNTIME_PATCH", str(patch))
+    monkeypatch.setenv("CONVEYOR_RUNTIME_PATCH_SHA256", sha256(patch))
+    assert source_identity(tmp_path)["code_hash"] == identity_hash(before)
+    evidence.write_text("changed evidence")
+    with pytest.raises(ValueError, match="evidence"):
+        source_identity(tmp_path)
+
+
+def test_audited_metadata_transport_preserves_converter_identity(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information.runtime_identity import source_identity
+
+    path = tmp_path / "src/latency_meta_mdp/meta/information/attention_replay.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("original metadata decoding")
+    name = str(path.relative_to(tmp_path))
+    before = {name: sha256(path)}
+    path.write_text("equivalent binary metadata decoding")
+    after = {name: sha256(path)}
+    evidence = tmp_path / "equivalence.json"
+    evidence.write_text('{"equal": true}')
+    patch = tmp_path / "patch.json"
+    patch.write_text(
+        json.dumps(
+            dict(
+                root=str(tmp_path),
+                before=before,
+                after=after,
+                kind="lossless-fqi-input-transport",
+                equivalence_evidence={"equivalence.json": sha256(evidence)},
+            )
+        )
+    )
+    monkeypatch.setenv("CONVEYOR_RUNTIME_PATCH", str(patch))
+    monkeypatch.setenv("CONVEYOR_RUNTIME_PATCH_SHA256", sha256(patch))
+    result = source_identity(tmp_path)
+    assert result["replay_converter_sha256"] == before[name]
+    assert result["execution_code_hash"] == identity_hash(after)
+
+
+def test_lossless_collation_repair_preserves_replay_selector_identity(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information.runtime_identity import source_identity
+
+    folder = tmp_path / "src/latency_meta_mdp/meta/information"
+    folder.mkdir(parents=True)
+    memory = folder / "memory.py"
+    memory.write_text("unchanged selector; original collation")
+    before = {str(memory.relative_to(tmp_path)): sha256(memory)}
+    memory.write_text("unchanged selector; lossless pinned collation")
+    after = {str(memory.relative_to(tmp_path)): sha256(memory)}
+    evidence = tmp_path / "equivalence.json"
+    evidence.write_text('{"raw_inputs_exact": true}')
+    patch = tmp_path / "repair.json"
+    patch.write_text(
+        json.dumps(
+            dict(
+                root=str(tmp_path),
+                before=before,
+                after=after,
+                kind="lossless-fqi-input-transport",
+                equivalence_evidence={"equivalence.json": sha256(evidence)},
+            )
+        )
+    )
+    monkeypatch.setenv("CONVEYOR_RUNTIME_PATCH", str(patch))
+    monkeypatch.setenv("CONVEYOR_RUNTIME_PATCH_SHA256", sha256(patch))
+    result = source_identity(tmp_path)
+    assert result["code_hash"] == identity_hash(before)
+    assert result["replay_selector_sha256"] == before[str(memory.relative_to(tmp_path))]
+    evidence.write_text("changed evidence")
+    with pytest.raises(ValueError, match="equivalence"):
         source_identity(tmp_path)

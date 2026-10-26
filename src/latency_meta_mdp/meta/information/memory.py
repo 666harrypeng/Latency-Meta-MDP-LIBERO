@@ -157,11 +157,19 @@ def critical_features(packet):
 
 
 def collate_contexts(
-    contexts, source_store=None, *, device="cpu", config=None, compact_visual=False
+    contexts,
+    source_store=None,
+    *,
+    device="cpu",
+    config=None,
+    compact_visual=False,
+    pin_memory=False,
 ):
     """Pad raw public inputs; trainable features are exclusively model-owned."""
     if not contexts:
         raise ValueError("cannot collate empty decision batch")
+    if pin_memory and str(device) != "cpu":
+        raise ValueError("pinned collation requires a CPU destination")
     config = DEFAULT_MEMORY if config is None else config
     b, n, e, r = (
         len(contexts),
@@ -260,11 +268,28 @@ def collate_contexts(
             arrays["forecast_mask"][row] = True
             arrays["forecast_metadata"][row, :3] = [forecast.payload["query_ticks"] / 20, 1, 0]
     if compact_visual:
-        arrays["visual_pool"] = (
-            np.stack(frames) if frames else np.zeros((1, 2, 196, 384), np.float32)
-        )
+        if frames and pin_memory:
+            # Fill the transfer buffer directly instead of copying a second, often
+            # hundreds-of-MiB pageable stack into pinned memory on every microbatch.
+            dtype = np.result_type(*(frame.dtype for frame in frames))
+            pool = torch.empty(
+                (len(frames), *frames[0].shape),
+                dtype=torch.from_numpy(np.empty((), dtype=dtype)).dtype,
+                pin_memory=True,
+            )
+            # Use the learner's CPU thread budget for this large copy. The
+            # read-only mmap tensor views are inputs only; pool owns the output.
+            torch.stack([torch.from_numpy(frame) for frame in frames], out=pool)
+            arrays["visual_pool"] = pool
+        else:
+            arrays["visual_pool"] = (
+                np.stack(frames) if frames else np.zeros((1, 2, 196, 384), np.float32)
+            )
+    tensors = {k: torch.as_tensor(v, device=device) for k, v in arrays.items()}
+    if pin_memory:
+        tensors = {k: v.pin_memory() for k, v in tensors.items()}
     return MemoryBatch(
-        {k: torch.as_tensor(v, device=device) for k, v in arrays.items()},
+        tensors,
         tuple(c.decision for c in contexts),
     )
 

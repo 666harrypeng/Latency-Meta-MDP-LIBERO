@@ -37,6 +37,11 @@ def fit_metrics(event, *, episodes, epochs):
                 "train/combined_loss": event["loss"],
                 "train/grad_norm": event["grad_norm"],
                 "train/attempt": event.get("attempt", 1),
+                **{
+                    f"train/{k}": event[k]
+                    for k in ("td_loss", "conservative_loss", "weighted_conservative_loss")
+                    if k in event
+                },
             }
         source = event["source"]
         if source not in ("offline", "online", "mixed"):
@@ -75,12 +80,21 @@ def fit_metrics(event, *, episodes, epochs):
                 for k, v in event["metrics"].get("replay_cache", {}).items()
             },
             **{f"fqi/{k}": v for k, v in event["metrics"].items() if isinstance(v, float | int)},
+            **{
+                f"fqi/diagnostics/{group}/{key}": value
+                for group, values in event["metrics"].get("diagnostics", {}).items()
+                for key, value in values.items()
+            },
+        }
+    if phase in ("target_progress", "targets"):
+        return {
+            "progress/iteration": iteration,
+            "progress/target_decisions": event["unique_decisions"],
+            "progress/target_completed": event.get("completed_decisions", 0),
         }
     return {
         "progress/iteration": iteration,
-        "progress/target_decisions" if phase == "targets" else "progress/target_episode": event.get(
-            "unique_decisions", event.get("episode", 0)
-        ),
+        "progress/target_episode": event.get("episode", 0),
     }
 
 
@@ -90,32 +104,43 @@ class OnlineFitTracker:
         from latency_meta_mdp.meta.information.config import identity_hash
 
         self.directory, self.episodes, self.epochs = Path(directory), episodes, epochs
-        identity_path = self.directory / "wandb-run.json"
-        if identity_path.exists():
-            state = json.loads(identity_path.read_text())
-            if state["binding_hash"] != identity_hash(binding):
-                raise ValueError("tracker training binding differs")
-        else:
-            state = dict(id=uuid.uuid4().hex[:8], binding_hash=identity_hash(binding))
-            identity_path.write_text(json.dumps(state))
-        from latency_meta_mdp.meta.tracking_transport import start_run
+        if os.environ.get("CONVEYOR_STAGE_WANDB", "1") == "0":
+            from latency_meta_mdp.meta.tracking_transport import SafeRun
 
-        self.run = start_run(
-            self.directory,
-            entity=os.environ.get("WANDB_ENTITY"),
-            project=os.environ.get("WANDB_PROJECT", "latency-meta-mdp-robosuite"),
-            id=state["id"],
-            resume="allow",
-            name=self.directory.name,
-            group=f"conveyor-meta-bound-fqi-cycle-v{binding.get('schema_version', 1)}",
-            job_type="online-refit",
-            tags=["conveyor", "meta", "fqi", "bound", "lambda0"],
-            config=binding,
-            dir=str(self.directory),
-            settings=wandb.Settings(disable_git=True, save_code=False, console="off"),
-        )
-        state["url"] = self.run.url
-        identity_path.write_text(json.dumps(state, indent=2) + "\n")
+            self.run = SafeRun(None, self.directory)
+        else:
+            identity_path = self.directory / "wandb-run.json"
+            if identity_path.exists():
+                state = json.loads(identity_path.read_text())
+                if state["binding_hash"] != identity_hash(binding):
+                    raise ValueError("tracker training binding differs")
+            else:
+                state = dict(id=uuid.uuid4().hex[:8], binding_hash=identity_hash(binding))
+                identity_path.write_text(json.dumps(state))
+            from latency_meta_mdp.meta.tracking_transport import start_run
+
+            self.run = start_run(
+                self.directory,
+                entity=os.environ.get("WANDB_ENTITY"),
+                project=os.environ.get("WANDB_PROJECT", "latency-meta-mdp-robosuite"),
+                id=state["id"],
+                resume="allow",
+                name=self.directory.name,
+                group=f"conveyor-meta-bound-fqi-cycle-v{binding.get('schema_version', 1)}",
+                job_type="online-refit",
+                tags=[
+                    "conveyor",
+                    "meta",
+                    "fqi",
+                    "bound",
+                    "budget" if binding.get("reward") else "lambda0",
+                ],
+                config=binding,
+                dir=str(self.directory),
+                settings=wandb.Settings(disable_git=True, save_code=False, console="off"),
+            )
+            state["url"] = self.run.url
+            identity_path.write_text(json.dumps(state, indent=2) + "\n")
         self.run.define_metric("train/update")
         self.run.define_metric("train/*", step_metric="train/update")
         self.run.define_metric("validation/iteration")
@@ -164,7 +189,10 @@ class OnlineFitTracker:
                 "data/online_episodes": binding.get("online_training_episodes", 32),
             }
         )
-        print("WANDB_RUN " + str(self.run.url), flush=True)
+        print(
+            "WANDB_RUN " + self.run.url if self.run.url else "LOCAL_FIT_LOG " + str(self.log_path),
+            flush=True,
+        )
 
     def __call__(self, event):
         if event["phase"] == "fit":

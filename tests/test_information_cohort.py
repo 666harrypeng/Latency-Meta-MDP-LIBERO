@@ -6,6 +6,56 @@ from latency_meta_mdp.meta.information.cohort import build_manifest, next_attemp
 from latency_meta_mdp.meta.information.config import sha256
 
 
+def test_optional_starter_covers_each_scene_regime_and_permission_pattern(tmp_path):
+    from test_optional_prediction import optional_config
+
+    config = optional_config()
+    config["splits"]["train"] = list(range(100, 116))
+    audit = dict(
+        local_inventory_pass=True,
+        candidate_splits=config["splits"],
+        excluded_scenes=config["excluded_scenes"],
+        sources=[],
+    )
+    episodes = build_manifest(config, audit, root=tmp_path, code_hash="x")["episodes"]
+    assert len(episodes) == len({e["episode_id"] for e in episodes}) == 192
+    for scene in config["splits"]["train"]:
+        for regime in ("zero", "nominal", "family"):
+            group = [e for e in episodes if (e["scene"], e["regime"]) == (scene, regime)]
+            assert {e["pattern_id"] for e in group} == {
+                "direct-e25",
+                "forecast-e25",
+                "forecast-e75",
+                "mixed",
+            }
+    assert all(e["split"] == "train" for e in episodes)
+    assert any(e["pattern"].get("period") == 75 for e in episodes)
+
+
+def test_starter_shards_are_bound_and_resume_same_assignment(tmp_path, monkeypatch):
+    from latency_meta_mdp.meta.information import cohort, config, preflight
+
+    cfg = dict(mode="bound", assets={}, splits=dict(train=list(range(16))), excluded_scenes=[])
+    audit = dict(
+        local_inventory_pass=True, candidate_splits=cfg["splits"], excluded_scenes=[], sources=[]
+    )
+    path = tmp_path / "audit.json"
+    path.write_text(json.dumps(audit))
+    monkeypatch.setattr(config, "load_config", lambda _: cfg)
+    monkeypatch.setattr(
+        preflight, "preflight", lambda *a, **k: dict(compute_processes="", code_hash="x")
+    )
+    shards = []
+    for i in range(4):
+        out = tmp_path / str(i)
+        out.mkdir()
+        args = dict(root=tmp_path, audit_path=path, shard_index=i, num_shards=4)
+        _, shard = cohort.prepare_cohort(None, out, **args)
+        assert cohort.prepare_cohort(None, out, **args)[1] == shard
+        shards.extend(e["episode_id"] for e in shard["episodes"])
+    assert len(shards) == len(set(shards)) == 128
+
+
 def test_cohort_has_complete_paired_mixture_and_rejects_stale_audit(tmp_path):
     source = tmp_path / "source.json"
     source.write_text("{}")
@@ -157,8 +207,9 @@ def test_collect_cli_forwards_runtime_scratch(tmp_path, monkeypatch):
     import runpy
     import sys
 
-    from latency_meta_mdp.meta.information import cohort
+    from latency_meta_mdp.meta.information import cohort, config
 
+    monkeypatch.setattr(config, "load_config", lambda _: {"schema_version": 3})
     seen = []
     monkeypatch.setattr(cohort, "collect_cohort", lambda *a, **kw: seen.append(kw) or {})
     monkeypatch.setattr(

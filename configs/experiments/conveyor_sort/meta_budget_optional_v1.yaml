@@ -1,0 +1,543 @@
+schema_version: 3
+task_id: conveyor_sort
+mode: optional_prediction
+assets:
+  identity:
+    input_mode: current_and_forecast
+    forecast_identity:
+      predictor_architecture: jepa_direct_q20_history_stride4_w3_v1
+      predictor_sha256: 00a0a057d3943e83243badedf7d11b493ca3ce8a9eb5b730acfbc25d6e3ff0d6
+      decoder_sha256: a74ab532ed71075a4390ff8b6d273a2589db33a0597850a40f495162118dde0d
+      jepa_normalization_sha256: a4c5934674ea3317f7e6b9e8308f7a8f4303de745b32a03b8517439f3232ab66
+    normalization_sha256: 101bc9d9ece6b84e3c1cfb39bfc7454aaf996fcef5433c68d96ecc9d81859c63
+    predictor:
+      repo_id: yypeng666/metamdp-jepa-direct-conveyor-q20-h160ms-epoch75-v1
+      revision: 8f032237b69837e1c886eaa70e6641b3718b9bd7
+    decoder:
+      repo_id: yypeng666/metamdp-conveyor-dino-rgb-decoder-dualview-w384-d4-v1
+      revision: 9b26f010490d1665f623504d65c6497c53e2bee4
+    clean_baseline:
+      repo_id: yypeng666/metamdp-pi05-conveyor-sort-clean-state16-h50-full-sft-v1
+      revision: 9ae3f4eba28d1b43e73cbe1695102ff9033aa088
+      step: 5079
+    conditioned:
+      repo_id: yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz
+      revision: 572b21735e3226858efb23fff2cf7a5367ae30a8
+      step: 15236
+  paths:
+    conditioned: outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236
+    clean: outputs/evaluation_assets/conveyor-clean-full-v1/5079
+    predictor_weights: outputs/handoff/conveyor-conditioned-v1/public/predictor/checkpoints/epoch-075/model.safetensors
+    normalization: outputs/handoff/conveyor-conditioned-v1/public/predictor/proprio_normalization.json
+    decoder_dir: outputs/handoff/conveyor-conditioned-v1/public/decoder
+  files:
+    outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/_CHECKPOINT_METADATA: d583dc41b783aa481fc3f570db15007eaef916adfe6d62aa24b713b1d395ed29
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/assets/metamdp/conveyor_sort_surface/norm_stats.json
+    : 101bc9d9ece6b84e3c1cfb39bfc7454aaf996fcef5433c68d96ecc9d81859c63
+    outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/_METADATA: 6d5a6eefc73215c59bea485f1e480cef98dd6f07583e41ff1ae0d6ca35effd7e
+    outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/_sharding: 0aa89c2ac0ba6f33fd71c0a934a1b0e30b2a223619ef8ed916dfdf82f0899ae1
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/array_metadatas/process_0
+    : a2d2013a511ccb4e3a0fc6fdd05d324aa526aebb96db94d3fea723bf9f1509fe
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/d/2cc27f09bb68c458bf7ff6bf782c189c
+    : 85267b09f1aa70db5acc41b69703509efc3b14e13d68472f390630861475c723
+    outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/manifest.ocdbt: db628c3824d881df0cde2107a0fe6041bcccbd78d8ea4e276fde395dbebcacbf
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/251710ea49ad9003d7b51bd8cd1d8361
+    : d44413d39e0b9d237ce091922b251d23d2b700b5c96cddd63fc79165d3919533
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/29e2c08d89ca97f65f6a75349bdd6931
+    : 90ca08e0692506dfe0cc3f4b70a4a6ba1433e8793c00601ebebb3ba0492735ae
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/3405a04fe9b44ac76734be16c0afd272
+    : f31b69795b6d7de39608e1541832e92aa73001dde6a43d5856c1e9bc3aff5e88
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/4d818417998ee665bdffaa583a35eec3
+    : 6aa9870e88ff0b85ffa869b2386ce7a457aa8a63a0f884ff2bb39fba249488af
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/534e2bffd13a8cda18f1d105de013e88
+    : cc65a0d87f08b15d338b87c99fae8746068ecfa0c3ea6c4d905361adf7b9b579
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/60ff7fd3a665b5142bc1559446a7b229
+    : 4b4d87dda14554fd8b06d52596192ba0e170b5d7d021c8b50842c302dbf769c7
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/6ed8e35fe66f0a226bc319fae1d122e2
+    : a6291908b83c28472de6605a2c1153d79599c78c76da3f3e3cf186cffafd680e
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/71bf82cf0a430b4ecf60407dafddcb08
+    : b93254a271e5e13ed8606b048e73e7c43b3c2057f6c50fe8582f7fcc3d80ccbb
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/7d223f9eeb5513b3bfbc906bfa3b6e0f
+    : d73727cdda3c1e169eff5cf4cd9105380313c51e46ed2940cf8574ca4d7d6c0b
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/9bfb4efb9c3cb0d692a30b01a13fc43f
+    : d9323ce21b301115cf046008444cf8215ff6ff572d4df351a05a2675dcaa2077
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/9ff16c7554478f1dabb2f21c0a1fe289
+    : 0f051a9e0a44264087dec99dc0b511843e1b1be61cefd2e4b633d93fdde848d7
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/c4d26a5a47d5ab395ffacded254dfec7
+    : 9bcaab3b285d78af378461d8538f3422a000383edeb8093560244c37409f49e0
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/e968b65d95d2d1144eafc53dab95bd1a
+    : c47fa7df1145ca539e0dbc80d2a8e2b71964276cb440cfcdd75ef147d800a2ee
+    ? outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/manifest.ocdbt
+    : c187ea26caeed15f5a76e6bf46fb4f5fb7899f604c9e4d861becb1afb8ed89b6
+    outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/GEMMA_TERMS.txt: 309e8ee5416c718619c851452a12b050c62d1b09635d623894b6f570b230cf1c
+    outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/LICENSE: 43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1
+    outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/NOTICE: b2075503ff18dba4c49bfa154700940455879ac189a0252425556e0ea546b724
+    outputs/handoff/conveyor-conditioned-v1/public/predictor/checkpoints/epoch-075/model.safetensors: 00a0a057d3943e83243badedf7d11b493ca3ce8a9eb5b730acfbc25d6e3ff0d6
+    outputs/handoff/conveyor-conditioned-v1/public/predictor/proprio_normalization.json: a4c5934674ea3317f7e6b9e8308f7a8f4303de745b32a03b8517439f3232ab66
+    outputs/handoff/conveyor-conditioned-v1/public/decoder/model.safetensors: a74ab532ed71075a4390ff8b6d273a2589db33a0597850a40f495162118dde0d
+    patches/openpi/0007-inference-time-rtc.patch: e0c857a810b8be4f6302dac973e01928b067fb8e1b0e3a8529078ffedfd22901
+    patches/openpi/0001-filter-incomplete-action-chunks.patch: 6c08348e7eb589db32abfeac3c9ac0b829a1fae6aefe8a1e79239af610d02660
+    patches/openpi/0004-return-belief-side-memory.patch: f31df854754caa9a9ff70a9dcf2badcd2a2ae7588c35b1576f3be64558d525b3
+    patches/openpi/0005-return-policy-data-view.patch: 131fa87ac0ad140c613dc2fe507012e580309fc8e2c36826036c42a2d01e7850
+    patches/openpi/0008-native-rtc-forecast-inputs.patch: 46c5c579ab8d8f678818ef67e4303914fb4f9d9a23f963730de412d3f6cf9379
+    patches/openpi/0002-save-completed-step-checkpoints.patch: 883907baa486d8f74784008b069b83ec36d0004893aa91fc9ac1d717d4114176
+    patches/openpi/0003-mask-action-tails.patch: eaf445109b7f0224706d13bcfd76f4378c3399e37ccf0542835ae4164105b39a
+    patches/openpi/0009-native-forecast-data-view.patch: 77c71d47cd294360e2413c2369e989308e61e0a97b2949d8cf3679509dd79774
+    patches/openpi/0006-return-belief-prefix.patch: 473ad6ba703448f7b986f429f49b027e1d0093d31a7d8203b97744b93b08ef1e
+    configs/contracts/policy/pi05_state16_h50.yaml: 8edce4aaeab6cac49f19f4195ff6687817540b28d036a0cbe21b6c36c1e6b9d8
+    configs/tasks/conveyor_sort/surface.yaml: 5d8c24b3228b139f81b0acb655870fd0a34ba11331e90e86b649b90d77251798
+    configs/runtime/client/rtc_observation_time_h50_v1.yaml: 2b55415c41d6a334946c229d9bc9809f6fbb06fb3652b55bdbbc5ac780d13360
+    configs/runtime/control/panda_osc_pose_delta_conveyor_v2.yaml: 08e61db23c49e293f2709644d3f96a4d65fdf342a23a159613dacb330826b16d
+    configs/contracts/temporal/h50_e25_d20_k6_v1.yaml: 1db4b5525eb8783e6c44b3398e09dd3131618d8b299779233df77aad9a7d7f36
+    configs/models/jepa/model.yaml: 8df1abf77f2ecf0650d953dd1ae8cf16e2df66ad843b3a142a77e7fa6dc27b2b
+    configs/models/jepa/source_protocol.yaml: f79624c189309e967d734333cc10eb8452ea16ade10d54b43d612446f5234f27
+    configs/models/jepa/stride4_80ms_history_160ms.yaml: 8f9c4a491c027443315dee848a351f4b3fd584fcf9092de133d4745ed6787581
+    configs/models/jepa/upstream_reference.yaml: a17ad0b2a52a551017c718248ca206e56a6b282f7c8a55f6300056f3e296ad5d
+    configs/models/vision/dinov3_vits16_lvd1689m_224_v1.yaml: 8ecf08a40ba46c0d3496056f81bc48e1941c5efe987afc01c2a06faa48d5cc2c
+    configs/runtime/latency/truncated_beta_8_65_400ms_v1.yaml: e824e1ae4e1634c5eba7c5227f8d092a2a2692c7fc4c54a53ecc45fe0bc1ed1d
+    configs/runtime/latency/truncated_beta_family_8_65_400ms_v1.yaml: 9a62299742271aa2a49c822faf222495a2840ee145a8d2cd02aa753ed1dbc651
+    configs/tasks/moving_ball/task/dynamic_grasp_lift_l0.yaml: 6c5e82e1db7f7fd662c2d2b2c095cf6f4d10ef2ab26d4d6550b0f5ddc9f05630
+    outputs/handoff/conveyor-conditioned-v1/public/decoder/checkpoint.json: 25e743291c5534afeb4305330e9cdc039b66f6af8f48085502e36077acc69397
+    outputs/handoff/conveyor-conditioned-v1/public/decoder/run.json: a668321a318f3c1a2a6a1ab9d2d3e005ca5f5339cfaf0d84e05dd9ad441bb040
+task_config: configs/tasks/conveyor_sort/surface.yaml
+rtc_config: configs/runtime/client/rtc_observation_time_h50_v1.yaml
+splits:
+  train:
+  - 10000
+  - 10001
+  - 10002
+  - 10003
+  - 10004
+  - 10005
+  - 10006
+  - 10007
+  - 10008
+  - 10009
+  - 10010
+  - 10011
+  - 10012
+  - 10013
+  - 10014
+  - 10015
+  - 10016
+  - 10017
+  - 10018
+  - 10019
+  - 10020
+  - 10021
+  - 10022
+  - 10023
+  - 10024
+  - 10025
+  - 10026
+  - 10027
+  - 10028
+  - 10029
+  - 10030
+  - 10031
+  - 10032
+  - 10033
+  - 10034
+  - 10035
+  - 10036
+  - 10037
+  - 10038
+  - 10039
+  - 10040
+  - 10041
+  - 10042
+  - 10043
+  - 10044
+  - 10045
+  - 10046
+  - 10047
+  - 10048
+  - 10049
+  - 10050
+  - 10051
+  - 10052
+  - 10053
+  - 10054
+  - 10055
+  - 10056
+  - 10057
+  - 10058
+  - 10059
+  - 10060
+  - 10061
+  - 10062
+  - 10063
+  validation:
+  - 11000
+  - 11001
+  - 11002
+  - 11003
+  - 11004
+  - 11005
+  - 11006
+  - 11007
+  - 11008
+  - 11009
+  - 11010
+  - 11011
+  - 11012
+  - 11013
+  - 11014
+  - 11015
+  - 11016
+  - 11017
+  - 11018
+  - 11019
+  test:
+  - 12000
+  - 12001
+  - 12002
+  - 12003
+  - 12004
+  - 12005
+  - 12006
+  - 12007
+  - 12008
+  - 12009
+  - 12010
+  - 12011
+  - 12012
+  - 12013
+  - 12014
+  - 12015
+  - 12016
+  - 12017
+  - 12018
+  - 12019
+  - 12020
+  - 12021
+  - 12022
+  - 12023
+  - 12024
+  - 12025
+  - 12026
+  - 12027
+  - 12028
+  - 12029
+  - 12030
+  - 12031
+  - 12032
+  - 12033
+  - 12034
+  - 12035
+  - 12036
+  - 12037
+  - 12038
+  - 12039
+excluded_scenes:
+- 4
+- 1000
+- 1001
+- 1002
+- 1003
+- 1004
+- 1005
+- 1006
+- 1007
+- 1008
+- 1009
+- 1010
+- 1011
+- 1012
+- 1013
+- 1014
+- 1015
+- 1016
+- 1017
+- 1018
+- 1019
+- 1020
+- 1021
+- 1022
+- 1023
+- 1024
+- 1025
+- 1026
+- 1027
+- 1028
+- 1029
+- 1030
+- 1031
+- 1032
+- 1033
+- 1034
+- 1035
+- 1036
+- 1037
+- 1038
+- 1039
+- 1040
+- 1041
+- 1042
+- 1043
+- 1044
+- 1045
+- 1046
+- 1047
+- 1048
+- 1049
+- 1050
+- 1051
+- 1052
+- 1053
+- 1054
+- 1055
+- 1056
+- 1057
+- 1058
+- 1059
+- 1060
+- 1061
+- 1062
+- 1063
+- 1064
+- 1065
+- 1066
+- 1067
+- 1068
+- 1069
+- 1070
+- 1071
+- 1072
+- 1073
+- 1074
+- 1075
+- 1076
+- 1077
+- 1078
+- 1079
+- 1080
+- 1081
+- 1082
+- 1083
+- 1084
+- 1085
+- 1086
+- 1087
+- 1088
+- 1089
+- 1090
+- 1091
+- 1092
+- 1093
+- 1094
+- 1095
+- 1096
+- 1097
+- 1098
+- 1099
+- 1100
+- 1101
+- 1102
+- 1103
+- 1104
+- 1105
+- 1106
+- 1107
+- 1108
+- 1109
+- 1110
+- 1111
+- 1112
+- 1113
+- 1114
+- 1115
+- 1116
+- 1117
+- 1118
+- 1119
+- 1120
+- 1121
+- 1122
+- 1123
+- 1124
+- 1125
+- 1126
+- 1127
+- 1128
+- 1129
+- 1130
+- 1131
+- 1132
+- 1133
+- 1134
+- 1135
+- 1136
+- 1137
+- 1138
+- 1139
+- 1140
+- 1141
+- 1142
+- 1143
+- 1144
+- 1145
+- 1146
+- 1147
+- 1148
+- 1149
+- 1150
+- 1151
+- 1152
+- 1153
+- 1154
+- 1155
+- 1156
+- 1157
+- 1158
+- 1159
+- 1160
+- 1161
+- 1162
+- 1163
+- 1164
+- 1165
+- 1166
+- 1167
+- 1168
+- 1169
+- 1170
+- 1171
+- 1172
+- 1173
+- 1174
+- 1175
+- 1176
+- 1177
+- 1178
+- 1179
+- 1180
+- 1181
+- 1182
+- 1183
+- 1184
+- 1185
+- 1186
+- 1187
+- 1188
+- 1189
+- 1190
+- 1191
+- 1192
+- 1193
+- 1194
+- 1195
+- 1196
+- 1197
+- 1198
+- 1199
+- 2000
+- 2001
+- 2002
+- 2003
+- 2004
+- 2005
+- 2006
+- 2007
+- 2008
+- 2009
+- 2010
+- 2011
+- 2012
+- 2013
+- 2014
+- 2015
+- 2016
+- 2017
+- 2018
+- 2019
+- 3000
+- 3001
+- 3002
+- 3003
+- 3004
+- 3005
+- 3006
+- 3007
+- 3008
+- 3009
+- 3010
+- 3011
+- 3012
+- 3013
+- 3014
+- 3015
+- 3016
+- 3017
+- 3018
+- 3019
+training:
+  algorithm: fqi
+  gamma: 1.0
+  budget_lambda: 0.003312705587695961
+  learning_rate: 0.0001
+  fitted_iterations: 40
+  epochs_per_iteration: 2
+  conservative_weight: 0.01
+  optimizer_updates: 1000
+  global_batch: 256
+  grad_clip: 0.5
+  optimizer_policy: persistent
+  reward:
+    version: 1
+    delivery_reward: 10.0
+    drop_penalty: 5.0
+    cost_weight: 0.003312705587695961
+    prices:
+      jepa: 0.1413565539315063
+      vla: 1.0
+      bootstrap: 131.27182654052413
+      meta_q: 0.08490446313253135
+      decoder: 0.02147240093353366
+      dino: 0.1603305195116646
+  huber_beta: 1.0
+  conservative_temperature: 1.0
+  sampling:
+    online_fraction: 0.1
+    latest_fraction_cap: 0.1
+    oversampling_cap: 4.0
+output_dir: outputs/training/conveyor-budget-optional-scratch-v1
+actions:
+  version: 3
+  sleep_ticks:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 6
+  - 8
+  - 12
+  - 16
+  starvation_mode: allow_hold
+  reserve: 0
+model:
+  architecture_id: attention_memory_v2
+  width: 256
+  num_queries: 8
+  num_heads: 4
+  ffn_width: 1024
+  dropout: 0
+memory:
+  visual_frames: 16
+  recent_frames: 3
+  execution_records: 64
+  scheduler_events: 32
+  spatial_tokens: 16
+  lag_seconds:
+  - 0.25
+  - 0.5
+  - 1
+  - 2
+  - 4
+  - 8
+  - 16
+  - 32
+  tick_seconds: 0.02
+  time_scale: 0.02
+  episode_ticks: 2200
+experiment_id: conveyor-budget-optional-scratch-v1

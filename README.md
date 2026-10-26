@@ -1,28 +1,53 @@
 # Latency Meta-MDP
 
-Research code for latency-aware robot policy learning and execution.
+Learning when a robot should observe, predict, and request actions under inference
+latency. This repository implements conveyor manipulation in RoboSuite/MuJoCo,
+with a frozen vision-language-action policy and a trainable temporal-memory Meta
+controller.
+
+The Meta controller reads observed history and optional world-model forecasts.
+It can wait with an empty action buffer, acquire a new observation, request a
+prediction, or launch a conditioned VLA action chunk. The current FQI experiment
+trains this scheduler from scratch for successful deliveries and lower inference
+cost. The VLA, visual encoder, world model, and RGB decoder stay frozen.
+
+## Quick start
+
+Use an NVIDIA GPU node with CUDA/EGL support, Git, and `uv`. Installation and
+caches stay inside the project. Export `HF_TOKEN` and `WANDB_API_KEY` in your shell;
+HF access is required for the private dataset and frozen models.
 
 ```bash
-git submodule update --init third_party/openpi third_party/jepa-wms
-uv sync --group dev
-export PYTHONPATH=src
+git clone https://github.com/666harrypeng/Latency-Meta-MDP-LIBERO.git
+cd Latency-Meta-MDP-LIBERO
+bash scripts/setup_fqi_runtime.sh
+export PYTHONPATH="$PWD/src"
+.venv-policy-eval/bin/python scripts/fqi_handoff.py --help
 ```
 
-- [Environment setup](docker/README.md)
-- [Training task list: moving ball and conveyor](docs/usage/current-training.md)
-- [Training and publishing commands](docs/usage/training.md)
-- [Experiment configurations](configs/experiments)
-- [Conveyor task and source recordings](docs/usage/conveyor.md)
-- [Conveyor information scheduler and FQI](docs/usage/conveyor-meta.md)
-- [Conveyor attention scheduler and bounded FQI](docs/usage/conveyor-attention-meta.md)
-- [Historical actor / PPO experiment](docs/usage/conveyor-actor-training.md)
-- [Legacy FQI maintenance, evidence, and recovery handoff](docs/usage/legacy-fqi-handoff.md)
+Follow the [training guide](docs/usage/fqi-collaborator-handoff.md) to download the
+192-episode starter, qualify your GPU node, and launch training. Hardware settings
+are explicit launcher parameters; the scientific recipe does not depend on GPU type.
+Code comes from GitHub; datasets and checkpoints come from Hugging Face.
 
-Implementations live in `src/latency_meta_mdp`; executable entrypoints are in
-`scripts`. Historical implementations and configurations are isolated under
-`legacy` and are not used by the current training entrypoints.
+## Training and evaluation
 
-The LIBERO/FQI experiment is preserved here. The new Isaac Lab online-PPO design
-lives in the separate private `latency_meta_control_isaac` repository. Its planned
-action, latency, and reward contracts do not change this repository's experiments.
-Use English for tracked first-party content; keep dated local evidence intact.
+The current [experiment configuration](configs/experiments/conveyor_sort/meta_budget_optional_v2.yaml)
+uses optional prediction and permits empty-buffer hold. Its reward is
+`10 × delivered − 5 × missed − 0.02 × compute_cost`, with fixed relative module
+prices. Offline FQI is followed by online collection and replay-based FQI with a
+gradual data-mixture schedule. Evaluation uses fixed ten-parcel scenes under zero,
+nominal, and family latency.
+
+All completed Meta checkpoints are uploaded to the
+[checkpoint repository](https://huggingface.co/yypeng666/metamdp-conveyor-optional-budget-meta-v1),
+with manually approved download access and links to the corresponding W&B run.
+The checkpoint index marks which states have validation results. Engineering
+qualification is separate from evidence of improved task performance.
+
+- [Training, evaluation, hardware, and storage guide](docs/usage/fqi-collaborator-handoff.md)
+- [Conveyor task](docs/usage/conveyor.md) and [scheduler architecture](docs/usage/conveyor-attention-meta.md)
+- [Policy SFT workflows](docs/usage/training.md)
+
+Implementation: `src/latency_meta_mdp/`; commands: `scripts/`; experiments:
+`configs/experiments/`. Earlier experiments remain available for reproduction.

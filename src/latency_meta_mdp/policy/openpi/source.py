@@ -41,9 +41,12 @@ def temporary_patched_openpi_copy(
         try:
             with tarfile.open(fileobj=io.BytesIO(archive)) as source:
                 source.extractall(copied, filter="data")
+            # TMPDIR may live inside the project. Isolate Git discovery so apply
+            # cannot treat this copy as an enclosing repository's subdirectory.
+            patch_env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(copied.parent))
             for patch in patch_paths:
-                _git(copied, "apply", "--check", str(patch.resolve()))
-                _git(copied, "apply", str(patch.resolve()))
+                _git(copied, "apply", "--check", str(patch.resolve()), env=patch_env)
+                _git(copied, "apply", str(patch.resolve()), env=patch_env)
             cache_dir = os.environ.get("JAX_COMPILATION_CACHE_DIR")
             if cache_dir:
                 # Pinned upstream otherwise overrides JAX's environment setting.
@@ -69,13 +72,14 @@ def temporary_patched_openpi_copy(
                 clear_checker_caches()
 
 
-def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _git(root: Path, *args: str, env=None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ("git", *args),
         cwd=root,
         check=True,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 

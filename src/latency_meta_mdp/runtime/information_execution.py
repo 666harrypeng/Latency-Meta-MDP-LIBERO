@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from latency_meta_mdp.data.forecast.samples import DecodedForecast
 from latency_meta_mdp.meta.information.schema import (
     LAUNCH,
     OBSERVE,
@@ -46,8 +47,15 @@ def run_information_episode(
 
         plant.materialize_boundary = capture
     try:
-        if type(maximum_steps) is not int or maximum_steps <= 0 or mode not in ("bound", "split"):
+        optional = mode == "optional_prediction"
+        if (
+            type(maximum_steps) is not int
+            or maximum_steps <= 0
+            or mode not in ("bound", "split", "optional_prediction")
+        ):
             raise ValueError("invalid information rollout configuration")
+        if optional != (action_spec is not None and action_spec.version == 3):
+            raise ValueError("rollout mode and action protocol differ")
 
         def clock():
             return runtime.executor.ledger.time_us
@@ -78,11 +86,16 @@ def run_information_episode(
             projection_count += int(np.count_nonzero(clipped != actions))
             return clipped
 
-        with recorder.measure("bootstrap"):
-            client.bootstrap(observation=latest, infer=lambda obs: project(bootstrap_policy(obs)))
+        if optional:
+            client.initialize_hold(observation=latest)
+        else:
+            with recorder.measure("bootstrap"):
+                client.bootstrap(
+                    observation=latest, infer=lambda obs: project(bootstrap_policy(obs))
+                )
         cached = dict(current_tokens=None, forecast_tokens=None)
         prepared = None
-        wake, previous_action, last_decision = 10, -1, 0
+        wake, previous_action, last_decision = (0 if optional else 10), -1, 0
         actions, requests = [], []
         ordinal, harness_cursor = 0, 0
         holding = False
@@ -130,6 +143,14 @@ def run_information_episode(
             arrivals()
             if latest.formal_tick < wake:
                 return False
+            if optional:
+                prepared = None
+                cached.update(
+                    forecast_tokens=None,
+                    forecast_proprio=np.zeros(16),
+                    forecast_tick=-1,
+                    forecast_buffer_version=-1,
+                )
             context = RtcForecastContext.from_decision(latest, state)
             if client.allow_hold:
                 controls, valid = executable_prefix(
@@ -147,6 +168,13 @@ def run_information_episode(
                         decision_key=key(state.formal_tick),
                         episode_remaining=max(0, maximum_steps - state.formal_tick),
                     )
+                    if optional:
+                        from latency_meta_mdp.meta.information.memory_schema import (
+                            OptionalPredictionPacket,
+                        )
+
+                        packet_class = OptionalPredictionPacket
+                        extra["prediction_ready"] = perception.prediction_ready(context)
                 packet = packet_class(
                     tick=state.formal_tick,
                     stage=stage,
@@ -168,7 +196,10 @@ def run_information_episode(
                     )
                     if action_spec is None
                     else action_spec.legal(
-                        stage, packet.remaining, forecast_fresh=packet.forecast_fresh
+                        stage,
+                        packet.remaining,
+                        forecast_fresh=packet.forecast_fresh,
+                        prediction_ready=getattr(packet, "prediction_ready", False),
                     )
                 )
                 forced = int(mask.sum()) == 1
@@ -215,7 +246,10 @@ def run_information_episode(
                         current = perception.observe(context, prepare_history=mode == "bound")
                     else:
                         bundle = perception.observe(
-                            context, prepare_history=True, return_history=True
+                            context,
+                            prepare_history=True,
+                            return_history=True,
+                            **({"allow_partial_history": True} if optional else {}),
                         )
                         emit(
                             "observe",
@@ -262,8 +296,19 @@ def run_information_episode(
 
         def infer(context):
             if prepared is None:
-                raise RuntimeError("launch without prediction")
-            enriched = replace(context, forecast=prepared.decode(context))
+                if not optional or cached.get("current_tick") != context.origin_tick:
+                    raise RuntimeError("launch without a current explicit observation")
+                forecast = DecodedForecast(
+                    context.origin_tick,
+                    context.origin_tick + context.estimated_delay_ticks,
+                    context.estimated_delay_ticks,
+                    context.buffer_version,
+                    None,
+                    None,
+                )
+            else:
+                forecast = prepared.decode(context)
+            enriched = replace(context, forecast=forecast)
             emit(
                 "request",
                 context.origin_tick,
@@ -282,6 +327,7 @@ def run_information_episode(
                     origin_tick=context.origin_tick,
                     buffer_version=context.buffer_version,
                     estimated_delay=context.estimated_delay_ticks,
+                    **({"forecast_used": prepared is not None} if optional else {}),
                 )
             )
             return TimedActionPlan(
@@ -344,8 +390,28 @@ def run_information_episode(
                 None,
             )
             request["realized_delay"] = None if arrival is None else arrival.realized_delay_ticks
+        scheduling = {}
+        if optional:
+            predicted = sum(r["forecast_used"] for r in requests)
+            scheduling = dict(
+                scheduling=dict(
+                    initial_buffer="empty_hold",
+                    hold_ticks=sum(e.kind.value == "starvation" for e in events),
+                    observe_requests=sum(
+                        r["action"] == action_spec.id_for("observe") for r in recorder.rows
+                    ),
+                    predict_requests=sum(
+                        r["action"] == action_spec.id_for("predict") for r in recorder.rows
+                    ),
+                    launch_requests=len(requests),
+                    predicted_launches=predicted,
+                    current_only_launches=len(requests) - predicted,
+                    forecast_launch_fraction=predicted / len(requests) if requests else 0.0,
+                )
+            )
         return dict(
             **recorder.summary(),
+            **scheduling,
             action_limit_projections=projection_count,
             requests=requests,
             starvation_ticks=sum(e.kind.value == "starvation" for e in events),

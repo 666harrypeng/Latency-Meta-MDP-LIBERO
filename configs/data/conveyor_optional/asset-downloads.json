@@ -1,0 +1,205 @@
+[
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/_CHECKPOINT_METADATA",
+    "sha256": "d583dc41b783aa481fc3f570db15007eaef916adfe6d62aa24b713b1d395ed29",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/_CHECKPOINT_METADATA"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/assets/metamdp/conveyor_sort_surface/norm_stats.json",
+    "sha256": "101bc9d9ece6b84e3c1cfb39bfc7454aaf996fcef5433c68d96ecc9d81859c63",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/assets/metamdp/conveyor_sort_surface/norm_stats.json"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/_METADATA",
+    "sha256": "6d5a6eefc73215c59bea485f1e480cef98dd6f07583e41ff1ae0d6ca35effd7e",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/_METADATA"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/_sharding",
+    "sha256": "0aa89c2ac0ba6f33fd71c0a934a1b0e30b2a223619ef8ed916dfdf82f0899ae1",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/_sharding"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/array_metadatas/process_0",
+    "sha256": "a2d2013a511ccb4e3a0fc6fdd05d324aa526aebb96db94d3fea723bf9f1509fe",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/array_metadatas/process_0"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/d/2cc27f09bb68c458bf7ff6bf782c189c",
+    "sha256": "85267b09f1aa70db5acc41b69703509efc3b14e13d68472f390630861475c723",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/d/2cc27f09bb68c458bf7ff6bf782c189c"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/manifest.ocdbt",
+    "sha256": "db628c3824d881df0cde2107a0fe6041bcccbd78d8ea4e276fde395dbebcacbf",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/manifest.ocdbt"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/251710ea49ad9003d7b51bd8cd1d8361",
+    "sha256": "d44413d39e0b9d237ce091922b251d23d2b700b5c96cddd63fc79165d3919533",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/251710ea49ad9003d7b51bd8cd1d8361"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/29e2c08d89ca97f65f6a75349bdd6931",
+    "sha256": "90ca08e0692506dfe0cc3f4b70a4a6ba1433e8793c00601ebebb3ba0492735ae",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/29e2c08d89ca97f65f6a75349bdd6931"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/3405a04fe9b44ac76734be16c0afd272",
+    "sha256": "f31b69795b6d7de39608e1541832e92aa73001dde6a43d5856c1e9bc3aff5e88",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/3405a04fe9b44ac76734be16c0afd272"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/4d818417998ee665bdffaa583a35eec3",
+    "sha256": "6aa9870e88ff0b85ffa869b2386ce7a457aa8a63a0f884ff2bb39fba249488af",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/4d818417998ee665bdffaa583a35eec3"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/534e2bffd13a8cda18f1d105de013e88",
+    "sha256": "cc65a0d87f08b15d338b87c99fae8746068ecfa0c3ea6c4d905361adf7b9b579",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/534e2bffd13a8cda18f1d105de013e88"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/60ff7fd3a665b5142bc1559446a7b229",
+    "sha256": "4b4d87dda14554fd8b06d52596192ba0e170b5d7d021c8b50842c302dbf769c7",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/60ff7fd3a665b5142bc1559446a7b229"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/6ed8e35fe66f0a226bc319fae1d122e2",
+    "sha256": "a6291908b83c28472de6605a2c1153d79599c78c76da3f3e3cf186cffafd680e",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/6ed8e35fe66f0a226bc319fae1d122e2"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/71bf82cf0a430b4ecf60407dafddcb08",
+    "sha256": "b93254a271e5e13ed8606b048e73e7c43b3c2057f6c50fe8582f7fcc3d80ccbb",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/71bf82cf0a430b4ecf60407dafddcb08"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/7d223f9eeb5513b3bfbc906bfa3b6e0f",
+    "sha256": "d73727cdda3c1e169eff5cf4cd9105380313c51e46ed2940cf8574ca4d7d6c0b",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/7d223f9eeb5513b3bfbc906bfa3b6e0f"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/9bfb4efb9c3cb0d692a30b01a13fc43f",
+    "sha256": "d9323ce21b301115cf046008444cf8215ff6ff572d4df351a05a2675dcaa2077",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/9bfb4efb9c3cb0d692a30b01a13fc43f"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/9ff16c7554478f1dabb2f21c0a1fe289",
+    "sha256": "0f051a9e0a44264087dec99dc0b511843e1b1be61cefd2e4b633d93fdde848d7",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/9ff16c7554478f1dabb2f21c0a1fe289"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/c4d26a5a47d5ab395ffacded254dfec7",
+    "sha256": "9bcaab3b285d78af378461d8538f3422a000383edeb8093560244c37409f49e0",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/c4d26a5a47d5ab395ffacded254dfec7"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/d/e968b65d95d2d1144eafc53dab95bd1a",
+    "sha256": "c47fa7df1145ca539e0dbc80d2a8e2b71964276cb440cfcdd75ef147d800a2ee",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/d/e968b65d95d2d1144eafc53dab95bd1a"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/15236/params/ocdbt.process_0/manifest.ocdbt",
+    "sha256": "c187ea26caeed15f5a76e6bf46fb4f5fb7899f604c9e4d861becb1afb8ed89b6",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "15236/params/ocdbt.process_0/manifest.ocdbt"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/GEMMA_TERMS.txt",
+    "sha256": "309e8ee5416c718619c851452a12b050c62d1b09635d623894b6f570b230cf1c",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "GEMMA_TERMS.txt"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/LICENSE",
+    "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "LICENSE"
+  },
+  {
+    "destination": "outputs/evaluation_assets/conveyor-conditioned-jaz-v1/572b21735e3226858efb23fff2cf7a5367ae30a8/NOTICE",
+    "sha256": "b2075503ff18dba4c49bfa154700940455879ac189a0252425556e0ea546b724",
+    "repo": "yypeng666/metamdp-pi05-conveyor-sort-forecast-rgb-state16-h50-sft-v1-jaz",
+    "revision": "572b21735e3226858efb23fff2cf7a5367ae30a8",
+    "filename": "NOTICE"
+  },
+  {
+    "destination": "outputs/handoff/conveyor-conditioned-v1/public/predictor/checkpoints/epoch-075/model.safetensors",
+    "sha256": "00a0a057d3943e83243badedf7d11b493ca3ce8a9eb5b730acfbc25d6e3ff0d6",
+    "repo": "yypeng666/metamdp-jepa-direct-conveyor-q20-h160ms-epoch75-v1",
+    "revision": "8f032237b69837e1c886eaa70e6641b3718b9bd7",
+    "filename": "checkpoints/epoch-075/model.safetensors"
+  },
+  {
+    "destination": "outputs/handoff/conveyor-conditioned-v1/public/predictor/proprio_normalization.json",
+    "sha256": "a4c5934674ea3317f7e6b9e8308f7a8f4303de745b32a03b8517439f3232ab66",
+    "repo": "yypeng666/metamdp-jepa-direct-conveyor-q20-h160ms-epoch75-v1",
+    "revision": "8f032237b69837e1c886eaa70e6641b3718b9bd7",
+    "filename": "proprio_normalization.json"
+  },
+  {
+    "destination": "outputs/handoff/conveyor-conditioned-v1/public/decoder/model.safetensors",
+    "sha256": "a74ab532ed71075a4390ff8b6d273a2589db33a0597850a40f495162118dde0d",
+    "repo": "yypeng666/metamdp-conveyor-dino-rgb-decoder-dualview-w384-d4-v1",
+    "revision": "9b26f010490d1665f623504d65c6497c53e2bee4",
+    "filename": "model.safetensors"
+  },
+  {
+    "destination": "outputs/handoff/conveyor-conditioned-v1/public/decoder/checkpoint.json",
+    "sha256": "25e743291c5534afeb4305330e9cdc039b66f6af8f48085502e36077acc69397",
+    "repo": "yypeng666/metamdp-conveyor-dino-rgb-decoder-dualview-w384-d4-v1",
+    "revision": "9b26f010490d1665f623504d65c6497c53e2bee4",
+    "filename": "checkpoint.json"
+  },
+  {
+    "destination": "outputs/handoff/conveyor-conditioned-v1/public/decoder/run.json",
+    "sha256": "a668321a318f3c1a2a6a1ab9d2d3e005ca5f5339cfaf0d84e05dd9ad441bb040",
+    "repo": "yypeng666/metamdp-conveyor-dino-rgb-decoder-dualview-w384-d4-v1",
+    "revision": "9b26f010490d1665f623504d65c6497c53e2bee4",
+    "filename": "run.json"
+  }
+]

@@ -20,6 +20,7 @@ import numpy as np
 from latency_meta_mdp.meta.information.config import sha256, validate_binding
 from latency_meta_mdp.meta.information.dataset import _json, load_episode
 from latency_meta_mdp.meta.information.schema import ACTOR_FIELDS, ActorPacket
+from latency_meta_mdp.meta.information.verification_cache import cached_sha256
 
 _PACKED_FILES = ("records.json", "visual.npy")
 _SOURCE_FILES = ("records.json", "audit.json", "visual.npz")
@@ -73,9 +74,12 @@ class PackedEntry:
 
 
 def prepare_packed_episode(
-    source, cache_root, *, binding, expected_receipt, raw=False, storage_budget=None
+    source, cache_root, *, binding, expected_receipt, raw=False, storage_budget=None, compact=False
 ):
+    if compact and not raw:
+        raise ValueError("direct compact storage requires raw replay")
     source, cache_root = Path(source).resolve(), Path(cache_root).resolve()
+    verification_cache = cache_root / "verification"
     before = _signature(source, _SOURCE_FILES)
     validate_binding(expected_receipt, sha256(source / "complete.json"))
     original = json.loads((source / "complete.json").read_text())
@@ -83,13 +87,17 @@ def prepare_packed_episode(
     if set(original["files"]) != set(_SOURCE_FILES):
         raise ValueError("source file manifest differs")
     for name, expected in original["files"].items():
-        if sha256(source / name) != expected:
+        if cached_sha256(source / name, verification_cache) != expected:
             raise ValueError("source replay hash differs")
-    format_root = cache_root / ("mmap-raw-v2" if raw else "mmap-v1")
+    format_root = cache_root / (
+        "mmap-raw-direct-v5" if compact else "mmap-raw-v2" if raw else "mmap-v1"
+    )
     format_root.mkdir(parents=True, exist_ok=True)
     target = format_root / expected_receipt
     expected = dict(
-        format_version=2 if raw else 1, source_receipt_sha256=expected_receipt, binding=binding
+        format_version=5 if compact else 2 if raw else 1,
+        source_receipt_sha256=expected_receipt,
+        binding=binding,
     )
     if target.exists():
         packed_before = _signature(target, _PACKED_FILES)
@@ -98,11 +106,13 @@ def prepare_packed_episode(
         if set(receipt["files"]) != set(_PACKED_FILES):
             raise ValueError("packed file manifest differs")
         for name, digest in receipt["files"].items():
-            if sha256(target / name) != digest:
+            if cached_sha256(target / name, verification_cache) != digest:
                 raise ValueError("packed replay hash differs")
     else:
         # The canonical decoder validates every packet and folds forced stages.
-        decoded = load_episode(source, binding=binding, raw=raw)
+        decoded = load_episode(
+            source, binding=binding, raw=raw, verification_cache=verification_cache
+        )
         rows = decoded["rows"] if raw else decoded
         pending = Path(tempfile.mkdtemp(prefix=".pending-", dir=format_root))
         try:
@@ -127,14 +137,18 @@ def prepare_packed_episode(
                     payload = dict(event.payload)
                     if event.kind == "observe":
                         frames = payload["visual"]
-                        start = len(visuals)
-                        for value in frames:
-                            digest = hashlib.sha256(value.tobytes()).digest()
-                            hashes.setdefault(digest, len(visuals))
-                            visuals.append(value)
-                        payload["visual"] = [start, len(frames)]
+                        if compact:
+                            payload["visual"] = [visual_index(value) for value in frames]
+                        else:
+                            start = len(visuals)
+                            for value in frames:
+                                digest = hashlib.sha256(value.tobytes()).digest()
+                                hashes.setdefault(digest, len(visuals))
+                                visuals.append(value)
+                            payload["visual"] = [start, len(frames)]
                     elif event.kind == "predict":
-                        payload["visual"] = [visual_index(payload["visual"]), 1]
+                        index = visual_index(payload["visual"])
+                        payload["visual"] = [index] if compact else [index, 1]
                     events.append(
                         dict(
                             event_id=event.event_id,
@@ -166,15 +180,32 @@ def prepare_packed_episode(
             packed = packed_rows
             if raw:
                 packed = dict(episode_id=decoded["episode_id"], rows=packed_rows, events=events)
+                if compact:
+                    packed["indexed_visuals"] = True
+            dtype = np.float32
+            if compact:
+                # Select storage dtype only after an exact bitwise roundtrip.
+                # Arbitrary FP32 sources retain FP32; model precision is unchanged.
+                with np.errstate(over="ignore", under="ignore"):
+                    if all(
+                        np.array_equal(
+                            value.view(np.uint32),
+                            value.astype(np.float16).astype(np.float32).view(np.uint32),
+                        )
+                        for value in visuals
+                    ):
+                        dtype = np.float16
             records_json = json.dumps(packed, default=_json, allow_nan=False)
             if storage_budget is not None:
                 storage_budget.reserve(
-                    len(visuals) * 2 * 196 * 384 * 4 + len(records_json.encode()) + 65536
+                    len(visuals) * 2 * 196 * 384 * np.dtype(dtype).itemsize
+                    + len(records_json.encode())
+                    + 65536
                 )
             pool = np.lib.format.open_memmap(
                 pending / "visual.npy",
                 mode="w+",
-                dtype=np.float32,
+                dtype=dtype,
                 shape=(len(visuals), 2, 196, 384),
             )
             for i, value in enumerate(visuals):
@@ -192,9 +223,17 @@ def prepare_packed_episode(
                 if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
                     raise
                 return prepare_packed_episode(
-                    source, cache_root, binding=binding, expected_receipt=expected_receipt, raw=raw
+                    source,
+                    cache_root,
+                    binding=binding,
+                    expected_receipt=expected_receipt,
+                    raw=raw,
+                    compact=compact,
                 )
             packed_before = _signature(target, _PACKED_FILES)
+            for name, digest in receipt["files"].items():
+                if cached_sha256(target / name, verification_cache) != digest:
+                    raise ValueError("packed replay hash differs")
         finally:
             if pending.exists():
                 shutil.rmtree(pending)
@@ -347,6 +386,7 @@ def load_packed_raw(entry):
     from latency_meta_mdp.meta.information.memory_schema import (
         ActionSpec,
         AttentionPacket,
+        OptionalPredictionPacket,
         PublicEvent,
     )
 
@@ -354,10 +394,14 @@ def load_packed_raw(entry):
         raise ValueError("raw timeline cache required")
     entry.verify_unchanged()
     pool = np.load(entry.path / "visual.npy", mmap_mode="r", allow_pickle=False)
-    data = json.loads((entry.path / "records.json").read_text())
+    from latency_meta_mdp.meta.information.replay_metadata import load_metadata
+
+    data = load_metadata(entry.path / "records.json", entry.path.parent.parent / "metadata-v1")
     for row in data["rows"]:
         values = row["packet"]
         packet_class = AttentionPacket if "action_spec" in values else ActorPacket
+        if "action_spec" in values and values["action_spec"]["version"] == 3:
+            packet_class = OptionalPredictionPacket
         if set(values) != {f.name for f in fields(packet_class)}:
             raise ValueError("packed raw actor fields differ")
         packet = object.__new__(packet_class)

@@ -13,13 +13,16 @@ from latency_meta_mdp.meta.information.model import StageQ
 def deployment_binding(config, *, algorithm="fqi"):
     if algorithm not in ("fqi", "actor"):
         raise ValueError("unknown deployed scheduler algorithm")
-    return dict(
+    binding = dict(
         mode=config["mode"],
         algorithm=algorithm,
         schema_version=config.get("schema_version", 1),
         assets=config["assets"]["identity"],
         config_hash=identity_hash(config),
     )
+    if config.get("schema_version") == 3:
+        binding["experiment_id"] = config["experiment_id"]
+    return binding
 
 
 def scheduler_identity(scheduler):
@@ -49,6 +52,8 @@ def load_scheduler(
     receipt = json.loads((checkpoint / "complete.json").read_text())
     for key in ("mode", "algorithm", "schema_version", "assets"):
         validate_binding(expected[key], receipt["binding"][key])
+    if expected["schema_version"] == 3:
+        validate_binding(expected["experiment_id"], receipt["binding"].get("experiment_id"))
     if receipt["binding"].get("normalization") != "fixed-physical-scales-and-learned-LayerNorm":
         raise ValueError("deployment normalization differs")
     if "config_hash" in expected:
@@ -64,7 +69,7 @@ def load_scheduler(
     if receipt["files"] != {"state.pt": sha256(checkpoint / "state.pt")}:
         raise ValueError("deployment checkpoint hash differs")
     state = torch.load(checkpoint / "state.pt", map_location="cpu", weights_only=True)
-    if expected["schema_version"] == 2:
+    if expected["schema_version"] in (2, 3):
         from latency_meta_mdp.meta.information.attention_model import AttentionStageQ
 
         model = AttentionStageQ(state["model_config"])
@@ -74,7 +79,7 @@ def load_scheduler(
     if model_hash(model) != receipt["model_hash"]:
         raise ValueError("deployment model hash differs")
     model.to(device).eval().requires_grad_(False)
-    scheduler_class = AttentionScheduler if expected["schema_version"] == 2 else FqiScheduler
+    scheduler_class = AttentionScheduler if expected["schema_version"] in (2, 3) else FqiScheduler
     if expected["algorithm"] == "actor":
         from latency_meta_mdp.meta.information.actor_deployment import ActorScheduler
 

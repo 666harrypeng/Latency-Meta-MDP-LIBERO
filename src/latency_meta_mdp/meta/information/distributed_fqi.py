@@ -447,7 +447,7 @@ def _attention_worker(rank, world, device, state, replay, options, directory):
     # Spawn shares CPU tensor storage. Adam keeps its step counters on CPU even
     # for CUDA parameters, so each rank must own a private restored state.
     optimizer.load_state_dict(copy.deepcopy(state["optimizer"]))
-    sampler = DecisionSampler(replay, seed=0)
+    sampler = DecisionSampler(replay, seed=0, sampling=state["sampler"].get("sampling"))
     sampler.load_state_dict(state["sampler"])
 
     def report(event):
@@ -487,7 +487,7 @@ def fit_attention_distributed(
     model, replay, *, devices, optimizer, sampler, cpu_threads=4, progress=None, **fit
 ):
     """Disposable ranks; the coordinator retains weights, Adam and sampler state."""
-    from latency_meta_mdp.meta.information.memory_schema import validate_batch
+    from latency_meta_mdp.meta.information.fqi_batch import batch_candidates
     from latency_meta_mdp.meta.information.resources import (
         gpu_lock_directory,
         gpu_processes,
@@ -497,12 +497,7 @@ def fit_attention_distributed(
 
     if not devices or next(model.parameters()).device.type != "cpu" or cpu_threads < 1:
         raise ValueError("attention coordinator must be CPU with explicit learner devices")
-    validate_batch(
-        global_batch=fit["global_batch"],
-        world_size=len(devices),
-        microbatch=fit["microbatch"],
-        accumulation=fit["global_batch"] // (len(devices) * fit["microbatch"]),
-    )
+    batch_candidates(fit["microbatch"], fit["global_batch"], len(devices))
     state = dict(
         model=model.state_dict(), optimizer=optimizer.state_dict(), sampler=sampler.state_dict()
     )

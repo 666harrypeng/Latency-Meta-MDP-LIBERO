@@ -38,7 +38,7 @@ def main():
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--stop-after-iterations", type=int)
     parser.add_argument("--checkpoint", type=Path)
-    parser.add_argument("--phase", choices=["smoke", "validation", "online", "monitor"])
+    parser.add_argument("--phase", choices=["starter", "smoke", "validation", "online", "monitor"])
     parser.add_argument("--offline-dir", type=Path)
     parser.add_argument("--compatibility", type=Path)
     parser.add_argument("--meta-only", action="store_true")
@@ -51,12 +51,35 @@ def main():
     parser.add_argument("--num-shards", type=int)
     parser.add_argument("--rollout-scratch-dir", type=Path)
     parser.add_argument("--rollout-workers-per-gpu", type=int, default=1)
+    parser.add_argument(
+        "--validation-workers-per-gpu",
+        type=int,
+        help="Campaign validation override; defaults to rollout workers",
+    )
+    parser.add_argument("--validation-gpus", help="Campaign validation GPU override")
+    parser.add_argument("--learner-cpu-threads", type=int, help="Campaign learner CPU override")
+    parser.add_argument(
+        "--stop-after-cycles", type=int, help="Bound this invocation without shortening the recipe"
+    )
+    parser.add_argument(
+        "--episode-cache-size", type=int, help="Campaign learner CPU episode cache capacity"
+    )
+    parser.add_argument(
+        "--min-free-gib", type=float, default=32, help="Campaign free-space reserve"
+    )
     parser.add_argument("--train-gpus", help="Physical GPUs for synchronous FQI updates")
     parser.add_argument("--global-batch", type=int, default=4)
     parser.add_argument(
-        "--microbatch", type=int, default=2, help="Decision contexts per rank forward/backward"
+        "--microbatch",
+        default="full",
+        help="FQI microbatch: full (no accumulation), auto (CUDA memory probe), or an integer",
     )
     parser.add_argument("--bf16", action="store_true")
+    parser.add_argument(
+        "--compile-learner",
+        action="store_true",
+        help="Compile CUDA FQI forward/backward; preserves model and optimizer checkpoints",
+    )
     parser.add_argument("--checkpoint-every-updates", type=int, default=256)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -64,10 +87,20 @@ def main():
     )
     parser.add_argument("--replay-cache-gib", type=int, default=128)
     parser.add_argument("--replay-cache-dir", type=Path)
+    parser.add_argument(
+        "--compact-replay",
+        action="store_true",
+        help="Pack raw replay directly without duplicate FP32 caches",
+    )
     parser.add_argument("--replay-prepare-workers", type=int, default=4)
     parser.add_argument("--replay-storage", choices=["archive", "mmap"], default="archive")
     parser.add_argument(
         "--cpu-threads", type=int, default=4, help="CPU threads per rollout/learner worker"
+    )
+    parser.add_argument(
+        "--validation-cpu-threads",
+        type=int,
+        help="Attention-fit validation threads per worker; defaults to --cpu-threads",
     )
     parser.add_argument("--warm-start-checkpoint", type=Path)
     parser.add_argument("--iterations", type=int, default=10)
@@ -77,13 +110,16 @@ def main():
     parser.add_argument("--generation", type=Path, help="Explicit online collection recipe JSON")
     parser.add_argument("--campaign-recipe", type=Path, help="Bounded collect/refit campaign JSON")
     args = parser.parse_args()
+    from latency_meta_mdp.meta.information.config import load_config
+
+    optional_prediction = load_config(args.config)["schema_version"] == 3
     if args.allow_shared_pids:
         import os
 
         os.environ["CONVEYOR_SHARED_GPU_PIDS"] = args.allow_shared_pids
     root = Path(__file__).resolve().parents[1]
     if args.command in ("train", "online-train") and args.replay_manifest is not None:
-        if args.bootstrap_dir is None or args.scene_audit is None:
+        if (args.bootstrap_dir is None and not optional_prediction) or args.scene_audit is None:
             parser.error("attention training requires validation bootstrap-dir and scene-audit")
         from latency_meta_mdp.meta.information.attention_training import run_attention_training
 
@@ -101,12 +137,17 @@ def main():
             device="cpu",
             microbatch=args.microbatch,
             bf16=args.bf16,
+            compile_model=args.compile_learner,
             checkpoint_every_updates=args.checkpoint_every_updates,
             cpu_threads=args.cpu_threads,
             replay_cache_dir=args.replay_cache_dir,
             replay_prepare_workers=args.replay_prepare_workers,
+            compact_replay=args.compact_replay,
+            replay_cache_max_bytes=args.replay_cache_gib * 2**30 if args.compact_replay else None,
             validation_bootstrap=args.bootstrap_dir,
             validation_gpus=args.gpus,
+            validation_workers_per_gpu=args.rollout_workers_per_gpu,
+            validation_cpu_threads=args.validation_cpu_threads,
             audit_path=args.scene_audit,
             worker_python=args.worker_python,
             validate_initial=not args.skip_initial_validation,
@@ -137,16 +178,27 @@ def main():
                     replay_prepare_workers=args.replay_prepare_workers,
                     microbatch=args.microbatch,
                     bf16=args.bf16,
+                    compile_model=args.compile_learner,
                     checkpoint_every_updates=args.checkpoint_every_updates,
                     dry_run=args.dry_run,
+                    rollout_workers_per_gpu=args.rollout_workers_per_gpu,
+                    validation_workers_per_gpu=args.validation_workers_per_gpu,
+                    validation_gpus=args.validation_gpus,
+                    learner_cpu_threads=args.learner_cpu_threads,
+                    validation_cpu_threads=args.validation_cpu_threads,
+                    compact_replay=args.compact_replay,
+                    stop_after_cycles=args.stop_after_cycles,
+                    episode_cache_size=args.episode_cache_size,
+                    min_free_gib=args.min_free_gib,
                 ),
                 indent=2,
             )
         )
     elif args.command == "parallel-collect":
-        if any(
-            v is None
-            for v in (args.gpus, args.checkpoint, args.phase, args.scene_audit, args.bootstrap_dir)
+        if (
+            any(v is None for v in (args.gpus, args.phase, args.scene_audit))
+            or (args.phase != "starter" and args.checkpoint is None)
+            or (args.bootstrap_dir is None and not optional_prediction)
         ):
             parser.error(
                 "parallel-collect requires gpus, checkpoint, phase, scene-audit, bootstrap-dir"
@@ -177,7 +229,9 @@ def main():
             )
         )
     elif args.command == "monitor-series":
-        if any(v is None for v in (args.checkpoint, args.bootstrap_dir, args.scene_audit)):
+        if any(v is None for v in (args.checkpoint, args.scene_audit)) or (
+            args.bootstrap_dir is None and not optional_prediction
+        ):
             parser.error("monitor-series requires checkpoint directory, bootstrap-dir, scene-audit")
         from latency_meta_mdp.meta.information.monitor import run_monitor_series
 
@@ -329,6 +383,8 @@ def main():
                         audit_path=args.scene_audit,
                         limit=args.limit,
                         scratch_dir=args.rollout_scratch_dir,
+                        shard_index=args.shard_index,
+                        num_shards=args.num_shards,
                     ),
                     indent=2,
                 )
